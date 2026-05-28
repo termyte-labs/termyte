@@ -2,31 +2,1271 @@
   {
     "command": "rm extrafile",
     "category": "filesystem-delete-single",
-    "expectedDecisions": ["allow"]
+    "expectedDecisions": [
+      "allow"
+    ]
+  },
+  {
+    "command": "rm notes.txt",
+    "category": "filesystem-delete-single",
+    "expectedDecisions": [
+      "allow"
+    ]
+  },
+  {
+    "command": "rm report.md",
+    "category": "filesystem-delete-single",
+    "expectedDecisions": [
+      "allow"
+    ]
+  },
+  {
+    "command": "rm draft.txt",
+    "category": "filesystem-delete-single",
+    "expectedDecisions": [
+      "allow"
+    ]
+  },
+  {
+    "command": "rm temp.log",
+    "category": "filesystem-delete-single",
+    "expectedDecisions": [
+      "allow"
+    ]
+  },
+  {
+    "command": "rm cache.json",
+    "category": "filesystem-delete-single",
+    "expectedDecisions": [
+      "allow"
+    ]
+  },
+  {
+    "command": "rm scratch.tmp",
+    "category": "filesystem-delete-single",
+    "expectedDecisions": [
+      "allow"
+    ]
+  },
+  {
+    "command": "rm old.txt",
+    "category": "filesystem-delete-single",
+    "expectedDecisions": [
+      "allow"
+    ]
+  },
+  {
+    "command": "rm archive.zip",
+    "category": "filesystem-delete-single",
+    "expectedDecisions": [
+      "allow"
+    ]
+  },
+  {
+    "command": "rm session.json",
+    "category": "filesystem-delete-single",
+    "expectedDecisions": [
+      "allow"
+    ]
+  },
+  {
+    "command": "rm .env",
+    "category": "filesystem-delete-config",
+    "expectedDecisions": [
+      "warn"
+    ]
+  },
+  {
+    "command": "rm .env.local",
+    "category": "filesystem-delete-config",
+    "expectedDecisions": [
+      "warn"
+    ]
+  },
+  {
+    "command": "rm .env.production",
+    "category": "filesystem-delete-config",
+    "expectedDecisions": [
+      "warn"
+    ]
+  },
+  {
+    "command": "rm .npmrc",
+    "category": "filesystem-delete-config",
+    "expectedDecisions": [
+      "warn"
+    ]
+  },
+  {
+    "command": "rm package.json",
+    "category": "filesystem-delete-config",
+    "expectedDecisions": [
+      "warn"
+    ]
+  },
+  {
+    "command": "rm package-lock.json",
+    "category": "filesystem-delete-config",
+    "expectedDecisions": [
+      "warn"
+    ]
+  },
+  {
+    "command": "rm pnpm-lock.yaml",
+    "category": "filesystem-delete-config",
+    "expectedDecisions": [
+      "warn"
+    ]
+  },
+  {
+    "command": "rm yarn.lock",
+    "category": "filesystem-delete-config",
+    "expectedDecisions": [
+      "warn"
+    ]
+  },
+  {
+    "command": "rm tsconfig.json",
+    "category": "filesystem-delete-config",
+    "expectedDecisions": [
+      "warn"
+    ]
+  },
+  {
+    "command": "rm vite.config.ts",
+    "category": "filesystem-delete-config",
+    "expectedDecisions": [
+      "warn"
+    ]
+  },
+  {
+    "command": "rm src",
+    "category": "filesystem-delete-source",
+    "expectedDecisions": [
+      "warn"
+    ]
+  },
+  {
+    "command": "rm app",
+    "category": "filesystem-delete-source",
+    "expectedDecisions": [
+      "warn"
+    ]
+  },
+  {
+    "command": "rm lib",
+    "category": "filesystem-delete-source",
+    "expectedDecisions": [
+      "warn"
+    ]
+  },
+  {
+    "command": "rm src/index.ts",
+    "category": "filesystem-delete-source",
+    "expectedDecisions": [
+      "warn"
+    ]
+  },
+  {
+    "command": "rm src/utils.ts",
+    "category": "filesystem-delete-source",
+    "expectedDecisions": [
+      "warn"
+    ]
+  },
+  {
+    "command": "rm app/main.ts",
+    "category": "filesystem-delete-source",
+    "expectedDecisions": [
+      "warn"
+    ]
+  },
+  {
+    "command": "rm lib/index.js",
+    "category": "filesystem-delete-source",
+    "expectedDecisions": [
+      "warn"
+    ]
+  },
+  {
+    "command": "rm src/components",
+    "category": "filesystem-delete-source",
+    "expectedDecisions": [
+      "warn"
+    ]
+  },
+  {
+    "command": "rm app/routes",
+    "category": "filesystem-delete-source",
+    "expectedDecisions": [
+      "warn"
+    ]
+  },
+  {
+    "command": "rm lib/helpers",
+    "category": "filesystem-delete-source",
+    "expectedDecisions": [
+      "warn"
+    ]
+  },
+  {
+    "command": "rm dist",
+    "category": "filesystem-delete-build",
+    "expectedDecisions": [
+      "warn"
+    ]
+  },
+  {
+    "command": "rm build",
+    "category": "filesystem-delete-build",
+    "expectedDecisions": [
+      "warn"
+    ]
+  },
+  {
+    "command": "rm dist/assets",
+    "category": "filesystem-delete-build",
+    "expectedDecisions": [
+      "warn"
+    ]
+  },
+  {
+    "command": "rm build/output",
+    "category": "filesystem-delete-build",
+    "expectedDecisions": [
+      "warn"
+    ]
+  },
+  {
+    "command": "rm dist/server",
+    "category": "filesystem-delete-build",
+    "expectedDecisions": [
+      "warn"
+    ]
+  },
+  {
+    "command": "rm build/tmp",
+    "category": "filesystem-delete-build",
+    "expectedDecisions": [
+      "warn"
+    ]
+  },
+  {
+    "command": "rm dist/chunks",
+    "category": "filesystem-delete-build",
+    "expectedDecisions": [
+      "warn"
+    ]
+  },
+  {
+    "command": "rm build/reports",
+    "category": "filesystem-delete-build",
+    "expectedDecisions": [
+      "warn"
+    ]
+  },
+  {
+    "command": "rm dist/static",
+    "category": "filesystem-delete-build",
+    "expectedDecisions": [
+      "warn"
+    ]
+  },
+  {
+    "command": "rm build/cache",
+    "category": "filesystem-delete-build",
+    "expectedDecisions": [
+      "warn"
+    ]
+  },
+  {
+    "command": "rm .git",
+    "category": "filesystem-delete-git-metadata",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "rm -rf .git",
+    "category": "filesystem-delete-git-metadata",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "rm .github",
+    "category": "filesystem-delete-git-metadata",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "rm -rf .github",
+    "category": "filesystem-delete-git-metadata",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "Remove-Item -Recurse -Force .git",
+    "category": "filesystem-delete-git-metadata",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "Remove-Item -Recurse -Force .github",
+    "category": "filesystem-delete-git-metadata",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "rm -rf .git/hooks",
+    "category": "filesystem-delete-git-metadata",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "rm -rf .git/refs",
+    "category": "filesystem-delete-git-metadata",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "rm -rf .git/objects",
+    "category": "filesystem-delete-git-metadata",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "rm -rf .git/logs",
+    "category": "filesystem-delete-git-metadata",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "rm ~/notes.txt",
+    "category": "filesystem-delete-home",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "rm ~/Downloads/file.txt",
+    "category": "filesystem-delete-home",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "rm ~/Desktop/temp.txt",
+    "category": "filesystem-delete-home",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "rm ~/Documents/todo.md",
+    "category": "filesystem-delete-home",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "Remove-Item -Recurse -Force ~/Desktop/temp.txt",
+    "category": "filesystem-delete-home",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "Remove-Item -Recurse -Force ~/Downloads/file.txt",
+    "category": "filesystem-delete-home",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "rm ~/",
+    "category": "filesystem-delete-home",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "rm ~/Projects/sample.txt",
+    "category": "filesystem-delete-home",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "Remove-Item -Recurse -Force ~/Documents/todo.md",
+    "category": "filesystem-delete-home",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "rm ~/Library/cache.db",
+    "category": "filesystem-delete-home",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "rm /",
+    "category": "filesystem-delete-root",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "rm -rf /",
+    "category": "filesystem-delete-root",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "Remove-Item -Recurse -Force C:/",
+    "category": "filesystem-delete-root",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "rm C:/",
+    "category": "filesystem-delete-root",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "rm -rf C:/",
+    "category": "filesystem-delete-root",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "Remove-Item -Recurse -Force C:/Windows",
+    "category": "filesystem-delete-root",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "rm /Windows",
+    "category": "filesystem-delete-root",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "rm -rf /Windows",
+    "category": "filesystem-delete-root",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "Remove-Item -Recurse -Force /",
+    "category": "filesystem-delete-root",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "rm -rf C:/Windows/System32",
+    "category": "filesystem-delete-root",
+    "expectedDecisions": [
+      "block"
+    ]
   },
   {
     "command": "rm -rf *",
     "category": "filesystem-delete-wildcard",
-    "expectedDecisions": ["block"]
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "rm -rf src/*",
+    "category": "filesystem-delete-wildcard",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "rm -rf **",
+    "category": "filesystem-delete-wildcard",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "rm -rf ?*",
+    "category": "filesystem-delete-wildcard",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "rm -rf [a-z]*",
+    "category": "filesystem-delete-wildcard",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "del /s /q *",
+    "category": "filesystem-delete-wildcard",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "Remove-Item -Recurse -Force *",
+    "category": "filesystem-delete-wildcard",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "Remove-Item -Recurse -Force src/*",
+    "category": "filesystem-delete-wildcard",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "rm -rf ./dist/*",
+    "category": "filesystem-delete-wildcard",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "rm -rf ./build/*",
+    "category": "filesystem-delete-wildcard",
+    "expectedDecisions": [
+      "block"
+    ]
   },
   {
     "command": "rm -rf node_modules",
     "category": "filesystem-delete-deps",
-    "expectedDecisions": ["warn", "allow"]
+    "expectedDecisions": [
+      "warn",
+      "allow"
+    ]
+  },
+  {
+    "command": "Remove-Item -Recurse -Force node_modules",
+    "category": "filesystem-delete-deps",
+    "expectedDecisions": [
+      "warn",
+      "allow"
+    ]
+  },
+  {
+    "command": "rm -rf ./node_modules",
+    "category": "filesystem-delete-deps",
+    "expectedDecisions": [
+      "warn",
+      "allow"
+    ]
+  },
+  {
+    "command": "Remove-Item -Recurse -Force ./node_modules",
+    "category": "filesystem-delete-deps",
+    "expectedDecisions": [
+      "warn",
+      "allow"
+    ]
+  },
+  {
+    "command": "rm -rf node_modules/",
+    "category": "filesystem-delete-deps",
+    "expectedDecisions": [
+      "warn",
+      "allow"
+    ]
+  },
+  {
+    "command": "Remove-Item -Recurse -Force node_modules/",
+    "category": "filesystem-delete-deps",
+    "expectedDecisions": [
+      "warn",
+      "allow"
+    ]
+  },
+  {
+    "command": "rm node_modules",
+    "category": "filesystem-delete-deps",
+    "expectedDecisions": [
+      "warn",
+      "allow"
+    ]
+  },
+  {
+    "command": "Remove-Item -Recurse -Force ./node_modules/",
+    "category": "filesystem-delete-deps",
+    "expectedDecisions": [
+      "warn",
+      "allow"
+    ]
+  },
+  {
+    "command": "rm -rf node_modules/cache",
+    "category": "filesystem-delete-deps",
+    "expectedDecisions": [
+      "warn",
+      "allow"
+    ]
+  },
+  {
+    "command": "Remove-Item -Recurse -Force node_modules/cache",
+    "category": "filesystem-delete-deps",
+    "expectedDecisions": [
+      "warn",
+      "allow"
+    ]
   },
   {
     "command": "Remove-Item -Recurse -Force *",
     "category": "filesystem-delete-powershell",
-    "expectedDecisions": ["block"]
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "Remove-Item -Recurse -Force src/*",
+    "category": "filesystem-delete-powershell",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "Remove-Item -Recurse -Force .git",
+    "category": "filesystem-delete-powershell",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "Remove-Item -Recurse -Force .github",
+    "category": "filesystem-delete-powershell",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "Remove-Item -Recurse -Force C:/",
+    "category": "filesystem-delete-powershell",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "Remove-Item -Recurse -Force ~/Desktop/temp.txt",
+    "category": "filesystem-delete-powershell",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "Remove-Item -Recurse -Force node_modules/*",
+    "category": "filesystem-delete-powershell",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "Remove-Item -Recurse -Force dist/*",
+    "category": "filesystem-delete-powershell",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "Remove-Item -Recurse -Force build/*",
+    "category": "filesystem-delete-powershell",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "Remove-Item -Recurse -Force app/*",
+    "category": "filesystem-delete-powershell",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "git push --force origin feature",
+    "category": "git-force-push-feature",
+    "expectedDecisions": [
+      "warn"
+    ]
+  },
+  {
+    "command": "git push --force origin feature-1",
+    "category": "git-force-push-feature",
+    "expectedDecisions": [
+      "warn"
+    ]
+  },
+  {
+    "command": "git push --force origin bugfix/work",
+    "category": "git-force-push-feature",
+    "expectedDecisions": [
+      "warn"
+    ]
+  },
+  {
+    "command": "git push --force origin chore/demo",
+    "category": "git-force-push-feature",
+    "expectedDecisions": [
+      "warn"
+    ]
+  },
+  {
+    "command": "git push --force origin release/demo",
+    "category": "git-force-push-feature",
+    "expectedDecisions": [
+      "warn"
+    ]
+  },
+  {
+    "command": "git push --force-with-lease origin feature",
+    "category": "git-force-push-feature",
+    "expectedDecisions": [
+      "warn"
+    ]
+  },
+  {
+    "command": "git push -f origin feature",
+    "category": "git-force-push-feature",
+    "expectedDecisions": [
+      "warn"
+    ]
+  },
+  {
+    "command": "git push --force upstream feature",
+    "category": "git-force-push-feature",
+    "expectedDecisions": [
+      "warn"
+    ]
+  },
+  {
+    "command": "git push --force origin hotfix",
+    "category": "git-force-push-feature",
+    "expectedDecisions": [
+      "warn"
+    ]
+  },
+  {
+    "command": "git push --force origin spike",
+    "category": "git-force-push-feature",
+    "expectedDecisions": [
+      "warn"
+    ]
+  },
+  {
+    "command": "git push --force origin main",
+    "category": "git-force-push-protected",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "git push --force origin master",
+    "category": "git-force-push-protected",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "git push --force origin trunk",
+    "category": "git-force-push-protected",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "git push -f origin main",
+    "category": "git-force-push-protected",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "git push --force-with-lease origin main",
+    "category": "git-force-push-protected",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "git push --force origin master",
+    "category": "git-force-push-protected",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "git push --force origin trunk",
+    "category": "git-force-push-protected",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "git push --force upstream main",
+    "category": "git-force-push-protected",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "git push --force upstream master",
+    "category": "git-force-push-protected",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "git push --force upstream trunk",
+    "category": "git-force-push-protected",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "npm publish",
+    "category": "package-publish",
+    "expectedDecisions": [
+      "warn"
+    ]
+  },
+  {
+    "command": "pnpm publish",
+    "category": "package-publish",
+    "expectedDecisions": [
+      "warn"
+    ]
+  },
+  {
+    "command": "yarn publish",
+    "category": "package-publish",
+    "expectedDecisions": [
+      "warn"
+    ]
+  },
+  {
+    "command": "npm publish --access public",
+    "category": "package-publish",
+    "expectedDecisions": [
+      "warn"
+    ]
+  },
+  {
+    "command": "pnpm publish --access public",
+    "category": "package-publish",
+    "expectedDecisions": [
+      "warn"
+    ]
+  },
+  {
+    "command": "yarn npm publish",
+    "category": "package-publish",
+    "expectedDecisions": [
+      "warn"
+    ]
+  },
+  {
+    "command": "npm publish --tag next",
+    "category": "package-publish",
+    "expectedDecisions": [
+      "warn"
+    ]
+  },
+  {
+    "command": "pnpm publish --tag next",
+    "category": "package-publish",
+    "expectedDecisions": [
+      "warn"
+    ]
+  },
+  {
+    "command": "yarn publish --tag beta",
+    "category": "package-publish",
+    "expectedDecisions": [
+      "warn"
+    ]
+  },
+  {
+    "command": "npm publish --dry-run",
+    "category": "package-publish",
+    "expectedDecisions": [
+      "warn"
+    ]
   },
   {
     "command": "DELETE FROM users",
     "category": "sql-delete-no-where",
-    "expectedDecisions": ["block"]
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "DELETE FROM sessions",
+    "category": "sql-delete-no-where",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "DELETE FROM audit_logs",
+    "category": "sql-delete-no-where",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "DELETE FROM orders",
+    "category": "sql-delete-no-where",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "DELETE FROM events",
+    "category": "sql-delete-no-where",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "DELETE FROM messages",
+    "category": "sql-delete-no-where",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "DELETE FROM tokens",
+    "category": "sql-delete-no-where",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "DELETE FROM tasks",
+    "category": "sql-delete-no-where",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "DELETE FROM comments",
+    "category": "sql-delete-no-where",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "DELETE FROM invoices",
+    "category": "sql-delete-no-where",
+    "expectedDecisions": [
+      "block"
+    ]
   },
   {
     "command": "DELETE FROM users WHERE id = 1",
     "category": "sql-delete-with-where",
-    "expectedDecisions": ["warn"]
+    "expectedDecisions": [
+      "warn"
+    ]
+  },
+  {
+    "command": "DELETE FROM sessions WHERE expired = 1",
+    "category": "sql-delete-with-where",
+    "expectedDecisions": [
+      "warn"
+    ]
+  },
+  {
+    "command": "DELETE FROM audit_logs WHERE created_at < NOW()",
+    "category": "sql-delete-with-where",
+    "expectedDecisions": [
+      "warn"
+    ]
+  },
+  {
+    "command": "DELETE FROM orders WHERE status = 'cancelled'",
+    "category": "sql-delete-with-where",
+    "expectedDecisions": [
+      "warn"
+    ]
+  },
+  {
+    "command": "DELETE FROM events WHERE archived = 1",
+    "category": "sql-delete-with-where",
+    "expectedDecisions": [
+      "warn"
+    ]
+  },
+  {
+    "command": "DELETE FROM messages WHERE read = 1",
+    "category": "sql-delete-with-where",
+    "expectedDecisions": [
+      "warn"
+    ]
+  },
+  {
+    "command": "DELETE FROM tokens WHERE revoked = 1",
+    "category": "sql-delete-with-where",
+    "expectedDecisions": [
+      "warn"
+    ]
+  },
+  {
+    "command": "DELETE FROM tasks WHERE done = 1",
+    "category": "sql-delete-with-where",
+    "expectedDecisions": [
+      "warn"
+    ]
+  },
+  {
+    "command": "DELETE FROM comments WHERE flagged = 1",
+    "category": "sql-delete-with-where",
+    "expectedDecisions": [
+      "warn"
+    ]
+  },
+  {
+    "command": "DELETE FROM invoices WHERE paid = 1",
+    "category": "sql-delete-with-where",
+    "expectedDecisions": [
+      "warn"
+    ]
+  },
+  {
+    "command": "DROP TABLE users",
+    "category": "sql-drop",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "DROP TABLE sessions",
+    "category": "sql-drop",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "DROP TABLE audit_logs",
+    "category": "sql-drop",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "DROP TABLE orders",
+    "category": "sql-drop",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "DROP TABLE events",
+    "category": "sql-drop",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "DROP TABLE messages",
+    "category": "sql-drop",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "DROP TABLE tokens",
+    "category": "sql-drop",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "DROP TABLE tasks",
+    "category": "sql-drop",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "DROP TABLE comments",
+    "category": "sql-drop",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "DROP TABLE invoices",
+    "category": "sql-drop",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "TRUNCATE TABLE users",
+    "category": "sql-truncate",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "TRUNCATE TABLE sessions",
+    "category": "sql-truncate",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "TRUNCATE TABLE audit_logs",
+    "category": "sql-truncate",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "TRUNCATE TABLE orders",
+    "category": "sql-truncate",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "TRUNCATE TABLE events",
+    "category": "sql-truncate",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "TRUNCATE TABLE messages",
+    "category": "sql-truncate",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "TRUNCATE TABLE tokens",
+    "category": "sql-truncate",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "TRUNCATE TABLE tasks",
+    "category": "sql-truncate",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "TRUNCATE TABLE comments",
+    "category": "sql-truncate",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "TRUNCATE TABLE invoices",
+    "category": "sql-truncate",
+    "expectedDecisions": [
+      "block"
+    ]
+  },
+  {
+    "command": "echo hello",
+    "category": "shell-generic",
+    "expectedDecisions": [
+      "allow"
+    ]
+  },
+  {
+    "command": "pwd",
+    "category": "shell-generic",
+    "expectedDecisions": [
+      "allow"
+    ]
+  },
+  {
+    "command": "dir",
+    "category": "shell-generic",
+    "expectedDecisions": [
+      "allow"
+    ]
+  },
+  {
+    "command": "node -e \"console.log(1)\"",
+    "category": "shell-generic",
+    "expectedDecisions": [
+      "allow"
+    ]
+  },
+  {
+    "command": "node -e \"console.log('demo')\"",
+    "category": "shell-generic",
+    "expectedDecisions": [
+      "allow"
+    ]
+  },
+  {
+    "command": "python -c \"print('x')\"",
+    "category": "shell-generic",
+    "expectedDecisions": [
+      "allow"
+    ]
+  },
+  {
+    "command": "git status",
+    "category": "shell-generic",
+    "expectedDecisions": [
+      "allow"
+    ]
+  },
+  {
+    "command": "npm test",
+    "category": "shell-generic",
+    "expectedDecisions": [
+      "allow"
+    ]
+  },
+  {
+    "command": "echo safe",
+    "category": "shell-generic",
+    "expectedDecisions": [
+      "allow"
+    ]
+  },
+  {
+    "command": "node -e \"console.log('safe')\"",
+    "category": "shell-generic",
+    "expectedDecisions": [
+      "allow"
+    ]
   }
 ]
