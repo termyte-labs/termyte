@@ -6,6 +6,12 @@
   "bin": {
     "termyte": "./dist/cli.js"
   },
+  "files": [
+    "dist",
+    "README.md",
+    "package.json",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/cli.ts",
