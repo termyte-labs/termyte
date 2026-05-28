@@ -1,0 +1,32 @@
+[
+  {
+    "command": "rm extrafile",
+    "category": "filesystem-delete-single",
+    "expectedDecisions": ["allow"]
+  },
+  {
+    "command": "rm -rf *",
+    "category": "filesystem-delete-wildcard",
+    "expectedDecisions": ["block"]
+  },
+  {
+    "command": "rm -rf node_modules",
+    "category": "filesystem-delete-deps",
+    "expectedDecisions": ["warn", "allow"]
+  },
+  {
+    "command": "Remove-Item -Recurse -Force *",
+    "category": "filesystem-delete-powershell",
+    "expectedDecisions": ["block"]
+  },
+  {
+    "command": "DELETE FROM users",
+    "category": "sql-delete-no-where",
+    "expectedDecisions": ["block"]
+  },
+  {
+    "command": "DELETE FROM users WHERE id = 1",
+    "category": "sql-delete-with-where",
+    "expectedDecisions": ["warn"]
+  }
+]

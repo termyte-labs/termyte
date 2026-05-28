@@ -54,6 +54,10 @@ export function analyzeRisk(action: ParsedAction, targets: ResolvedTargets): Ris
 
   if (action.kind === "filesystem.delete") {
     score += Math.min(targets.targetCount * 8, 40);
+    const hasHardCritical = targets.targetClasses.some(
+      (entry) => entry.category === "git-metadata" || entry.category === "home" || entry.category === "filesystem-root",
+    );
+    const hasDependencyTreeTargets = targets.targetClasses.some((entry) => entry.category === "dependency-tree");
 
     if (isWildcardDelete(action)) {
       signals.push("wildcard delete");
@@ -103,6 +107,16 @@ export function analyzeRisk(action: ParsedAction, targets: ResolvedTargets): Ris
     }
 
     if (action.isWildcard || action.isRecursive) {
+      if (hasDependencyTreeTargets && !hasHardCritical) {
+        signals.push("dependency tree target");
+        return {
+          decision: "warn",
+          score: Math.max(score, 55),
+          reason: "dependency tree delete requires approval",
+          signals,
+        };
+      }
+
       if (targets.sensitiveTargets.length > 0 || targets.recoverability === "low") {
         return {
           decision: "block",
@@ -127,6 +141,15 @@ export function analyzeRisk(action: ParsedAction, targets: ResolvedTargets): Ris
     }
 
     if (targets.sensitiveTargets.length > 0) {
+      if (hasDependencyTreeTargets && !hasHardCritical) {
+        return {
+          decision: "warn",
+          score: Math.max(score, 45),
+          reason: "dependency tree deletion requires approval",
+          signals,
+        };
+      }
+
       return {
         decision: "warn",
         score: Math.max(score, 45),

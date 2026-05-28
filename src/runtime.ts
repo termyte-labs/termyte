@@ -17,6 +17,7 @@ export interface RuntimeOptions {
   cwd?: string;
   dbPath?: string;
   dryRun?: boolean;
+  allowOnce?: boolean;
   stdinIsTTY?: boolean;
   approval?: (prompt: string) => Promise<boolean>;
   stdout?: NodeJS.WriteStream;
@@ -75,6 +76,10 @@ function summarizeMemoryMatches(memoryMatches: MemoryMatch[]): string {
     .join("; ");
 }
 
+function hasHardCriticalTargets(targets: ReturnType<typeof resolveTargets>): boolean {
+  return targets.protectedTargets.length > 0 || targets.targetClasses.some((entry) => entry.category === "home" || entry.category === "filesystem-root");
+}
+
 function buildRiskNarrative(
   action: ParsedAction,
   targets: ReturnType<typeof resolveTargets>,
@@ -85,6 +90,58 @@ function buildRiskNarrative(
   const danger = risk.signals.length > 0 ? risk.signals.join(", ") : "no specific danger signals";
   const memorySummary = summarizeMemoryMatches(memoryMatches);
   return `${risk.reason}. Semantic danger: ${action.semanticId}. Targets: ${targetSummary}. Blast radius: ${risk.score}. Signals: ${danger}. Memory: ${memorySummary}.`;
+}
+
+function shouldDowngradeFromBlock(
+  policyDecision: Decision,
+  targets: ReturnType<typeof resolveTargets>,
+  memoryMatches: MemoryMatch[],
+): boolean {
+  if (policyDecision !== "block") {
+    return false;
+  }
+
+  if (hasHardCriticalTargets(targets)) {
+    return false;
+  }
+
+  return memoryMatches.some((match) => match.confidence < 0.7);
+}
+
+function resolveFinalDecision(
+  policyDecision: Decision,
+  policyReason: string,
+  action: ParsedAction,
+  targets: ReturnType<typeof resolveTargets>,
+  risk: ReturnType<typeof analyzeRisk>,
+  memoryMatches: MemoryMatch[],
+  allowOnce = false,
+): { decision: Decision; reason: string; overridden: boolean } {
+  const narrative = buildRiskNarrative(action, targets, risk, memoryMatches);
+  const baseReason = `${policyReason || risk.reason}. ${narrative}`;
+  const memoryDowngrade = shouldDowngradeFromBlock(policyDecision, targets, memoryMatches);
+
+  if (allowOnce && policyDecision !== "allow" && !hasHardCriticalTargets(targets)) {
+    return {
+      decision: "allow",
+      reason: `${baseReason} allow-once override applied.`,
+      overridden: true,
+    };
+  }
+
+  if (memoryDowngrade) {
+    return {
+      decision: "warn",
+      reason: `${baseReason} Memory confidence is low, so the block is downgraded to a warning.`,
+      overridden: true,
+    };
+  }
+
+  return {
+    decision: policyDecision,
+    reason: baseReason,
+    overridden: false,
+  };
 }
 
 export async function runRuntime(options: RuntimeOptions): Promise<RuntimeResult> {
@@ -98,9 +155,9 @@ export async function runRuntime(options: RuntimeOptions): Promise<RuntimeResult
   const risk = analyzeRisk(action, targets);
   const policy = evaluatePolicies(action, risk, options.policies ?? defaultPolicies);
   const memoryMatches = memory.findMatches(action, targets);
-  const finalDecision = policy.decision;
-  const finalReason = buildRiskNarrative(action, targets, risk, memoryMatches);
-  const decisionReason = `${policy.reason || risk.reason}. ${finalReason}`;
+  const resolved = resolveFinalDecision(policy.decision, policy.reason, action, targets, risk, memoryMatches, options.allowOnce);
+  const finalDecision = resolved.decision;
+  const finalReason = resolved.reason;
 
   const ledgerId = ledger.createPending(action, targets, envKeys, {
     cwd,
@@ -109,6 +166,8 @@ export async function runRuntime(options: RuntimeOptions): Promise<RuntimeResult
     risk,
     policy,
     memoryMatches,
+    finalDecision,
+    allowOnce: options.allowOnce ?? false,
   });
 
   let outcome;
@@ -117,7 +176,7 @@ export async function runRuntime(options: RuntimeOptions): Promise<RuntimeResult
       status: "blocked" as const,
       exitCode: 1,
       stdout: "",
-      stderr: `${decisionReason}\n`,
+      stderr: `${finalReason}\n`,
       durationMs: 0,
     };
   } else if (options.dryRun) {
@@ -129,13 +188,13 @@ export async function runRuntime(options: RuntimeOptions): Promise<RuntimeResult
       durationMs: 0,
     };
   } else {
-    const approved = await maybeApprove(finalDecision, decisionReason, options.approval, options.stdout ?? process.stdout);
+    const approved = finalDecision === "warn" ? await maybeApprove(finalDecision, finalReason, options.approval, options.stdout ?? process.stdout) : true;
     if (!approved) {
       outcome = {
         status: "blocked" as const,
         exitCode: 1,
         stdout: "",
-        stderr: `${decisionReason}\n`,
+        stderr: `${finalReason}\n`,
         durationMs: 0,
       };
     } else {
@@ -143,7 +202,7 @@ export async function runRuntime(options: RuntimeOptions): Promise<RuntimeResult
     }
   }
 
-  ledger.finalize(ledgerId, finalDecision, outcome, risk.score, decisionReason);
+  ledger.finalize(ledgerId, finalDecision, outcome, risk.score, finalReason);
 
   try {
     memory.observe(action, finalDecision, outcome, cwd);
@@ -157,7 +216,7 @@ export async function runRuntime(options: RuntimeOptions): Promise<RuntimeResult
     decision: finalDecision,
     semanticId: action.semanticId,
     ledgerId,
-    reason: decisionReason,
+    reason: finalReason,
     stdout: outcome.stdout,
     stderr: outcome.stderr,
     wasExecuted: outcome.status === "executed",
@@ -168,14 +227,15 @@ export function inspectPolicies(policies: PolicySet = defaultPolicies): string {
   return JSON.stringify(policies, null, 2);
 }
 
-export function inspectAction(command: string, cwd = process.cwd()): InspectionReport {
+export function inspectAction(command: string, cwd = process.cwd(), dbPath?: string): InspectionReport {
   const action = parseAction(command);
   const targets = resolveTargets(action, cwd);
   const risk = analyzeRisk(action, targets);
   const policy = evaluatePolicies(action, risk);
-  const memory = new MemoryEngine(openDatabase(defaultDbPath(cwd)).db);
+  const memory = new MemoryEngine(openDatabase(dbPath ?? defaultDbPath(cwd)).db);
   const memoryMatches = memory.findMatches(action, targets);
-  const finalDecision = policy.decision;
-  const finalReason = `${policy.reason || risk.reason}. ${buildRiskNarrative(action, targets, risk, memoryMatches)}`;
+  const resolved = resolveFinalDecision(policy.decision, policy.reason, action, targets, risk, memoryMatches);
+  const finalDecision = resolved.decision;
+  const finalReason = resolved.reason;
   return { action, targets, risk, policy, memoryMatches, finalDecision, finalReason };
 }

@@ -4,19 +4,9 @@ import path from "node:path";
 import fg from "fast-glob";
 import type { ParsedAction, ResolvedTargets, TargetClassification } from "./types.js";
 
-const PROTECTED_NAMES = new Set([".git", ".github", "node_modules", "package-lock.json", "pnpm-lock.yaml", "yarn.lock"]);
-const SENSITIVE_NAMES = new Set([".git", "src", "app", "lib", "package.json", ".env", "node_modules", "dist", "build"]);
-
 function isInsideWorkspace(workspaceRoot: string, targetPath: string): boolean {
   const relative = path.relative(workspaceRoot, targetPath);
   return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
-}
-
-function collectProtectedTargets(targets: string[]): string[] {
-  return targets.filter((target) => {
-    const base = path.basename(target);
-    return PROTECTED_NAMES.has(base) || base.startsWith(".");
-  });
 }
 
 function isFilesystemRoot(target: string): boolean {
@@ -119,6 +109,12 @@ function classifyTarget(rawTarget: string, resolvedTarget: string, workspaceRoot
   };
 }
 
+function collectProtectedTargets(targetClasses: TargetClassification[]): string[] {
+  return targetClasses
+    .filter((entry) => entry.category === "git-metadata" || entry.category === "home" || entry.category === "filesystem-root")
+    .map((entry) => entry.target);
+}
+
 function recoverabilityFor(classes: TargetClassification[], insideWorkspace: boolean, targetCount: number): "high" | "medium" | "low" {
   if (!insideWorkspace) return "low";
   if (classes.some((entry) => entry.category === "filesystem-root" || entry.category === "home" || entry.category === "git-metadata")) {
@@ -219,9 +215,9 @@ export function resolveTargets(action: ParsedAction, workspaceRoot: string): Res
   }
 
   const resolved = [...expandedTargets];
-  const protectedTargets = collectProtectedTargets(resolved);
   const insideWorkspace = resolved.every((targetPath) => isInsideWorkspace(workspaceRoot, targetPath));
   const targetClasses = resolved.map((resolvedTarget, index) => classifyTarget(patterns[Math.min(index, patterns.length - 1)] ?? resolvedTarget, resolvedTarget, workspaceRoot));
+  const protectedTargets = collectProtectedTargets(targetClasses);
   const sensitiveTargets = targetClasses.filter((entry) => entry.sensitive).map((entry) => entry.target);
 
   return {

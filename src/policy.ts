@@ -8,13 +8,12 @@ export interface PolicySet {
 export const defaultPolicies: PolicySet = {
   block: [
     "filesystem.delete.recursive.force.wildcard",
-    "filesystem.delete.recursive.force",
     "filesystem.delete.wildcard",
     "sql.drop-table",
     "sql.truncate-table",
     "sql.delete-without-where",
   ],
-  warn: ["git.push.force", "package.*.publish", "sql.delete-with-where"],
+  warn: ["filesystem.delete.recursive.force", "git.push.force", "package.*.publish", "sql.delete-with-where"],
 };
 
 function matchesPattern(value: string, pattern: string): boolean {

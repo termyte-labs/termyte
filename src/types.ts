@@ -68,12 +68,14 @@ export interface RiskResult {
 }
 
 export interface MemoryMatch {
+  memoryId: number;
   semanticId: string;
   workspaceRoot: string;
   totalCount: number;
   lastOutcome: string;
   confidence: number;
   score: number;
+  falsePositiveCount: number;
   matchedBecause: string;
   lesson: string;
 }
@@ -139,6 +141,7 @@ export interface RuntimeRecord {
 }
 
 export interface MemoryEntry {
+  memoryId: number;
   semanticId: string;
   workspaceRoot: string;
   kind: ActionKind;
@@ -150,6 +153,7 @@ export interface MemoryEntry {
   warnCount: number;
   blockCount: number;
   failCount: number;
+  falsePositiveCount: number;
   confidence: number;
   updatedAt: string;
 }

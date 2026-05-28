@@ -53,11 +53,22 @@ export function openDatabase(dbPath: string): DatabaseContext {
       warn_count INTEGER NOT NULL,
       block_count INTEGER NOT NULL,
       fail_count INTEGER NOT NULL,
+      false_positive_count INTEGER NOT NULL DEFAULT 0,
       confidence REAL NOT NULL,
       updated_at TEXT NOT NULL,
       PRIMARY KEY (semantic_id, workspace_root)
     );
   `);
+  ensureColumn(db, "memory_entries", "false_positive_count", "INTEGER NOT NULL DEFAULT 0");
 
   return { db, dbPath };
+}
+
+function ensureColumn(db: Database.Database, table: string, column: string, definition: string): void {
+  const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  if (columns.some((row) => row.name === column)) {
+    return;
+  }
+
+  db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
 }

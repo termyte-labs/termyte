@@ -65,7 +65,7 @@ function safeParseMetadata(metadataJson: string | null | undefined): {
 function summaryFromMemoryMatches(matches: MemoryMatch[]): string {
   if (matches.length === 0) return "none";
   return matches
-    .map((match) => `${match.semanticId} (${match.lastOutcome}, score ${match.score.toFixed(2)}, confidence ${match.confidence.toFixed(2)})`)
+    .map((match) => `${match.memoryId}:${match.semanticId} (${match.lastOutcome}, score ${match.score.toFixed(2)}, confidence ${match.confidence.toFixed(2)}, fp ${match.falsePositiveCount})`)
     .join("; ");
 }
 
@@ -113,10 +113,12 @@ function formatMemoryMatches(matches: MemoryMatch[]): string {
   if (matches.length === 0) return "  - none";
   return matches
     .map((match) => [
+      `  - memory id: ${match.memoryId}`,
       `  - semantic: ${match.semanticId}`,
       `    score: ${match.score.toFixed(2)}`,
       `    why: ${match.matchedBecause}`,
       `    previous outcome: ${match.lastOutcome}`,
+      `    false positives: ${match.falsePositiveCount}`,
       `    confidence: ${match.confidence.toFixed(2)}`,
       `    lesson: ${match.lesson}`,
     ].join("\n"))
@@ -157,6 +159,7 @@ export function formatInspection(report: InspectionReport): string {
 export function formatMemory(rows: MemorySnapshot[]): string {
   return formatTable(
     rows.map((row) => ({
+      memoryId: row.memoryId,
       semanticId: row.semanticId,
       outcome: row.lastOutcome,
       total: row.totalCount,
@@ -164,6 +167,7 @@ export function formatMemory(rows: MemorySnapshot[]): string {
       warn: row.warnCount,
       block: row.blockCount,
       fail: row.failCount,
+      falsePos: row.falsePositiveCount,
       confidence: row.confidence.toFixed(2),
       command: row.sampleCommand,
     })),

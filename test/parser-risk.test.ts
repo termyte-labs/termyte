@@ -71,6 +71,15 @@ describe("runtime parsing and risk", () => {
     expect(risk.decision).toBe("allow");
   });
 
+  it("warns on node_modules delete but does not hard block it", () => {
+    const action = parseAction("rm -rf node_modules");
+    const targets = resolveTargets(action, process.cwd());
+    const risk = analyzeRisk(action, targets);
+
+    expect(risk.decision).not.toBe("block");
+    expect(["warn", "allow"]).toContain(risk.decision);
+  });
+
   it("flags sensitive targets", () => {
     const gitAction = parseAction("rm -rf .git");
     const srcAction = parseAction("rm src");
@@ -123,5 +132,31 @@ describe("runtime parsing and risk", () => {
     expect(inspection.memoryMatches.length).toBeGreaterThan(0);
     expect(inspection.memoryMatches[0]?.score).toBeGreaterThanOrEqual(0.7);
     expect(inspection.memoryMatches[0]?.matchedBecause).toContain("same domain and operation");
+  });
+
+  it("marks false positives safe and downgrades future block impact", async () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-safe-"));
+    fs.mkdirSync(path.join(workspaceRoot, "src"));
+    const dbPath = path.join(workspaceRoot, "termyte.db");
+
+    await runRuntime({
+      command: "rm -rf src",
+      cwd: workspaceRoot,
+      dbPath,
+      approval: async () => true,
+      env: { ...process.env },
+    });
+
+    const ctx = openDatabase(dbPath);
+    const memory = new MemoryEngine(ctx.db);
+    const latest = memory.list(1)[0];
+    expect(latest?.lastOutcome).toBe("blocked");
+
+    const marked = memory.markSafe(latest?.memoryId ?? 0);
+    expect(marked?.falsePositiveCount).toBeGreaterThan(0);
+    expect(marked?.confidence).toBeLessThan(0.7);
+
+    const inspection = inspectAction("rm -rf src", workspaceRoot, dbPath);
+    expect(inspection.finalDecision).toBe("warn");
   });
 });
