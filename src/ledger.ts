@@ -1,11 +1,13 @@
 import type Database from "better-sqlite3";
 import type { Decision, ExecutionOutcome, ParsedAction, ResolvedTargets, RuntimeRecord } from "./types.js";
 import { describeTargets } from "./resolver.js";
+import { redactCommand } from "./redact.js";
 
 export class Ledger {
   constructor(private readonly db: Database.Database) {}
 
   createPending(action: ParsedAction, targets: ResolvedTargets, envKeys: string[], metadata: Record<string, unknown>): number {
+    const redactedCommand = redactCommand(action.rawCommand);
     const stmt = this.db.prepare(`
       INSERT INTO ledger (
         created_at, workspace_root, raw_command, redacted_command, semantic_id, kind, operation,
@@ -21,8 +23,8 @@ export class Ledger {
     const result = stmt.run({
       created_at: new Date().toISOString(),
       workspace_root: targets.workspaceRoot,
-      raw_command: action.rawCommand,
-      redacted_command: action.redactedCommand,
+      raw_command: redactedCommand,
+      redacted_command: redactedCommand,
       semantic_id: action.semanticId,
       kind: action.kind,
       operation: action.operation,

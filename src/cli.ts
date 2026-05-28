@@ -148,6 +148,10 @@ function runBenchmarks(cwd: string): {
 async function main(): Promise<number> {
   const args = process.argv.slice(2);
   const command = args[0];
+  if (command === "-h" || command === "--help") {
+    printUsage();
+    return 0;
+  }
   const cwd = process.cwd();
   const dbPath = defaultDbPath(cwd);
   const dbContext = openDatabase(dbPath);

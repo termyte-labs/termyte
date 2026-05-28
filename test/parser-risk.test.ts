@@ -142,6 +142,33 @@ describe("runtime parsing and risk", () => {
     expect(memory.list(1)[0]?.totalCount).toBe(1);
   });
 
+  it("redacts secrets before ledger persistence", async () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-redact-"));
+    const dbPath = path.join(workspaceRoot, "termyte.db");
+    const secretCommand = "echo ok --token abc123 password=secret123 OPENAI_API_KEY=sk-test Authorization: Bearer xyz";
+
+    const result = await runRuntime({
+      command: secretCommand,
+      cwd: workspaceRoot,
+      dbPath,
+      approval: async () => true,
+      env: { ...process.env },
+    });
+
+    const ctx = openDatabase(dbPath);
+    const ledger = new Ledger(ctx.db);
+    const entry = ledger.listLatest(1)[0];
+
+    expect(result.exitCode).toBe(0);
+    expect(entry?.rawCommand).toContain("[REDACTED]");
+    expect(entry?.redactedCommand).toContain("[REDACTED]");
+    expect(entry?.rawCommand).toBe(entry?.redactedCommand);
+    expect(entry?.rawCommand).not.toContain("abc123");
+    expect(entry?.rawCommand).not.toContain("secret123");
+    expect(entry?.rawCommand).not.toContain("sk-test");
+    expect(entry?.rawCommand).not.toContain("xyz");
+  });
+
   it("matches similar destructive-delete memory fuzzily", async () => {
     const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-fuzzy-"));
     fs.mkdirSync(path.join(workspaceRoot, "src"));
