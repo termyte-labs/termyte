@@ -84,14 +84,40 @@ describe("runtime parsing and risk", () => {
     const gitAction = parseAction("rm -rf .git");
     const srcAction = parseAction("rm src");
     const envAction = parseAction("rm .env");
+    const nestedGitAction = parseAction("rm -rf .git/hooks");
+    const nestedSourceAction = parseAction("rm src/index.ts");
+    const nestedBuildAction = parseAction("rm dist/assets");
+    const nestedConfigAction = parseAction("rm .env.local");
 
     const gitTargets = resolveTargets(gitAction, process.cwd());
     const srcTargets = resolveTargets(srcAction, process.cwd());
     const envTargets = resolveTargets(envAction, process.cwd());
+    const nestedGitTargets = resolveTargets(nestedGitAction, process.cwd());
+    const nestedSourceTargets = resolveTargets(nestedSourceAction, process.cwd());
+    const nestedBuildTargets = resolveTargets(nestedBuildAction, process.cwd());
+    const nestedConfigTargets = resolveTargets(nestedConfigAction, process.cwd());
 
     expect(gitTargets.sensitiveTargets.length).toBeGreaterThan(0);
     expect(srcTargets.sensitiveTargets.length).toBeGreaterThan(0);
     expect(envTargets.sensitiveTargets.length).toBeGreaterThan(0);
+    expect(nestedGitTargets.protectedTargets.length).toBeGreaterThan(0);
+    expect(nestedGitTargets.sensitiveTargets.length).toBeGreaterThan(0);
+    expect(nestedSourceTargets.sensitiveTargets.length).toBeGreaterThan(0);
+    expect(nestedBuildTargets.sensitiveTargets.length).toBeGreaterThan(0);
+    expect(nestedConfigTargets.sensitiveTargets.length).toBeGreaterThan(0);
+    expect(analyzeRisk(nestedGitAction, nestedGitTargets).decision).toBe("block");
+    expect(analyzeRisk(nestedSourceAction, nestedSourceTargets).decision).toBe("warn");
+    expect(analyzeRisk(nestedBuildAction, nestedBuildTargets).decision).toBe("warn");
+    expect(analyzeRisk(nestedConfigAction, nestedConfigTargets).decision).toBe("warn");
+  });
+
+  it("blocks repository metadata directories like .github", () => {
+    const action = parseAction("Remove-Item -Recurse -Force .github");
+    const targets = resolveTargets(action, process.cwd());
+    const risk = analyzeRisk(action, targets);
+
+    expect(targets.protectedTargets.length).toBeGreaterThan(0);
+    expect(risk.decision).toBe("block");
   });
 
   it("writes ledger and memory entries for allowed commands", async () => {

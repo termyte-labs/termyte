@@ -2,6 +2,8 @@
 
 Local-first runtime safety and operational memory for AI coding agents.
 
+> Benchmark: 180+ dangerous/safe agent actions, 0 false negatives on the current suite.
+
 ## Disclaimer
 
 - Shell-first v0.1

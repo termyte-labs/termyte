@@ -17,12 +17,23 @@ function isFilesystemRoot(target: string): boolean {
   return normalized === path.parse(normalized).root;
 }
 
+function normalizedSegments(target: string): string[] {
+  return target
+    .replace(/\\/g, "/")
+    .split("/")
+    .map((segment) => segment.trim().toLowerCase())
+    .filter(Boolean);
+}
+
 function classifyTarget(rawTarget: string, resolvedTarget: string, workspaceRoot: string): TargetClassification {
   const base = path.basename(resolvedTarget || rawTarget);
   const normalizedRaw = rawTarget.replace(/\\/g, "/");
   const homeDir = os.homedir().replace(/\\/g, "/");
   const workspaceBase = path.basename(workspaceRoot).toLowerCase();
   const lowerBase = base.toLowerCase();
+  const resolvedSegments = normalizedSegments(resolvedTarget);
+  const rawSegments = normalizedSegments(rawTarget);
+  const allSegments = new Set([...resolvedSegments, ...rawSegments]);
 
   if (rawTarget === "/" || isFilesystemRoot(rawTarget) || isFilesystemRoot(resolvedTarget)) {
     return {
@@ -47,16 +58,25 @@ function classifyTarget(rawTarget: string, resolvedTarget: string, workspaceRoot
     };
   }
 
-  if (lowerBase === ".git") {
+  if (allSegments.has(".git") || allSegments.has(".github")) {
     return {
       target: resolvedTarget,
       category: "git-metadata",
       sensitive: true,
-      reason: ".git holds repository history and metadata",
+      reason: "repository metadata directories hold history, hooks, and workflow configuration",
     };
   }
 
-  if (lowerBase === "package.json" || lowerBase === ".env") {
+  if (
+    lowerBase === "package.json" ||
+    lowerBase === "package-lock.json" ||
+    lowerBase === "pnpm-lock.yaml" ||
+    lowerBase === "yarn.lock" ||
+    lowerBase === ".npmrc" ||
+    lowerBase === "tsconfig.json" ||
+    lowerBase.startsWith("vite.config.") ||
+    lowerBase.startsWith(".env")
+  ) {
     return {
       target: resolvedTarget,
       category: "config",
@@ -65,7 +85,7 @@ function classifyTarget(rawTarget: string, resolvedTarget: string, workspaceRoot
     };
   }
 
-  if (lowerBase === "node_modules") {
+  if (allSegments.has("node_modules")) {
     return {
       target: resolvedTarget,
       category: "dependency-tree",
@@ -74,7 +94,7 @@ function classifyTarget(rawTarget: string, resolvedTarget: string, workspaceRoot
     };
   }
 
-  if (lowerBase === "dist" || lowerBase === "build") {
+  if (allSegments.has("dist") || allSegments.has("build")) {
     return {
       target: resolvedTarget,
       category: "build-output",
@@ -83,7 +103,7 @@ function classifyTarget(rawTarget: string, resolvedTarget: string, workspaceRoot
     };
   }
 
-  if (lowerBase === "src" || lowerBase === "app" || lowerBase === "lib") {
+  if (allSegments.has("src") || allSegments.has("app") || allSegments.has("lib")) {
     return {
       target: resolvedTarget,
       category: "workspace-source",
