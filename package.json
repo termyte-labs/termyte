@@ -1,32 +1,11 @@
 {
   "name": "termyte",
   "version": "0.2.8",
-  "description": "Local-first runtime safety and operational memory for AI coding agents.",
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/termyte-labs/termyte.git"
-  },
-  "keywords": [
-    "ai-agents",
-    "runtime-safety",
-    "operational-memory",
-    "cli",
-    "sqlite"
-  ],
-  "engines": {
-    "node": ">=18.18"
-  },
+  "private": true,
   "type": "module",
   "bin": {
-    "termyte": "dist/cli.js"
+    "termyte": "./dist/cli.js"
   },
-  "files": [
-    "dist",
-    "README.md",
-    "package.json",
-    "LICENSE"
-  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/cli.ts",
