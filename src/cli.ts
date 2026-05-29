@@ -10,6 +10,7 @@ import { Ledger } from "./ledger.js";
 import { MemoryEngine } from "./memory.js";
 import { inspectAction, inspectPolicies, runRuntime } from "./runtime.js";
 import { defaultPolicies } from "./policy.js";
+import { interceptShim, launchGovernedSession } from "./shell.js";
 import type { Decision } from "./types.js";
 
 function printUsage(): void {
@@ -22,6 +23,7 @@ function printUsage(): void {
   termyte replay [--json]
   termyte memory [--limit N] [--json]
   termyte policies
+  termyte shell [-- <agent>]
   termyte inspect [--json] -- <command>`);
 }
 
@@ -39,6 +41,11 @@ function hasJsonFlag(args: string[]): boolean {
 function commandAfterDoubleDash(args: string[]): string {
   const separatorIndex = args.indexOf("--");
   return separatorIndex >= 0 ? args.slice(separatorIndex + 1).join(" ") : args.slice(1).join(" ");
+}
+
+function argsAfterDoubleDash(args: string[]): string[] {
+  const separatorIndex = args.indexOf("--");
+  return separatorIndex >= 0 ? args.slice(separatorIndex + 1) : [];
 }
 
 function decisionRank(decision: Decision): number {
@@ -154,9 +161,6 @@ async function main(): Promise<number> {
   }
   const cwd = process.cwd();
   const dbPath = defaultDbPath(cwd);
-  const dbContext = openDatabase(dbPath);
-  const ledger = new Ledger(dbContext.db);
-  const memory = new MemoryEngine(dbContext.db);
 
   if (!command) {
     printUsage();
@@ -200,6 +204,22 @@ async function main(): Promise<number> {
     return result.exitCode;
   }
 
+  if (command === "shell") {
+    if (args.includes("-h") || args.includes("--help")) {
+      console.log(`Usage:
+  termyte shell
+  termyte shell -- <agent>`);
+      return 0;
+    }
+
+    const agentArgs = argsAfterDoubleDash(args);
+    const exitCode = await launchGovernedSession({
+      workspaceRoot: cwd,
+      agentArgs: agentArgs.length > 0 ? agentArgs : undefined,
+    });
+    return exitCode;
+  }
+
   if (command === "allow-once") {
     const rawCommand = commandAfterDoubleDash(args);
     if (!rawCommand) {
@@ -236,6 +256,9 @@ async function main(): Promise<number> {
       console.error("Usage: termyte mark-safe <memory-id>");
       return 1;
     }
+
+    const dbContext = openDatabase(dbPath);
+    const memory = new MemoryEngine(dbContext.db);
 
     const updated = memory.markSafe(memoryIdValue);
     if (!updated) {
@@ -283,6 +306,8 @@ async function main(): Promise<number> {
   }
 
   if (command === "logs") {
+    const dbContext = openDatabase(dbPath);
+    const ledger = new Ledger(dbContext.db);
     const records = ledger.listLatest(parseLimit(args));
     if (hasJsonFlag(args)) {
       console.log(toJson(records));
@@ -293,6 +318,8 @@ async function main(): Promise<number> {
   }
 
   if (command === "replay") {
+    const dbContext = openDatabase(dbPath);
+    const ledger = new Ledger(dbContext.db);
     const records = ledger.replay();
     if (hasJsonFlag(args)) {
       console.log(toJson(replayEntries(records)));
@@ -303,6 +330,8 @@ async function main(): Promise<number> {
   }
 
   if (command === "memory") {
+    const dbContext = openDatabase(dbPath);
+    const memory = new MemoryEngine(dbContext.db);
     const records = memory.list(parseLimit(args));
     if (hasJsonFlag(args)) {
       console.log(toJson(records));
@@ -315,6 +344,16 @@ async function main(): Promise<number> {
   if (command === "policies") {
     console.log(inspectPolicies(defaultPolicies));
     return 0;
+  }
+
+  if (command === "_shim") {
+    const tool = args[1];
+    if (!tool) {
+      console.error("Missing shim tool name.");
+      return 1;
+    }
+    const toolArgs = args.slice(2);
+    return interceptShim(tool, toolArgs);
   }
 
   printUsage();

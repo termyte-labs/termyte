@@ -10,6 +10,19 @@ Termyte is a local-first runtime safety layer for AI coding agents. It sits betw
 npm install -g termyte
 ```
 
+## Governed Shell
+
+Use `termyte shell` when you want Termyte to own the session and intercept child commands automatically.
+
+```bash
+termyte shell
+termyte shell -- codex
+termyte shell -- claude
+termyte shell -- aider
+```
+
+The shell runtime is local-first and works on macOS, Linux, and Windows. It prepends Termyte shims to `PATH`, exports session metadata, and keeps subprocesses inside the governed session.
+
 ## 30-Second Demo
 
 ```bash
@@ -102,6 +115,7 @@ termyte bench
 - `termyte allow-once -- <command>`: run a warned command once
 - `termyte mark-safe <memory-id>`: downgrade a memory after a false positive
 - `termyte policies`: print active policy rules
+- `termyte shell [-- <agent>]`: start a governed session and launch an optional agent inside it
 
 ## Examples
 
