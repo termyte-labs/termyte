@@ -97,6 +97,8 @@ export interface InspectionReport {
 export interface ReplayEntry {
   timestamp: string;
   action: string;
+  runtime?: string;
+  commandCorrelationId?: string;
   semanticMeaning: string;
   blastRadius: {
     score: number | null;

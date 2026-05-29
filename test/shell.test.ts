@@ -266,6 +266,187 @@ describe("governed shell runtime", () => {
     expect(replay).toContain("node -e \"process.exit(0)\"");
   });
 
+  it("correlates an allowed interactive command hook with its shim execution", () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-correlation-"));
+    const session = createGovernedSession(workspaceRoot);
+    const correlationId = "corr-allowed-1";
+    const hook = handleGuardHookRequest(session, {
+      type: "hook",
+      sessionId: session.sessionId,
+      shell: "bash",
+      commandLine: "git --version",
+      cwd: workspaceRoot,
+      commandCorrelationId: correlationId,
+    });
+    const pending = new Map();
+    const shim = handleGuardRequest(session, {
+      sessionId: session.sessionId,
+      command: "git --version",
+      cwd: workspaceRoot,
+      tool: "git",
+      argv: ["--version"],
+      commandCorrelationId: correlationId,
+    }, pending);
+    handleGuardFinalizeRequest(session, {
+      type: "finalize",
+      sessionId: session.sessionId,
+      ledgerId: shim.ledgerId,
+      tool: "git",
+      argv: ["--version"],
+      executablePath: process.execPath,
+      commandCorrelationId: correlationId,
+      outcome: {
+        status: "executed",
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+        durationMs: 1,
+      },
+    }, pending);
+
+    const ledger = new Ledger(openDatabase(session.dbPath).db);
+    const hookRecord = ledger.getById(hook.ledgerId ?? 0);
+    const shimRecord = ledger.getById(shim.ledgerId ?? 0);
+    const hookMetadata = JSON.parse(hookRecord?.metadataJson ?? "{}") as Record<string, unknown>;
+    const shimMetadata = JSON.parse(shimRecord?.metadataJson ?? "{}") as Record<string, unknown>;
+
+    expect(hookMetadata.runtime).toBe("shell-hook");
+    expect(shimMetadata.runtime).toBe("shell-shim");
+    expect(hookMetadata.commandCorrelationId).toBe(correlationId);
+    expect(shimMetadata.commandCorrelationId).toBe(correlationId);
+  });
+
+  it("records blocked interactive commands only as shell-hook rows", () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-correlation-block-"));
+    fs.writeFileSync(path.join(workspaceRoot, "package.json"), "{}", "utf8");
+    const session = createGovernedSession(workspaceRoot);
+    const correlationId = "corr-blocked-1";
+    handleGuardHookRequest(session, {
+      type: "hook",
+      sessionId: session.sessionId,
+      shell: "bash",
+      commandLine: "rm -rf *",
+      cwd: workspaceRoot,
+      commandCorrelationId: correlationId,
+    });
+
+    const records = new Ledger(openDatabase(session.dbPath).db).replay();
+    const correlated = records.filter((record) => {
+      const metadata = JSON.parse(record.metadataJson ?? "{}") as Record<string, unknown>;
+      return metadata.commandCorrelationId === correlationId;
+    });
+    const runtimes = correlated.map((record) => (JSON.parse(record.metadataJson ?? "{}") as Record<string, unknown>).runtime);
+
+    expect(correlated).toHaveLength(1);
+    expect(runtimes).toEqual(["shell-hook"]);
+    expect(correlated[0]?.decision).toBe("block");
+  });
+
+  it("assigns different correlation ids to separate interactive commands", () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-correlation-separate-"));
+    const session = createGovernedSession(workspaceRoot);
+    const first = handleGuardHookRequest(session, {
+      type: "hook",
+      sessionId: session.sessionId,
+      shell: "bash",
+      commandLine: "echo one",
+      cwd: workspaceRoot,
+      commandCorrelationId: "corr-one",
+    });
+    const second = handleGuardHookRequest(session, {
+      type: "hook",
+      sessionId: session.sessionId,
+      shell: "bash",
+      commandLine: "echo two",
+      cwd: workspaceRoot,
+      commandCorrelationId: "corr-two",
+    });
+    const ledger = new Ledger(openDatabase(session.dbPath).db);
+    const firstMetadata = JSON.parse(ledger.getById(first.ledgerId ?? 0)?.metadataJson ?? "{}") as Record<string, unknown>;
+    const secondMetadata = JSON.parse(ledger.getById(second.ledgerId ?? 0)?.metadataJson ?? "{}") as Record<string, unknown>;
+
+    expect(firstMetadata.commandCorrelationId).toBe("corr-one");
+    expect(secondMetadata.commandCorrelationId).toBe("corr-two");
+  });
+
+  it("preserves correlation metadata across nested shim subprocesses", () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-correlation-nested-"));
+    const session = createGovernedSession(workspaceRoot);
+    const correlationId = "corr-nested-1";
+    const pending = new Map();
+    const parent = handleGuardRequest(session, {
+      sessionId: session.sessionId,
+      command: "npm run build",
+      cwd: workspaceRoot,
+      tool: "npm",
+      argv: ["run", "build"],
+      commandCorrelationId: correlationId,
+    }, pending);
+    const child = handleGuardRequest(session, {
+      sessionId: session.sessionId,
+      command: "git status",
+      cwd: workspaceRoot,
+      tool: "git",
+      argv: ["status"],
+      commandCorrelationId: correlationId,
+    }, pending);
+
+    const ledger = new Ledger(openDatabase(session.dbPath).db);
+    const parentMetadata = JSON.parse(ledger.getById(parent.ledgerId ?? 0)?.metadataJson ?? "{}") as Record<string, unknown>;
+    const childMetadata = JSON.parse(ledger.getById(child.ledgerId ?? 0)?.metadataJson ?? "{}") as Record<string, unknown>;
+
+    expect(parentMetadata.commandCorrelationId).toBe(correlationId);
+    expect(childMetadata.commandCorrelationId).toBe(correlationId);
+  });
+
+  it("displays correlated hook and shim records clearly in logs and replay", () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-correlation-format-"));
+    const session = createGovernedSession(workspaceRoot);
+    const correlationId = "corr-format-1";
+    handleGuardHookRequest(session, {
+      type: "hook",
+      sessionId: session.sessionId,
+      shell: "bash",
+      commandLine: "git --version",
+      cwd: workspaceRoot,
+      commandCorrelationId: correlationId,
+    });
+    const pending = new Map();
+    const shim = handleGuardRequest(session, {
+      sessionId: session.sessionId,
+      command: "git --version",
+      cwd: workspaceRoot,
+      tool: "git",
+      argv: ["--version"],
+      commandCorrelationId: correlationId,
+    }, pending);
+    handleGuardFinalizeRequest(session, {
+      type: "finalize",
+      sessionId: session.sessionId,
+      ledgerId: shim.ledgerId,
+      tool: "git",
+      argv: ["--version"],
+      executablePath: process.execPath,
+      commandCorrelationId: correlationId,
+      outcome: {
+        status: "executed",
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+        durationMs: 1,
+      },
+    }, pending);
+
+    const ledger = new Ledger(openDatabase(session.dbPath).db);
+    const logs = formatLedger(ledger.listLatest());
+    const replay = formatReplay(ledger.replay());
+
+    expect(logs).toContain("corr-format-");
+    expect(replay).toContain("CORRELATED ACTION");
+    expect(replay).toContain("shell-hook");
+    expect(replay).toContain("shell-shim");
+  });
+
   it("records blocked shim decisions as finalized ledger entries", () => {
     const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-shell-"));
     fs.writeFileSync(path.join(workspaceRoot, "package.json"), "{}", "utf8");

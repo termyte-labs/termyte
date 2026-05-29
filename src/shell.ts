@@ -55,6 +55,7 @@ interface GuardDecisionRequest {
   cwd?: string;
   tool?: string;
   argv?: string[];
+  commandCorrelationId?: string;
 }
 
 interface GuardFinalizeRequest {
@@ -71,6 +72,7 @@ interface GuardFinalizeRequest {
   durationMs?: number;
   signal?: string | null;
   errorMessage?: string;
+  commandCorrelationId?: string;
 }
 
 interface GuardHeartbeatRequest {
@@ -88,6 +90,7 @@ interface GuardHookRequest {
   commandLine?: string;
   cwd?: string;
   shell?: string;
+  commandCorrelationId?: string;
 }
 
 export function createGovernedSession(workspaceRoot: string): GovernedSession {
@@ -323,6 +326,7 @@ export function handleGuardRequest(
     guardSocket: session.socketPath,
     tool: request.tool,
     argv: request.argv ?? [],
+    commandCorrelationId: request.commandCorrelationId,
     startedAt: new Date().toISOString(),
     lastHeartbeatAt: new Date().toISOString(),
     heartbeatIntervalMs: SHELL_SHIM_HEARTBEAT_INTERVAL_MS,
@@ -447,10 +451,12 @@ export function handleGuardHookRequest(
   const finalDecision = report.finalDecision;
   const finalReason = report.finalReason;
   const startedAt = new Date().toISOString();
+  const commandCorrelationId = request.commandCorrelationId ?? crypto.randomUUID();
   const ledgerId = ledger.createPending(action, targets, redactEnvKeys(process.env), {
     cwd,
     shell: request.shell ?? action.shell,
     commandLine: request.commandLine,
+    commandCorrelationId,
     targets,
     risk,
     policy: report.policy,
@@ -480,6 +486,7 @@ export function handleGuardHookRequest(
     sessionId: session.sessionId,
     workspaceRoot: session.workspaceRoot,
     commandLine: request.commandLine,
+    commandCorrelationId,
   });
   memory.observe(action, finalDecision, outcome, cwd);
 
@@ -549,6 +556,7 @@ export function handleGuardFinalizeRequest(
     shimRuntime: true,
     sessionId: session.sessionId,
     workspaceRoot: session.workspaceRoot,
+    commandCorrelationId: request.commandCorrelationId,
   });
   memory.observe(pendingEntry.action, pendingEntry.finalDecision, request.outcome, pendingEntry.cwd);
   pending.delete(request.ledgerId);
@@ -594,13 +602,17 @@ export function buildBashHookScript(): string {
   return `
 __termyte_preexec() {
   [ -n "\${TERMYTE_HOOK_ACTIVE:-}" ] && return 0
+  export TERMYTE_HOOK_ACTIVE=1
   local __termyte_command="$BASH_COMMAND"
   case "$__termyte_command" in
-    __termyte_preexec*|trap*|shopt*|return*) return 0 ;;
+    __termyte_preexec*|trap*|shopt*|return*) unset TERMYTE_HOOK_ACTIVE; return 0 ;;
   esac
+  export TERMYTE_COMMAND_CORRELATION_ID="hook-$(date +%s%N)-$RANDOM"
   TERMYTE_HOOK_ACTIVE=1 "\${TERMYTE_NODE:-node}" "\${TERMYTE_CLI_PATH}" _hook bash "$__termyte_command"
   local __termyte_status=$?
+  unset TERMYTE_HOOK_ACTIVE
   if [ $__termyte_status -ne 0 ]; then
+    unset TERMYTE_COMMAND_CORRELATION_ID
     echo "Termyte blocked shell command before dispatch." >&2
     return 1
   fi
@@ -614,13 +626,17 @@ export function buildZshHookScript(): string {
   return `
 TRAPDEBUG() {
   [ -n "\${TERMYTE_HOOK_ACTIVE:-}" ] && return 0
+  export TERMYTE_HOOK_ACTIVE=1
   local __termyte_command="$ZSH_DEBUG_CMD"
   case "$__termyte_command" in
-    TRAPDEBUG*|precmd*|preexec*) return 0 ;;
+    TRAPDEBUG*|precmd*|preexec*) unset TERMYTE_HOOK_ACTIVE; return 0 ;;
   esac
+  export TERMYTE_COMMAND_CORRELATION_ID="hook-$(date +%s%N)-$RANDOM"
   TERMYTE_HOOK_ACTIVE=1 "\${TERMYTE_NODE:-node}" "\${TERMYTE_CLI_PATH}" _hook zsh "$__termyte_command"
   local __termyte_status=$?
+  unset TERMYTE_HOOK_ACTIVE
   if [ $__termyte_status -ne 0 ]; then
+    unset TERMYTE_COMMAND_CORRELATION_ID
     print -u2 "Termyte blocked shell command before dispatch."
     return 1
   fi
@@ -634,8 +650,10 @@ if (Get-Command Set-PSReadLineOption -ErrorAction SilentlyContinue) {
   Set-PSReadLineOption -CommandValidationHandler {
     param([System.Management.Automation.Language.CommandAst] $CommandAst)
     $commandLine = $CommandAst.Extent.Text
+    $env:TERMYTE_COMMAND_CORRELATION_ID = [guid]::NewGuid().ToString()
     & $env:TERMYTE_NODE $env:TERMYTE_CLI_PATH _hook powershell $commandLine
     if ($LASTEXITCODE -ne 0) {
+      Remove-Item Env:\\TERMYTE_COMMAND_CORRELATION_ID -ErrorAction SilentlyContinue
       throw "Termyte blocked shell command before dispatch."
     }
   }
@@ -692,9 +710,10 @@ export async function interceptShim(tool: string, argv: string[]): Promise<numbe
   }
 
   const command = buildGuardCommand(tool, argv);
+  const commandCorrelationId = process.env.TERMYTE_COMMAND_CORRELATION_ID;
   let response: GuardResponse;
   try {
-    response = await requestGuard(socketPath, { sessionId, command, cwd, tool, argv });
+    response = await requestGuard(socketPath, { sessionId, command, cwd, tool, argv, commandCorrelationId });
   } catch (error) {
     process.stderr.write(`Termyte guard unavailable; blocking shim execution. ${error instanceof Error ? error.message : String(error)}\n`);
     return 126;
@@ -725,6 +744,7 @@ export async function interceptShim(tool: string, argv: string[]): Promise<numbe
         argv,
         tool,
         errorMessage: message,
+        commandCorrelationId,
       });
     }
     return 127;
@@ -748,6 +768,7 @@ export async function interceptShim(tool: string, argv: string[]): Promise<numbe
           executablePath: realExecutable,
           argv,
           tool,
+          commandCorrelationId,
         });
       }
       return 1;
@@ -791,6 +812,7 @@ export async function interceptShim(tool: string, argv: string[]): Promise<numbe
       durationMs: outcome.durationMs,
       signal: outcome.signal ?? null,
       errorMessage: outcome.errorMessage,
+      commandCorrelationId,
     });
   }
   return outcome.exitCode ?? 1;
@@ -800,6 +822,7 @@ export async function interceptHook(shell: string, commandLine: string): Promise
   const sessionId = process.env.TERMYTE_SESSION_ID;
   const socketPath = process.env.TERMYTE_GUARD_SOCKET;
   const cwd = process.cwd();
+  const commandCorrelationId = process.env.TERMYTE_COMMAND_CORRELATION_ID;
 
   if (!sessionId || !socketPath) {
     process.stderr.write("Termyte guard unavailable; blocking shell hook execution.\n");
@@ -813,6 +836,7 @@ export async function interceptHook(shell: string, commandLine: string): Promise
       commandLine,
       cwd,
       shell,
+      commandCorrelationId,
     });
     if (response.decision === "block") {
       process.stderr.write(`${response.reason}\n`);

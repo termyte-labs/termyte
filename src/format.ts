@@ -32,6 +32,7 @@ export function formatLedger(records: RuntimeRecord[]): string {
         status: record.status,
         exit: record.exitCode,
         runtime: metadata.runtime ?? "",
+        correlation: shortCorrelationId(metadata.commandCorrelationId),
         semanticId: record.semanticId,
         command: record.redactedCommand,
         reason: metadata.recoveryReason ?? record.riskReason ?? "",
@@ -57,6 +58,7 @@ function safeParseMetadata(metadataJson: string | null | undefined): {
   runtime?: string;
   recovered?: boolean;
   recoveryReason?: string;
+  commandCorrelationId?: string;
 } {
   if (!metadataJson) return {};
   try {
@@ -67,6 +69,7 @@ function safeParseMetadata(metadataJson: string | null | undefined): {
       runtime?: string;
       recovered?: boolean;
       recoveryReason?: string;
+      commandCorrelationId?: string;
     };
   } catch {
     return {};
@@ -88,6 +91,8 @@ export function replayEntries(records: RuntimeRecord[]): ReplayEntry[] {
     return {
       timestamp: record.createdAt,
       action: record.redactedCommand,
+      runtime: metadata.runtime,
+      commandCorrelationId: metadata.commandCorrelationId,
       semanticMeaning: record.semanticId,
       blastRadius: {
         score: metadata.risk?.score ?? record.riskScore,
@@ -112,19 +117,64 @@ export function formatReplay(records: RuntimeRecord[]): string {
   const entries = replayEntries(records);
   if (entries.length === 0) return "(empty)";
 
-  return entries
-    .map((entry) => {
-      const lines = [
-        `${entry.timestamp}  ${entry.finalDecision.toUpperCase()}  ${entry.outcome}`,
-        `  action: ${entry.action}`,
-        `  semantic: ${entry.semanticMeaning}`,
-        `  blast radius: ${entry.blastRadius.score ?? "n/a"} (${entry.blastRadius.reason ?? "n/a"})`,
-        `  targets: ${entry.blastRadius.targets}`,
-        `  memory: ${summaryFromMemoryMatches(entry.memoryMatches)}`,
-      ];
-      return lines.join("\n");
-    })
-    .join("\n\n");
+  const grouped: string[] = [];
+  const consumed = new Set<number>();
+  for (let index = 0; index < entries.length; index += 1) {
+    if (consumed.has(index)) continue;
+    const entry = entries[index];
+    const correlationId = entry.commandCorrelationId;
+    if (correlationId) {
+      const group = entries
+        .map((candidate, candidateIndex) => ({ candidate, candidateIndex }))
+        .filter(({ candidate, candidateIndex }) => !consumed.has(candidateIndex) && candidate.commandCorrelationId === correlationId);
+      for (const { candidateIndex } of group) consumed.add(candidateIndex);
+      if (group.length > 1) {
+        grouped.push(formatCorrelatedReplayGroup(correlationId, group.map(({ candidate }) => candidate)));
+        continue;
+      }
+    }
+    consumed.add(index);
+    grouped.push(formatReplayEntry(entry));
+  }
+
+  return grouped.join("\n\n");
+}
+
+function formatCorrelatedReplayGroup(correlationId: string, entries: ReplayEntry[]): string {
+  const lines = [
+    `${entries[0]?.timestamp ?? ""}  CORRELATED ACTION  ${shortCorrelationId(correlationId)}`,
+  ];
+  for (const entry of entries) {
+    lines.push(
+      `  ${entry.runtime ?? "runtime"}: ${entry.finalDecision.toUpperCase()} ${entry.outcome}`,
+      `    action: ${entry.action}`,
+      `    semantic: ${entry.semanticMeaning}`,
+      `    blast radius: ${entry.blastRadius.score ?? "n/a"} (${entry.blastRadius.reason ?? "n/a"})`,
+      `    targets: ${entry.blastRadius.targets}`,
+      `    memory: ${summaryFromMemoryMatches(entry.memoryMatches)}`,
+    );
+  }
+  return lines.join("\n");
+}
+
+function formatReplayEntry(entry: ReplayEntry): string {
+  const runtime = entry.runtime ? `  ${entry.runtime}` : "";
+  const lines = [
+    `${entry.timestamp}  ${entry.finalDecision.toUpperCase()}  ${entry.outcome}${runtime}`,
+    `  action: ${entry.action}`,
+    `  semantic: ${entry.semanticMeaning}`,
+    `  blast radius: ${entry.blastRadius.score ?? "n/a"} (${entry.blastRadius.reason ?? "n/a"})`,
+    `  targets: ${entry.blastRadius.targets}`,
+    `  memory: ${summaryFromMemoryMatches(entry.memoryMatches)}`,
+  ];
+  if (entry.commandCorrelationId) {
+    lines.splice(1, 0, `  correlation: ${shortCorrelationId(entry.commandCorrelationId)}`);
+  }
+  return lines.join("\n");
+}
+
+function shortCorrelationId(value: string | undefined): string {
+  return value ? value.slice(0, 12) : "";
 }
 
 function formatMemoryMatches(matches: MemoryMatch[]): string {
