@@ -10,7 +10,7 @@ import { Ledger } from "./ledger.js";
 import { MemoryEngine } from "./memory.js";
 import { inspectAction, inspectPolicies, runRuntime } from "./runtime.js";
 import { defaultPolicies } from "./policy.js";
-import { interceptShim, launchGovernedSession } from "./shell.js";
+import { interceptHook, interceptShim, launchGovernedSession } from "./shell.js";
 import type { Decision } from "./types.js";
 
 function printUsage(): void {
@@ -354,6 +354,16 @@ async function main(): Promise<number> {
     }
     const toolArgs = args.slice(2);
     return interceptShim(tool, toolArgs);
+  }
+
+  if (command === "_hook") {
+    const shell = args[1];
+    const commandLine = args.slice(2).join(" ");
+    if (!shell || !commandLine) {
+      console.error("Missing hook shell or command line.");
+      return 126;
+    }
+    return await interceptHook(shell, commandLine);
   }
 
   printUsage();

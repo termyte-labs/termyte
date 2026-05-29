@@ -23,15 +23,20 @@ export function formatTable(rows: Array<Record<string, string | number | null>>)
 
 export function formatLedger(records: RuntimeRecord[]): string {
   return formatTable(
-    records.map((record) => ({
-      id: record.id,
-      createdAt: record.createdAt,
-      decision: record.decision,
-      status: record.status,
-      semanticId: record.semanticId,
-      command: record.redactedCommand,
-      reason: record.riskReason ?? "",
-    })),
+    records.map((record) => {
+      const metadata = safeParseMetadata(record.metadataJson);
+      return {
+        id: record.id,
+        createdAt: record.createdAt,
+        decision: record.decision,
+        status: record.status,
+        exit: record.exitCode,
+        runtime: metadata.runtime ?? "",
+        semanticId: record.semanticId,
+        command: record.redactedCommand,
+        reason: metadata.recoveryReason ?? record.riskReason ?? "",
+      };
+    }),
   );
 }
 
@@ -49,6 +54,9 @@ function safeParseMetadata(metadataJson: string | null | undefined): {
   targets?: { expandedTargets?: string[]; targetCount?: number };
   risk?: { score?: number; reason?: string };
   memoryMatches?: MemoryMatch[];
+  runtime?: string;
+  recovered?: boolean;
+  recoveryReason?: string;
 } {
   if (!metadataJson) return {};
   try {
@@ -56,6 +64,9 @@ function safeParseMetadata(metadataJson: string | null | undefined): {
       targets?: { expandedTargets?: string[]; targetCount?: number };
       risk?: { score?: number; reason?: string };
       memoryMatches?: MemoryMatch[];
+      runtime?: string;
+      recovered?: boolean;
+      recoveryReason?: string;
     };
   } catch {
     return {};
@@ -85,7 +96,14 @@ export function replayEntries(records: RuntimeRecord[]): ReplayEntry[] {
       },
       memoryMatches,
       finalDecision: record.decision,
-      outcome: record.status === "executed" ? `executed (exit ${record.exitCode ?? 0})` : record.status,
+      outcome:
+        record.status === "executed"
+          ? `executed (exit ${record.exitCode ?? 0})`
+          : record.status === "failed"
+            ? metadata.recovered && metadata.recoveryReason
+              ? `failed (recovered: ${metadata.recoveryReason})`
+              : `failed (exit ${record.exitCode ?? "n/a"})`
+            : record.status,
     };
   });
 }

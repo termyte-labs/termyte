@@ -6,14 +6,25 @@ import path from "node:path";
 import { once } from "node:events";
 import {
   buildGuardCommand,
+  buildBashHookScript,
+  buildPowerShellHookScript,
   buildSessionEnv,
   buildUnixShimScript,
   buildWindowsShimScript,
+  buildZshHookScript,
   createGovernedSession,
+  handleGuardFinalizeRequest,
+  handleGuardHeartbeatRequest,
+  handleGuardHookRequest,
   handleGuardRequest,
+  interceptHook,
+  recoverStaleShimExecutions,
   resolveRealExecutable,
   startGuardDaemon,
 } from "../src/shell.js";
+import { openDatabase } from "../src/db.js";
+import { Ledger } from "../src/ledger.js";
+import { formatLedger, formatReplay, replayEntries } from "../src/format.js";
 
 async function request(socketPath: string, payload: unknown): Promise<Record<string, unknown>> {
   return await new Promise((resolve, reject) => {
@@ -36,6 +47,28 @@ async function request(socketPath: string, payload: unknown): Promise<Record<str
     });
     socket.on("error", reject);
   });
+}
+
+function agePendingRecord(dbPath: string, ledgerId: number, startedAt: string, heartbeatAt: string | null = startedAt): void {
+  const ctx = openDatabase(dbPath);
+  const record = new Ledger(ctx.db).getById(ledgerId);
+  const metadata = JSON.parse(record?.metadataJson ?? "{}") as Record<string, unknown>;
+  const nextMetadata = { ...metadata, startedAt, lastHeartbeatAt: heartbeatAt };
+  if (heartbeatAt === null) {
+    delete nextMetadata.lastHeartbeatAt;
+  }
+  ctx.db
+    .prepare("UPDATE ledger SET created_at = ?, metadata_json = ? WHERE id = ?")
+    .run(startedAt, JSON.stringify(nextMetadata), ledgerId);
+}
+
+function updatePendingMetadata(dbPath: string, ledgerId: number, values: Record<string, unknown>): void {
+  const ctx = openDatabase(dbPath);
+  const record = new Ledger(ctx.db).getById(ledgerId);
+  const metadata = JSON.parse(record?.metadataJson ?? "{}") as Record<string, unknown>;
+  ctx.db
+    .prepare("UPDATE ledger SET metadata_json = ? WHERE id = ?")
+    .run(JSON.stringify({ ...metadata, ...values }), ledgerId);
 }
 
 describe("governed shell runtime", () => {
@@ -66,6 +99,32 @@ describe("governed shell runtime", () => {
     expect(script).toContain('"%TERMYTE_NODE%" "%TERMYTE_CLI_PATH%" _shim git %*');
   });
 
+  it("generates bash hook code that blocks failed guard decisions before dispatch", () => {
+    const script = buildBashHookScript();
+
+    expect(script).toContain("trap '__termyte_preexec' DEBUG");
+    expect(script).toContain("_hook bash");
+    expect(script).toContain("return 1");
+    expect(script).toContain("TERMYTE_HOOK_ACTIVE");
+  });
+
+  it("generates zsh hook code that blocks failed guard decisions before dispatch", () => {
+    const script = buildZshHookScript();
+
+    expect(script).toContain("TRAPDEBUG()");
+    expect(script).toContain("_hook zsh");
+    expect(script).toContain("return 1");
+    expect(script).toContain("TERMYTE_HOOK_ACTIVE");
+  });
+
+  it("generates PowerShell hook code that blocks failed guard decisions before dispatch", () => {
+    const script = buildPowerShellHookScript();
+
+    expect(script).toContain("Set-PSReadLineOption -CommandValidationHandler");
+    expect(script).toContain("_hook powershell");
+    expect(script).toContain("throw \"Termyte blocked shell command before dispatch.\"");
+  });
+
   it("blocks guard requests from the wrong session id", () => {
     const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-shell-"));
     const session = createGovernedSession(workspaceRoot);
@@ -91,6 +150,499 @@ describe("governed shell runtime", () => {
 
     expect(response.decision).toBe("block");
     expect(response.semanticId).toBe("filesystem.delete.recursive.force.wildcard");
+  });
+
+  it("blocks destructive shell-hook lines and records them separately from shims", () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-hook-block-"));
+    fs.writeFileSync(path.join(workspaceRoot, "package.json"), "{}", "utf8");
+    const session = createGovernedSession(workspaceRoot);
+    const response = handleGuardHookRequest(session, {
+      type: "hook",
+      sessionId: session.sessionId,
+      shell: "bash",
+      commandLine: "rm -rf *",
+      cwd: workspaceRoot,
+    });
+    const record = new Ledger(openDatabase(session.dbPath).db).getById(response.ledgerId ?? 0);
+    const metadata = JSON.parse(record?.metadataJson ?? "{}") as Record<string, unknown>;
+
+    expect(response.decision).toBe("block");
+    expect(record?.status).toBe("blocked");
+    expect(record?.decision).toBe("block");
+    expect(metadata.runtime).toBe("shell-hook");
+    expect(metadata.hookRuntime).toBe(true);
+    expect(metadata.shell).toBe("bash");
+    expect(metadata.commandLine).toBe("rm -rf *");
+    expect(metadata.sessionId).toBe(session.sessionId);
+    expect(metadata.workspaceRoot).toBe(session.workspaceRoot);
+  });
+
+  it("records allowed shell-hook lines", () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-hook-allow-"));
+    const session = createGovernedSession(workspaceRoot);
+    const response = handleGuardHookRequest(session, {
+      type: "hook",
+      sessionId: session.sessionId,
+      shell: "zsh",
+      commandLine: "echo hello",
+      cwd: workspaceRoot,
+    });
+    const record = new Ledger(openDatabase(session.dbPath).db).getById(response.ledgerId ?? 0);
+    const metadata = JSON.parse(record?.metadataJson ?? "{}") as Record<string, unknown>;
+
+    expect(response.decision).toBe("allow");
+    expect(record?.status).toBe("executed");
+    expect(record?.exitCode).toBe(0);
+    expect(metadata.runtime).toBe("shell-hook");
+    expect(metadata.hookRuntime).toBe(true);
+    expect(metadata.shell).toBe("zsh");
+  });
+
+  it("fails closed when shell hook cannot reach the guard daemon", async () => {
+    const originalSessionId = process.env.TERMYTE_SESSION_ID;
+    const originalSocket = process.env.TERMYTE_GUARD_SOCKET;
+    process.env.TERMYTE_SESSION_ID = "missing-session";
+    process.env.TERMYTE_GUARD_SOCKET = process.platform === "win32"
+      ? "\\\\.\\pipe\\termyte-missing-session"
+      : path.join(os.tmpdir(), "termyte-missing-session.sock");
+
+    try {
+      await expect(interceptHook("bash", "echo hello")).resolves.toBe(126);
+    } finally {
+      if (originalSessionId === undefined) {
+        delete process.env.TERMYTE_SESSION_ID;
+      } else {
+        process.env.TERMYTE_SESSION_ID = originalSessionId;
+      }
+      if (originalSocket === undefined) {
+        delete process.env.TERMYTE_GUARD_SOCKET;
+      } else {
+        process.env.TERMYTE_GUARD_SOCKET = originalSocket;
+      }
+    }
+  });
+
+  it("distinguishes shell-hook and shell-shim executions in logs and replay", () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-hook-format-"));
+    const session = createGovernedSession(workspaceRoot);
+    handleGuardHookRequest(session, {
+      type: "hook",
+      sessionId: session.sessionId,
+      shell: "powershell",
+      commandLine: "echo hello",
+      cwd: workspaceRoot,
+    });
+    const pending = new Map();
+    const shim = handleGuardRequest(session, {
+      sessionId: session.sessionId,
+      command: "node -e \"process.exit(0)\"",
+      cwd: workspaceRoot,
+      tool: "node",
+      argv: ["-e", "process.exit(0)"],
+    }, pending);
+    handleGuardFinalizeRequest(session, {
+      type: "finalize",
+      sessionId: session.sessionId,
+      ledgerId: shim.ledgerId,
+      tool: "node",
+      argv: ["-e", "process.exit(0)"],
+      executablePath: process.execPath,
+      outcome: {
+        status: "executed",
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+        durationMs: 1,
+      },
+    }, pending);
+
+    const ledger = new Ledger(openDatabase(session.dbPath).db);
+    const logs = formatLedger(ledger.listLatest());
+    const replay = formatReplay(ledger.replay());
+
+    expect(logs).toContain("shell-hook");
+    expect(logs).toContain("shell-shim");
+    expect(replay).toContain("echo hello");
+    expect(replay).toContain("node -e \"process.exit(0)\"");
+  });
+
+  it("records blocked shim decisions as finalized ledger entries", () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-shell-"));
+    fs.writeFileSync(path.join(workspaceRoot, "package.json"), "{}", "utf8");
+    const session = createGovernedSession(workspaceRoot);
+    const response = handleGuardRequest(session, {
+      sessionId: session.sessionId,
+      command: "rm -rf *",
+      cwd: workspaceRoot,
+      tool: "rm",
+      argv: ["-rf", "*"],
+    });
+    const ledger = new Ledger(openDatabase(session.dbPath).db);
+    const record = ledger.getById(response.ledgerId ?? 0);
+    const metadata = JSON.parse(record?.metadataJson ?? "{}") as Record<string, unknown>;
+
+    expect(record?.decision).toBe("block");
+    expect(record?.status).toBe("blocked");
+    expect(record?.semanticId).toBe("filesystem.delete.recursive.force.wildcard");
+    expect(metadata.sessionId).toBe(session.sessionId);
+    expect(metadata.shimRuntime).toBe(true);
+  });
+
+  it("records allowed shim executions after finalization", () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-shell-"));
+    const session = createGovernedSession(workspaceRoot);
+    const pending = new Map();
+    const response = handleGuardRequest(session, {
+      sessionId: session.sessionId,
+      command: "node -e \"console.log(1)\"",
+      cwd: workspaceRoot,
+      tool: "node",
+      argv: ["-e", "console.log(1)"],
+    }, pending);
+
+    handleGuardFinalizeRequest(session, {
+      type: "finalize",
+      sessionId: session.sessionId,
+      ledgerId: response.ledgerId,
+      tool: "node",
+      argv: ["-e", "console.log(1)"],
+      executablePath: process.execPath,
+      outcome: {
+        status: "executed",
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+        durationMs: 12,
+      },
+    }, pending);
+
+    const ledger = new Ledger(openDatabase(session.dbPath).db);
+    const record = ledger.getById(response.ledgerId ?? 0);
+    const metadata = JSON.parse(record?.metadataJson ?? "{}") as { argv?: string[]; sessionId?: string; shimRuntime?: boolean; executablePath?: string };
+
+    expect(record?.decision).toBe("allow");
+    expect(record?.status).toBe("executed");
+    expect(record?.exitCode).toBe(0);
+    expect(metadata.argv).toEqual(["-e", "console.log(1)"]);
+    expect(metadata.sessionId).toBe(session.sessionId);
+    expect(metadata.shimRuntime).toBe(true);
+    expect(metadata.executablePath).toBe(process.execPath);
+  });
+
+  it("records failed executable resolution as a finalized failed ledger entry", () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-shell-"));
+    const session = createGovernedSession(workspaceRoot);
+    const pending = new Map();
+    const response = handleGuardRequest(session, {
+      sessionId: session.sessionId,
+      command: "docker ps",
+      cwd: workspaceRoot,
+      tool: "docker",
+      argv: ["ps"],
+    }, pending);
+    const message = "Termyte could not resolve the real executable for docker.";
+
+    handleGuardFinalizeRequest(session, {
+      type: "finalize",
+      sessionId: session.sessionId,
+      ledgerId: response.ledgerId,
+      tool: "docker",
+      argv: ["ps"],
+      executablePath: null,
+      errorMessage: message,
+      outcome: {
+        status: "failed",
+        exitCode: 127,
+        stdout: "",
+        stderr: `${message}\n`,
+        durationMs: 0,
+        errorMessage: message,
+      },
+    }, pending);
+
+    const record = new Ledger(openDatabase(session.dbPath).db).getById(response.ledgerId ?? 0);
+    const metadata = JSON.parse(record?.metadataJson ?? "{}") as { executionError?: string; executablePath?: string | null };
+
+    expect(record?.status).toBe("failed");
+    expect(record?.exitCode).toBe(127);
+    expect(metadata.executionError).toBe(message);
+    expect(metadata.executablePath).toBeNull();
+  });
+
+  it("records child non-zero exit codes and exposes shimmed executions in replay data", () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-shell-"));
+    const session = createGovernedSession(workspaceRoot);
+    const pending = new Map();
+    const response = handleGuardRequest(session, {
+      sessionId: session.sessionId,
+      command: "node -e \"process.exit(7)\"",
+      cwd: workspaceRoot,
+      tool: "node",
+      argv: ["-e", "process.exit(7)"],
+    }, pending);
+
+    handleGuardFinalizeRequest(session, {
+      type: "finalize",
+      sessionId: session.sessionId,
+      ledgerId: response.ledgerId,
+      tool: "node",
+      argv: ["-e", "process.exit(7)"],
+      executablePath: process.execPath,
+      outcome: {
+        status: "failed",
+        exitCode: 7,
+        stdout: "",
+        stderr: "",
+        durationMs: 5,
+      },
+    }, pending);
+
+    const ledger = new Ledger(openDatabase(session.dbPath).db);
+    const record = ledger.getById(response.ledgerId ?? 0);
+    const replay = replayEntries(ledger.replay());
+    const metadata = JSON.parse(record?.metadataJson ?? "{}") as { argv?: string[]; runtime?: string; shimRuntime?: boolean };
+
+    expect(record?.status).toBe("failed");
+    expect(record?.exitCode).toBe(7);
+    expect(metadata.argv).toEqual(["-e", "process.exit(7)"]);
+    expect(metadata.runtime).toBe("shell-shim");
+    expect(metadata.shimRuntime).toBe(true);
+    expect(replay.at(-1)?.outcome).toBe("failed (exit 7)");
+    expect(replay.at(-1)?.semanticMeaning).toBe("shell.generic");
+  });
+
+  it("recovers stale pending shell-shim entries after a simulated daemon crash", () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-recover-"));
+    const crashedSession = createGovernedSession(workspaceRoot);
+    const response = handleGuardRequest(crashedSession, {
+      sessionId: crashedSession.sessionId,
+      command: "node -e \"process.exit(7)\"",
+      cwd: workspaceRoot,
+      tool: "node",
+      argv: ["-e", "process.exit(7)"],
+    });
+    const oldStartedAt = new Date(Date.now() - 120_000).toISOString();
+    agePendingRecord(crashedSession.dbPath, response.ledgerId ?? 0, oldStartedAt, null);
+
+    const newSession = createGovernedSession(workspaceRoot);
+    const recovered = recoverStaleShimExecutions(newSession, 60_000, new Date());
+    const record = new Ledger(openDatabase(newSession.dbPath).db).getById(response.ledgerId ?? 0);
+    const metadata = JSON.parse(record?.metadataJson ?? "{}") as Record<string, unknown>;
+
+    expect(recovered).toBe(1);
+    expect(record?.status).toBe("failed");
+    expect(record?.stderr).toContain("guard_daemon_terminated_before_finalize");
+    expect(metadata.sessionId).toBe(crashedSession.sessionId);
+    expect(metadata.startedAt).toBe(oldStartedAt);
+    expect(metadata.endedAt).toBeTypeOf("string");
+    expect(metadata.durationMs).toBeTypeOf("number");
+    expect(metadata.executionError).toBe("guard_daemon_terminated_before_finalize");
+    expect(metadata.recovered).toBe(true);
+  });
+
+  it("does not recover active pending shell-shim entries before the stale timeout", () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-recover-active-"));
+    const oldSession = createGovernedSession(workspaceRoot);
+    const response = handleGuardRequest(oldSession, {
+      sessionId: oldSession.sessionId,
+      command: "node -e \"setTimeout(() => {}, 1000)\"",
+      cwd: workspaceRoot,
+      tool: "node",
+      argv: ["-e", "setTimeout(() => {}, 1000)"],
+    });
+    const startedAt = new Date(Date.now() - 1_000).toISOString();
+    agePendingRecord(oldSession.dbPath, response.ledgerId ?? 0, startedAt);
+
+    const newSession = createGovernedSession(workspaceRoot);
+    const recovered = recoverStaleShimExecutions(newSession, 60_000, new Date());
+    const record = new Ledger(openDatabase(newSession.dbPath).db).getById(response.ledgerId ?? 0);
+
+    expect(recovered).toBe(0);
+    expect(record?.status).toBe("planned");
+    expect(record?.decision).toBe("pending");
+  });
+
+  it("does not recover long-running shell-shim entries while the heartbeat is fresh", () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-recover-heartbeat-fresh-"));
+    const oldSession = createGovernedSession(workspaceRoot);
+    const response = handleGuardRequest(oldSession, {
+      sessionId: oldSession.sessionId,
+      command: "node -e \"setTimeout(() => {}, 65000)\"",
+      cwd: workspaceRoot,
+      tool: "node",
+      argv: ["-e", "setTimeout(() => {}, 65000)"],
+    });
+    const startedAt = new Date(Date.now() - 120_000).toISOString();
+    const freshHeartbeatAt = new Date(Date.now() - 2_000).toISOString();
+    agePendingRecord(oldSession.dbPath, response.ledgerId ?? 0, startedAt);
+    updatePendingMetadata(oldSession.dbPath, response.ledgerId ?? 0, {
+      pid: 12345,
+      lastHeartbeatAt: freshHeartbeatAt,
+      heartbeatIntervalMs: 5_000,
+    });
+
+    const newSession = createGovernedSession(workspaceRoot);
+    const recovered = recoverStaleShimExecutions(newSession, 60_000, new Date());
+    const record = new Ledger(openDatabase(newSession.dbPath).db).getById(response.ledgerId ?? 0);
+
+    expect(recovered).toBe(0);
+    expect(record?.status).toBe("planned");
+    expect(record?.decision).toBe("pending");
+  });
+
+  it("recovers shell-shim entries with stale heartbeat metadata as abandoned", () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-recover-heartbeat-stale-"));
+    const oldSession = createGovernedSession(workspaceRoot);
+    const response = handleGuardRequest(oldSession, {
+      sessionId: oldSession.sessionId,
+      command: "node -e \"setTimeout(() => {}, 65000)\"",
+      cwd: workspaceRoot,
+      tool: "node",
+      argv: ["-e", "setTimeout(() => {}, 65000)"],
+    });
+    const startedAt = new Date(Date.now() - 180_000).toISOString();
+    const staleHeartbeatAt = new Date(Date.now() - 120_000).toISOString();
+    agePendingRecord(oldSession.dbPath, response.ledgerId ?? 0, startedAt);
+    updatePendingMetadata(oldSession.dbPath, response.ledgerId ?? 0, {
+      pid: 12345,
+      lastHeartbeatAt: staleHeartbeatAt,
+      heartbeatIntervalMs: 5_000,
+    });
+
+    const newSession = createGovernedSession(workspaceRoot);
+    const recovered = recoverStaleShimExecutions(newSession, 60_000, new Date());
+    const record = new Ledger(openDatabase(newSession.dbPath).db).getById(response.ledgerId ?? 0);
+    const metadata = JSON.parse(record?.metadataJson ?? "{}") as Record<string, unknown>;
+
+    expect(recovered).toBe(1);
+    expect(record?.status).toBe("failed");
+    expect(record?.stderr).toContain("shell_shim_heartbeat_stale_before_finalize");
+    expect(metadata.lastHeartbeatAt).toBe(staleHeartbeatAt);
+    expect(metadata.executionError).toBe("shell_shim_heartbeat_stale_before_finalize");
+    expect(metadata.recovered).toBe(true);
+  });
+
+  it("ignores late heartbeat updates after a shell-shim command is finalized", () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-heartbeat-finalized-"));
+    const session = createGovernedSession(workspaceRoot);
+    const pending = new Map();
+    const response = handleGuardRequest(session, {
+      sessionId: session.sessionId,
+      command: "node -e \"process.exit(0)\"",
+      cwd: workspaceRoot,
+      tool: "node",
+      argv: ["-e", "process.exit(0)"],
+    }, pending);
+
+    handleGuardFinalizeRequest(session, {
+      type: "finalize",
+      sessionId: session.sessionId,
+      ledgerId: response.ledgerId,
+      tool: "node",
+      argv: ["-e", "process.exit(0)"],
+      executablePath: process.execPath,
+      outcome: {
+        status: "executed",
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+        durationMs: 1,
+      },
+    }, pending);
+
+    const heartbeat = handleGuardHeartbeatRequest(session, {
+      type: "heartbeat",
+      sessionId: session.sessionId,
+      ledgerId: response.ledgerId,
+      pid: 12345,
+      lastHeartbeatAt: new Date().toISOString(),
+      heartbeatIntervalMs: 5_000,
+    });
+    const record = new Ledger(openDatabase(session.dbPath).db).getById(response.ledgerId ?? 0);
+
+    expect(heartbeat.decision).toBe("block");
+    expect(record?.status).toBe("executed");
+    expect(record?.decision).toBe("allow");
+  });
+
+  it("does not recover pending entries from unrelated workspaces or the active session", () => {
+    const workspaceA = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-recover-a-"));
+    const workspaceB = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-recover-b-"));
+    const sessionA = createGovernedSession(workspaceA);
+    const sessionB = createGovernedSession(workspaceB);
+    const responseA = handleGuardRequest(sessionA, {
+      sessionId: sessionA.sessionId,
+      command: "node -e \"process.exit(7)\"",
+      cwd: workspaceA,
+      tool: "node",
+      argv: ["-e", "process.exit(7)"],
+    });
+    const responseB = handleGuardRequest(sessionB, {
+      sessionId: sessionB.sessionId,
+      command: "node -e \"process.exit(7)\"",
+      cwd: workspaceB,
+      tool: "node",
+      argv: ["-e", "process.exit(7)"],
+    });
+    const oldStartedAt = new Date(Date.now() - 120_000).toISOString();
+    agePendingRecord(sessionA.dbPath, responseA.ledgerId ?? 0, oldStartedAt);
+    agePendingRecord(sessionB.dbPath, responseB.ledgerId ?? 0, oldStartedAt);
+
+    const recovered = recoverStaleShimExecutions(sessionA, 60_000, new Date());
+    const recordA = new Ledger(openDatabase(sessionA.dbPath).db).getById(responseA.ledgerId ?? 0);
+    const recordB = new Ledger(openDatabase(sessionB.dbPath).db).getById(responseB.ledgerId ?? 0);
+
+    expect(recovered).toBe(0);
+    expect(recordA?.status).toBe("planned");
+    expect(recordB?.status).toBe("planned");
+  });
+
+  it("shows recovered shim entries in replay data", () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-recover-replay-"));
+    const crashedSession = createGovernedSession(workspaceRoot);
+    const response = handleGuardRequest(crashedSession, {
+      sessionId: crashedSession.sessionId,
+      command: "node -e \"process.exit(7)\"",
+      cwd: workspaceRoot,
+      tool: "node",
+      argv: ["-e", "process.exit(7)"],
+    });
+    agePendingRecord(crashedSession.dbPath, response.ledgerId ?? 0, new Date(Date.now() - 120_000).toISOString());
+
+    const newSession = createGovernedSession(workspaceRoot);
+    recoverStaleShimExecutions(newSession, 60_000, new Date());
+    const ledger = new Ledger(openDatabase(newSession.dbPath).db);
+    const replay = replayEntries(ledger.replay());
+
+    expect(replay.at(-1)?.outcome).toBe("failed (recovered: shell_shim_heartbeat_stale_before_finalize)");
+    expect(replay.at(-1)?.action).toBe("node -e \"process.exit(7)\"");
+  });
+
+  it("shows heartbeat recovery clearly in logs and replay text", () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-recover-format-"));
+    const crashedSession = createGovernedSession(workspaceRoot);
+    const response = handleGuardRequest(crashedSession, {
+      sessionId: crashedSession.sessionId,
+      command: "node -e \"process.exit(7)\"",
+      cwd: workspaceRoot,
+      tool: "node",
+      argv: ["-e", "process.exit(7)"],
+    });
+    agePendingRecord(crashedSession.dbPath, response.ledgerId ?? 0, new Date(Date.now() - 180_000).toISOString());
+    updatePendingMetadata(crashedSession.dbPath, response.ledgerId ?? 0, {
+      lastHeartbeatAt: new Date(Date.now() - 120_000).toISOString(),
+      heartbeatIntervalMs: 5_000,
+      pid: 12345,
+    });
+
+    const newSession = createGovernedSession(workspaceRoot);
+    recoverStaleShimExecutions(newSession, 60_000, new Date());
+    const ledger = new Ledger(openDatabase(newSession.dbPath).db);
+    const logs = formatLedger(ledger.listLatest());
+    const replay = formatReplay(ledger.replay());
+
+    expect(logs).toContain("shell_shim_heartbeat_stale_before_finalize");
+    expect(replay).toContain("failed (recovered: shell_shim_heartbeat_stale_before_finalize)");
   });
 
   it("quotes shim commands without merging whitespace-sensitive arguments", () => {
