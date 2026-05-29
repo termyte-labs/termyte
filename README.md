@@ -12,7 +12,7 @@ npm install -g termyte
 
 ## Governed Shell
 
-Use `termyte shell` when you want Termyte to own the session and intercept child commands automatically.
+Use `termyte shell` when you want Termyte to own the session and intercept child commands automatically. This runtime is alpha: it is useful for coding-agent sessions, but it is not an OS sandbox.
 
 ```bash
 termyte shell
@@ -21,7 +21,7 @@ termyte shell -- claude
 termyte shell -- aider
 ```
 
-The shell runtime is local-first and works on macOS, Linux, and Windows. It prepends Termyte shims to `PATH`, exports session metadata, and keeps subprocesses inside the governed session.
+The shell runtime is local-first and works on macOS, Linux, and Windows. It prepends Termyte shims to `PATH`, exports session metadata, and keeps subprocesses inside the governed session. Interactive shell hooks currently cover bash, zsh, and PowerShell; subprocess interception is handled by PATH shims.
 
 ## 30-Second Demo
 
@@ -151,6 +151,7 @@ termyte replay
 - No cloud dependency
 - No remote execution service
 - Secrets are redacted before ledger persistence
+- `termyte shell` is not an OS sandbox; absolute paths, direct syscalls, or processes that do not inherit the governed environment can bypass the alpha runtime boundary
 
 ## FAQ
 
@@ -188,4 +189,5 @@ Termyte fails closed when it cannot safely evaluate the risk.
 - Current benchmark accuracy: 100%
 - False negatives: 0
 - False positives: 0
-- Architecture is intentionally frozen for v0.1 launch cleanup
+- Governance core is intentionally frozen for launch cleanup
+- Shell-owned runtime is alpha and should be treated as a guardrail, not a sandbox

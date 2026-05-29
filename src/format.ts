@@ -58,6 +58,7 @@ function safeParseMetadata(metadataJson: string | null | undefined): {
   runtime?: string;
   recovered?: boolean;
   recoveryReason?: string;
+  executionError?: string;
   commandCorrelationId?: string;
 } {
   if (!metadataJson) return {};
@@ -69,6 +70,7 @@ function safeParseMetadata(metadataJson: string | null | undefined): {
       runtime?: string;
       recovered?: boolean;
       recoveryReason?: string;
+      executionError?: string;
       commandCorrelationId?: string;
     };
   } catch {
@@ -107,6 +109,8 @@ export function replayEntries(records: RuntimeRecord[]): ReplayEntry[] {
           : record.status === "failed"
             ? metadata.recovered && metadata.recoveryReason
               ? `failed (recovered: ${metadata.recoveryReason})`
+              : metadata.executionError
+                ? `failed (${metadata.executionError})`
               : `failed (exit ${record.exitCode ?? "n/a"})`
             : record.status,
     };

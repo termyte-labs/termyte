@@ -21,6 +21,7 @@ import {
   recoverStaleShimExecutions,
   resolveRealExecutable,
   startGuardDaemon,
+  verifyShimManifest,
 } from "../src/shell.js";
 import { openDatabase } from "../src/db.js";
 import { Ledger } from "../src/ledger.js";
@@ -71,6 +72,10 @@ function updatePendingMetadata(dbPath: string, ledgerId: number, values: Record<
     .run(JSON.stringify({ ...metadata, ...values }), ledgerId);
 }
 
+function testShimPath(shimDir: string, tool: string): string {
+  return process.platform === "win32" ? path.join(shimDir, `${tool}.cmd`) : path.join(shimDir, tool);
+}
+
 describe("governed shell runtime", () => {
   it("builds a governed session environment with shimmed PATH", () => {
     const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-shell-"));
@@ -97,6 +102,104 @@ describe("governed shell runtime", () => {
 
     expect(script).toContain('exit /b 126');
     expect(script).toContain('"%TERMYTE_NODE%" "%TERMYTE_CLI_PATH%" _shim git %*');
+  });
+
+  it("verifies untouched session shims against the generated manifest", () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-shim-manifest-"));
+    const session = createGovernedSession(workspaceRoot);
+    const result = verifyShimManifest(session, "git");
+    const manifest = JSON.parse(fs.readFileSync(session.shimManifestPath, "utf8")) as { entries: Array<{ name: string; path: string; sha256: string; size: number; createdAt: string; platform: string }> };
+    const git = manifest.entries.find((entry) => entry.name === "git");
+
+    expect(result.ok).toBe(true);
+    expect(git?.path).toBe(testShimPath(session.shimDir, "git"));
+    expect(git?.sha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(git?.size).toBeGreaterThan(0);
+    expect(git?.createdAt).toBeTypeOf("string");
+    expect(git?.platform).toBe(process.platform);
+  });
+
+  it("rejects modified shim content before execution", () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-shim-modified-"));
+    const session = createGovernedSession(workspaceRoot);
+    fs.appendFileSync(testShimPath(session.shimDir, "git"), "\nREM tampered\n", "utf8");
+
+    const response = handleGuardRequest(session, {
+      sessionId: session.sessionId,
+      command: "git --version",
+      cwd: workspaceRoot,
+      tool: "git",
+      argv: ["--version"],
+    });
+    const record = new Ledger(openDatabase(session.dbPath).db).getById(response.ledgerId ?? 0);
+    const metadata = JSON.parse(record?.metadataJson ?? "{}") as Record<string, unknown>;
+
+    expect(response.decision).toBe("block");
+    expect(response.reason).toContain("shim_tamper_detected");
+    expect(record?.status).toBe("failed");
+    expect(metadata.executionError).toBe("shim_tamper_detected");
+    expect(String(metadata.tamperReasons)).toContain("git");
+  });
+
+  it("detects missing shim files", () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-shim-missing-"));
+    const session = createGovernedSession(workspaceRoot);
+    fs.rmSync(testShimPath(session.shimDir, "git"), { force: true });
+
+    const result = verifyShimManifest(session, "git");
+
+    expect(result.ok).toBe(false);
+    expect(result.reasons.join("; ")).toContain("shim missing: git");
+  });
+
+  it("detects unexpected executable files in the shim directory", () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-shim-extra-"));
+    const session = createGovernedSession(workspaceRoot);
+    const extra = process.platform === "win32" ? path.join(session.shimDir, "evil.cmd") : path.join(session.shimDir, "evil");
+    fs.writeFileSync(extra, "echo evil", "utf8");
+    if (process.platform !== "win32") {
+      fs.chmodSync(extra, 0o755);
+    }
+
+    const result = verifyShimManifest(session, "git");
+
+    expect(result.ok).toBe(false);
+    expect(result.reasons.join("; ")).toContain("unexpected executable in shim dir");
+  });
+
+  it("shows shim tamper events in logs and replay", () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-shim-tamper-format-"));
+    const session = createGovernedSession(workspaceRoot);
+    fs.appendFileSync(testShimPath(session.shimDir, "git"), "\nREM tampered\n", "utf8");
+
+    handleGuardRequest(session, {
+      sessionId: session.sessionId,
+      command: "git --version",
+      cwd: workspaceRoot,
+      tool: "git",
+      argv: ["--version"],
+    });
+    const ledger = new Ledger(openDatabase(session.dbPath).db);
+    const logs = formatLedger(ledger.listLatest());
+    const replay = formatReplay(ledger.replay());
+
+    expect(logs).toContain("shim_tamper_detected");
+    expect(replay).toContain("shim_tamper_detected");
+  });
+
+  it("allows normal shim decisions when the manifest is intact", () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-shim-normal-"));
+    const session = createGovernedSession(workspaceRoot);
+    const response = handleGuardRequest(session, {
+      sessionId: session.sessionId,
+      command: "git --version",
+      cwd: workspaceRoot,
+      tool: "git",
+      argv: ["--version"],
+    });
+
+    expect(response.decision).toBe("allow");
+    expect(response.reason).not.toContain("shim_tamper_detected");
   });
 
   it("generates bash hook code that blocks failed guard decisions before dispatch", () => {
@@ -453,10 +556,10 @@ describe("governed shell runtime", () => {
     const session = createGovernedSession(workspaceRoot);
     const response = handleGuardRequest(session, {
       sessionId: session.sessionId,
-      command: "rm -rf *",
+      command: "git push --force origin main",
       cwd: workspaceRoot,
-      tool: "rm",
-      argv: ["-rf", "*"],
+      tool: "git",
+      argv: ["push", "--force", "origin", "main"],
     });
     const ledger = new Ledger(openDatabase(session.dbPath).db);
     const record = ledger.getById(response.ledgerId ?? 0);
@@ -464,7 +567,7 @@ describe("governed shell runtime", () => {
 
     expect(record?.decision).toBe("block");
     expect(record?.status).toBe("blocked");
-    expect(record?.semanticId).toBe("filesystem.delete.recursive.force.wildcard");
+    expect(record?.semanticId).toBe("git.push.force");
     expect(metadata.sessionId).toBe(session.sessionId);
     expect(metadata.shimRuntime).toBe(true);
   });

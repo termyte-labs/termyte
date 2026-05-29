@@ -45,7 +45,7 @@ function commandAfterDoubleDash(args: string[]): string {
 
 function argsAfterDoubleDash(args: string[]): string[] {
   const separatorIndex = args.indexOf("--");
-  return separatorIndex >= 0 ? args.slice(separatorIndex + 1) : [];
+  return separatorIndex >= 0 ? args.slice(separatorIndex + 1) : args.slice(1);
 }
 
 function decisionRank(decision: Decision): number {

@@ -22,6 +22,7 @@ export interface GovernedSession {
   cliPath: string;
   nodePath: string;
   originalPath: string;
+  shimManifestPath: string;
 }
 
 export interface GuardResponse {
@@ -37,6 +38,23 @@ export interface GuardResponse {
 const SHIM_TOOLS = ["git", "npm", "pnpm", "yarn", "npx", "node", "sh", "bash", "zsh", "pwsh", "powershell", "cmd", "python", "pip", "docker"];
 const STALE_SHIM_PENDING_MS = 60_000;
 const SHELL_SHIM_HEARTBEAT_INTERVAL_MS = 5_000;
+
+interface ShimManifestEntry {
+  name: string;
+  path: string;
+  sha256: string;
+  size: number;
+  createdAt: string;
+  platform: NodeJS.Platform;
+}
+
+interface ShimManifest {
+  sessionId: string;
+  shimDir: string;
+  createdAt: string;
+  platform: NodeJS.Platform;
+  entries: ShimManifestEntry[];
+}
 
 interface PendingShimExecution {
   action: ParsedAction;
@@ -102,13 +120,17 @@ export function createGovernedSession(workspaceRoot: string): GovernedSession {
   const cliPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "cli.js");
   const nodePath = process.execPath;
   const originalPath = currentPathValue(process.env);
+  const shimManifestPath = path.join(sessionDir, "shim-manifest.json");
   const socketPath =
       process.platform === "win32"
       ? `\\\\.\\pipe\\termyte-${sessionId}`
       : path.join(os.tmpdir(), `termyte-${sessionId}.sock`);
 
   fs.mkdirSync(shimDir, { recursive: true });
-  return { sessionId, workspaceRoot: root, sessionDir, shimDir, socketPath, dbPath, cliPath, nodePath, originalPath };
+  hardenSessionDirectories(sessionDir, shimDir);
+  const session = { sessionId, workspaceRoot: root, sessionDir, shimDir, socketPath, dbPath, cliPath, nodePath, originalPath, shimManifestPath };
+  writeSessionShims(session, SHIM_TOOLS);
+  return session;
 }
 
 export function buildSessionEnv(session: GovernedSession): NodeJS.ProcessEnv {
@@ -126,6 +148,7 @@ export function buildSessionEnv(session: GovernedSession): NodeJS.ProcessEnv {
     TERMYTE_WORKSPACE_ROOT: session.workspaceRoot,
     TERMYTE_CLI_PATH: session.cliPath,
     TERMYTE_NODE: session.nodePath,
+    TERMYTE_SHIM_MANIFEST: session.shimManifestPath,
     ZDOTDIR: session.sessionDir,
   };
 }
@@ -189,6 +212,93 @@ export function writeSessionShims(session: GovernedSession, tools: string[]): vo
       fs.chmodSync(shimPath, 0o755);
     }
   }
+  writeShimManifest(session, tools);
+}
+
+export function writeShimManifest(session: GovernedSession, tools: string[]): ShimManifest {
+  const createdAt = new Date().toISOString();
+  const entries = tools.map((tool) => {
+    const shimPath = expectedShimPath(session, tool);
+    const stat = fs.statSync(shimPath);
+    return {
+      name: tool,
+      path: shimPath,
+      sha256: sha256File(shimPath),
+      size: stat.size,
+      createdAt,
+      platform: process.platform,
+    };
+  });
+  const manifest = {
+    sessionId: session.sessionId,
+    shimDir: session.shimDir,
+    createdAt,
+    platform: process.platform,
+    entries,
+  };
+  fs.writeFileSync(session.shimManifestPath, JSON.stringify(manifest, null, 2), "utf8");
+  if (process.platform !== "win32") {
+    fs.chmodSync(session.shimManifestPath, 0o600);
+  }
+  return manifest;
+}
+
+export function verifyShimManifest(session: GovernedSession, tool?: string): { ok: boolean; reasons: string[] } {
+  const reasons: string[] = [];
+  if (!fs.existsSync(session.shimManifestPath)) {
+    return { ok: false, reasons: ["shim manifest is missing"] };
+  }
+
+  let manifest: ShimManifest;
+  try {
+    manifest = JSON.parse(fs.readFileSync(session.shimManifestPath, "utf8")) as ShimManifest;
+  } catch {
+    return { ok: false, reasons: ["shim manifest is unreadable"] };
+  }
+
+  if (manifest.sessionId !== session.sessionId) {
+    reasons.push("shim manifest session id mismatch");
+  }
+  if (path.resolve(manifest.shimDir) !== path.resolve(session.shimDir)) {
+    reasons.push("shim manifest directory mismatch");
+  }
+
+  const manifestPaths = new Set<string>();
+  const entries = Array.isArray(manifest.entries) ? manifest.entries : [];
+  for (const entry of entries) {
+    const expectedPath = expectedShimPath(session, entry.name);
+    const actualPath = path.resolve(entry.path);
+    manifestPaths.add(actualPath);
+    if (actualPath !== path.resolve(expectedPath)) {
+      reasons.push(`shim path mismatch: ${entry.name}`);
+      continue;
+    }
+    if (!fs.existsSync(actualPath)) {
+      reasons.push(`shim missing: ${entry.name}`);
+      continue;
+    }
+    const stat = fs.statSync(actualPath);
+    const hash = sha256File(actualPath);
+    if (stat.size !== entry.size) {
+      reasons.push(`shim size mismatch: ${entry.name}`);
+    }
+    if (hash !== entry.sha256) {
+      reasons.push(`shim hash mismatch: ${entry.name}`);
+    }
+  }
+
+  if (tool && !entries.some((entry) => entry.name === tool && path.resolve(entry.path) === path.resolve(expectedShimPath(session, tool)))) {
+    reasons.push(`requested shim is not in manifest: ${tool}`);
+  }
+
+  for (const fileName of fs.readdirSync(session.shimDir)) {
+    const fullPath = path.resolve(session.shimDir, fileName);
+    if (!manifestPaths.has(fullPath) && isShimExecutable(fullPath)) {
+      reasons.push(`unexpected executable in shim dir: ${fileName}`);
+    }
+  }
+
+  return { ok: reasons.length === 0, reasons };
 }
 
 export function startGuardDaemon(session: GovernedSession): net.Server {
@@ -299,6 +409,11 @@ export function handleGuardRequest(
     };
   }
 
+  const manifestCheck = verifyShimManifest(session, request.tool);
+  if (!manifestCheck.ok) {
+    return recordShimTamper(session, request, manifestCheck.reasons);
+  }
+
   const cwd = path.resolve(request.cwd ?? session.workspaceRoot);
   const dbContext = openDatabase(session.dbPath);
   const ledger = new Ledger(dbContext.db);
@@ -362,6 +477,68 @@ export function handleGuardRequest(
     sessionId: session.sessionId,
     decision: finalDecision,
     reason: finalReason,
+    semanticId: action.semanticId,
+    redactedCommand: action.redactedCommand,
+    rawCommand: action.rawCommand,
+    ledgerId,
+  };
+}
+
+function recordShimTamper(session: GovernedSession, request: GuardDecisionRequest, reasons: string[]): GuardResponse {
+  const command = request.command ?? buildGuardCommand(request.tool ?? "unknown", request.argv ?? []);
+  const cwd = path.resolve(request.cwd ?? session.workspaceRoot);
+  const dbContext = openDatabase(session.dbPath);
+  const ledger = new Ledger(dbContext.db);
+  const memory = new MemoryEngine(dbContext.db);
+  const report = inspectAction(command, cwd, session.dbPath);
+  const action = report.action;
+  const targets = report.targets;
+  const reason = `shim_tamper_detected: ${reasons.join("; ")}`;
+  const ledgerId = ledger.createPending(action, targets, redactEnvKeys(process.env), {
+    cwd,
+    shell: action.shell,
+    targets,
+    risk: report.risk,
+    policy: report.policy,
+    memoryMatches: report.memoryMatches,
+    finalDecision: "block",
+    runtime: "shell-shim",
+    shimRuntime: true,
+    sessionId: session.sessionId,
+    workspaceRoot: session.workspaceRoot,
+    guardSocket: session.socketPath,
+    tool: request.tool,
+    argv: request.argv ?? [],
+    commandCorrelationId: request.commandCorrelationId,
+    executionError: "shim_tamper_detected",
+    tamperReasons: reasons,
+    startedAt: new Date().toISOString(),
+  });
+  const outcome = {
+    status: "failed" as const,
+    exitCode: 126,
+    stdout: "",
+    stderr: `${reason}\n`,
+    durationMs: 0,
+    errorMessage: "shim_tamper_detected",
+  };
+  ledger.finalize(ledgerId, "block", outcome, report.risk.score, reason, {
+    endedAt: new Date().toISOString(),
+    durationMs: 0,
+    executionError: "shim_tamper_detected",
+    tamperReasons: reasons,
+    executedVia: "shell-shim",
+    runtime: "shell-shim",
+    shimRuntime: true,
+    sessionId: session.sessionId,
+    workspaceRoot: session.workspaceRoot,
+    commandCorrelationId: request.commandCorrelationId,
+  });
+  memory.observe(action, "block", outcome, cwd);
+  return {
+    sessionId: session.sessionId,
+    decision: "block",
+    reason,
     semanticId: action.semanticId,
     redactedCommand: action.redactedCommand,
     rawCommand: action.rawCommand,
@@ -577,14 +754,14 @@ export async function launchGovernedSession(options: {
   agentArgs?: string[];
 }): Promise<number> {
   const session = createGovernedSession(options.workspaceRoot);
-  writeSessionShims(session, SHIM_TOOLS);
   writeShellHooks(session);
   const server = startGuardDaemon(session);
   const env = buildSessionEnv(session);
   const agentArgs = options.agentArgs ?? [];
   const requestedCommand = agentArgs.length > 0 ? agentArgs[0] : detectDefaultShell();
-  const command = resolveSessionLaunchCommand(requestedCommand, session);
-  const args = shellLaunchArgs(requestedCommand, agentArgs.length > 0 ? agentArgs.slice(1) : undefined, session);
+  const explicitArgs = agentArgs.length > 0 ? agentArgs.slice(1) : undefined;
+  const command = resolveSessionLaunchCommand(requestedCommand, session, explicitArgs);
+  const args = shellLaunchArgs(requestedCommand, explicitArgs, session);
   const exitCode = await launchProcess(command, args, env, session.workspaceRoot);
 
   await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -664,7 +841,7 @@ if (Get-Command Set-PSReadLineOption -ErrorAction SilentlyContinue) {
 function shellLaunchArgs(command: string, explicitArgs: string[] | undefined, session: GovernedSession): string[] {
   const normalized = path.basename(command).toLowerCase().replace(/\.(exe|cmd|bat)$/i, "");
   if (explicitArgs && explicitArgs.length > 0) {
-    return injectHookArgs(normalized, explicitArgs, session);
+    return explicitArgs;
   }
   return injectHookArgs(normalized, defaultShellArgs(), session);
 }
@@ -682,17 +859,52 @@ function injectHookArgs(shellName: string, args: string[], session: GovernedSess
   return args;
 }
 
-function resolveSessionLaunchCommand(command: string, session: GovernedSession): string {
+function resolveSessionLaunchCommand(command: string, session: GovernedSession, explicitArgs?: string[]): string {
   if (path.isAbsolute(command) || command.includes(path.sep) || command.includes("/")) {
     return command;
   }
 
   const normalized = command.toLowerCase();
+  if (explicitArgs && explicitArgs.length > 0 && ["sh", "bash", "zsh", "pwsh", "powershell", "cmd"].includes(normalized)) {
+    return resolveRealExecutable(normalized, session.originalPath, session.shimDir) ?? command;
+  }
+
   if (!SHIM_TOOLS.includes(normalized)) {
     return command;
   }
 
   return process.platform === "win32" ? path.join(session.shimDir, `${normalized}.cmd`) : path.join(session.shimDir, normalized);
+}
+
+function expectedShimPath(session: GovernedSession, tool: string): string {
+  return process.platform === "win32" ? path.join(session.shimDir, `${tool}.cmd`) : path.join(session.shimDir, tool);
+}
+
+function hardenSessionDirectories(sessionDir: string, shimDir: string): void {
+  if (process.platform === "win32") {
+    return;
+  }
+  fs.chmodSync(sessionDir, 0o700);
+  fs.chmodSync(shimDir, 0o700);
+}
+
+function sha256File(filePath: string): string {
+  return crypto.createHash("sha256").update(fs.readFileSync(filePath)).digest("hex");
+}
+
+function isShimExecutable(filePath: string): boolean {
+  try {
+    const stat = fs.statSync(filePath);
+    if (!stat.isFile()) return false;
+    if (process.platform === "win32") {
+      const ext = path.extname(filePath).toLowerCase();
+      return [".cmd", ".bat", ".exe", ".com", ".ps1"].includes(ext);
+    }
+    fs.accessSync(filePath, fs.constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export async function interceptShim(tool: string, argv: string[]): Promise<number> {
@@ -711,6 +923,11 @@ export async function interceptShim(tool: string, argv: string[]): Promise<numbe
 
   const command = buildGuardCommand(tool, argv);
   const commandCorrelationId = process.env.TERMYTE_COMMAND_CORRELATION_ID;
+  const localShimSession = sessionFromShimEnv(sessionId, socketPath, cwd, shimDir, originalPath, cliPath, nodePath);
+  const localManifestCheck = verifyShimManifest(localShimSession, tool);
+  if (!localManifestCheck.ok) {
+    process.stderr.write(`Termyte shim integrity check failed; asking guard to record tamper event. ${localManifestCheck.reasons.join("; ")}\n`);
+  }
   let response: GuardResponse;
   try {
     response = await requestGuard(socketPath, { sessionId, command, cwd, tool, argv, commandCorrelationId });
@@ -816,6 +1033,30 @@ export async function interceptShim(tool: string, argv: string[]): Promise<numbe
     });
   }
   return outcome.exitCode ?? 1;
+}
+
+function sessionFromShimEnv(
+  sessionId: string,
+  socketPath: string,
+  cwd: string,
+  shimDir: string,
+  originalPath: string,
+  cliPath: string,
+  nodePath: string,
+): GovernedSession {
+  const sessionDir = path.dirname(shimDir);
+  return {
+    sessionId,
+    workspaceRoot: process.env.TERMYTE_WORKSPACE_ROOT ?? cwd,
+    sessionDir,
+    shimDir,
+    socketPath,
+    dbPath: process.env.TERMYTE_DB_PATH ?? defaultDbPath(cwd),
+    cliPath,
+    nodePath,
+    originalPath,
+    shimManifestPath: process.env.TERMYTE_SHIM_MANIFEST ?? path.join(sessionDir, "shim-manifest.json"),
+  };
 }
 
 export async function interceptHook(shell: string, commandLine: string): Promise<number> {
