@@ -4,6 +4,7 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { once } from "node:events";
+import { execFileSync, execSync, spawnSync } from "node:child_process";
 import {
   buildGuardCommand,
   buildBashHookScript,
@@ -20,6 +21,9 @@ import {
   interceptHook,
   recoverStaleShimExecutions,
   resolveRealExecutable,
+  resolveSessionLaunchCommand,
+  runResolvedExecutable,
+  shellLaunchArgs,
   startGuardDaemon,
   verifyShimManifest,
 } from "../src/shell.js";
@@ -953,6 +957,136 @@ describe("governed shell runtime", () => {
     }
 
     expect(resolveRealExecutable("git", [shimDir, realDir].join(path.delimiter), shimDir)).toBe(realPath);
+  });
+
+  it("resolves Windows npm-style global commands to .cmd launchers", () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-win-launch-"));
+    const session = createGovernedSession(workspaceRoot);
+    const binDir = path.join(workspaceRoot, "npm-bin");
+    fs.mkdirSync(binDir);
+    const codexCmd = path.join(binDir, "codex.cmd");
+    fs.writeFileSync(codexCmd, "@echo off\r\n", "utf8");
+
+    const command = resolveSessionLaunchCommand("codex", { ...session, originalPath: [session.shimDir, binDir].join(path.delimiter) }, [], {
+      platform: "win32",
+      pathext: ".COM;.EXE;.BAT;.CMD",
+    });
+
+    expect(command).toBe(codexCmd);
+  });
+
+  it("resolves Windows npm-style global .cmd bins that are not Termyte shims", () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-win-bin-"));
+    const session = createGovernedSession(workspaceRoot);
+    const binDir = path.join(workspaceRoot, "global-bin");
+    fs.mkdirSync(binDir);
+    const aiderCmd = path.join(binDir, "aider.cmd");
+    fs.writeFileSync(aiderCmd, "@echo off\r\n", "utf8");
+
+    const command = resolveSessionLaunchCommand("aider", { ...session, originalPath: binDir }, ["--version"], {
+      platform: "win32",
+      pathext: ".CMD;.EXE",
+    });
+
+    expect(command).toBe(aiderCmd);
+  });
+
+  it("preserves initial launch arguments exactly", () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-launch-args-"));
+    const session = createGovernedSession(workspaceRoot);
+    const args = ["--model", "gpt-5", "--prompt", "hello world"];
+
+    expect(shellLaunchArgs("codex", args, session)).toEqual(args);
+  });
+
+  it("preserves an explicitly requested non-shell launch with no args", () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-launch-empty-"));
+    const session = createGovernedSession(workspaceRoot);
+
+    expect(shellLaunchArgs("codex", [], session)).toEqual([]);
+  });
+
+  it("resolves direct Windows .exe launch commands without rewriting them to shims", () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-win-exe-"));
+    const session = createGovernedSession(workspaceRoot);
+    const binDir = path.join(workspaceRoot, "bin");
+    fs.mkdirSync(binDir);
+    const nodeExe = path.join(binDir, "node.exe");
+    fs.writeFileSync(nodeExe, "binary", "utf8");
+
+    const command = resolveSessionLaunchCommand("node.exe", { ...session, originalPath: [session.shimDir, binDir].join(path.delimiter) }, [], {
+      platform: "win32",
+      pathext: ".EXE;.CMD",
+    });
+
+    expect(command).toBe(nodeExe);
+  });
+
+  it("leaves non-shim Unix launch commands unchanged", () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-unix-launch-"));
+    const session = createGovernedSession(workspaceRoot);
+
+    expect(resolveSessionLaunchCommand("codex", session, [], { platform: "linux" })).toBe("codex");
+  });
+
+  it("documents Windows .cmd child_process semantics", () => {
+    if (process.platform !== "win32") {
+      return;
+    }
+
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-cmd-semantics-"));
+    const wrapper = path.join(workspaceRoot, "npm.cmd");
+    fs.writeFileSync(wrapper, "@echo off\r\necho npm:%1\r\n", "utf8");
+
+    const spawned = spawnSync(wrapper, ["publish"], { encoding: "utf8" });
+    expect(spawned.error?.message).toContain("EINVAL");
+    expect(() => execFileSync(wrapper, ["publish"], { encoding: "utf8" })).toThrow();
+    expect(execSync(`"${wrapper}" publish`, { encoding: "utf8" }).trim()).toBe("npm:publish");
+  });
+
+  it("runs npm.cmd through Termyte's Windows command wrapper", async () => {
+    if (process.platform !== "win32") {
+      return;
+    }
+
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-npm-cmd-"));
+    const wrapper = path.join(workspaceRoot, "npm.cmd");
+    fs.writeFileSync(wrapper, "@echo off\r\nif \"%~1\"==\"publish\" exit /b 0\r\nexit /b 9\r\n", "utf8");
+
+    const outcome = await runResolvedExecutable(wrapper, ["publish"], workspaceRoot, process.execPath);
+
+    expect(outcome.status).toBe("executed");
+    expect(outcome.exitCode).toBe(0);
+  });
+
+  it("runs npx.cmd through Termyte's Windows command wrapper", async () => {
+    if (process.platform !== "win32") {
+      return;
+    }
+
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-npx-cmd-"));
+    const wrapper = path.join(workspaceRoot, "npx.cmd");
+    fs.writeFileSync(wrapper, "@echo off\r\nif \"%~1\"==\"--version\" exit /b 0\r\nexit /b 9\r\n", "utf8");
+
+    const outcome = await runResolvedExecutable(wrapper, ["--version"], workspaceRoot, process.execPath);
+
+    expect(outcome.status).toBe("executed");
+    expect(outcome.exitCode).toBe(0);
+  });
+
+  it("runs arbitrary .cmd wrappers with whitespace arguments", async () => {
+    if (process.platform !== "win32") {
+      return;
+    }
+
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-any-cmd-"));
+    const wrapper = path.join(workspaceRoot, "tool.cmd");
+    fs.writeFileSync(wrapper, "@echo off\r\nif \"%~1\"==\"hello world\" exit /b 0\r\nexit /b 9\r\n", "utf8");
+
+    const outcome = await runResolvedExecutable(wrapper, ["hello world"], workspaceRoot, process.execPath);
+
+    expect(outcome.status).toBe("executed");
+    expect(outcome.exitCode).toBe(0);
   });
 
   it("keeps concurrent guard sessions isolated by session id", async () => {

@@ -838,9 +838,12 @@ if (Get-Command Set-PSReadLineOption -ErrorAction SilentlyContinue) {
 `;
 }
 
-function shellLaunchArgs(command: string, explicitArgs: string[] | undefined, session: GovernedSession): string[] {
+export function shellLaunchArgs(command: string, explicitArgs: string[] | undefined, session: GovernedSession): string[] {
   const normalized = path.basename(command).toLowerCase().replace(/\.(exe|cmd|bat)$/i, "");
-  if (explicitArgs && explicitArgs.length > 0) {
+  if (explicitArgs !== undefined) {
+    if (explicitArgs.length === 0 && ["bash", "zsh", "pwsh", "powershell"].includes(normalized)) {
+      return injectHookArgs(normalized, defaultShellArgs(), session);
+    }
     return explicitArgs;
   }
   return injectHookArgs(normalized, defaultShellArgs(), session);
@@ -859,21 +862,32 @@ function injectHookArgs(shellName: string, args: string[], session: GovernedSess
   return args;
 }
 
-function resolveSessionLaunchCommand(command: string, session: GovernedSession, explicitArgs?: string[]): string {
+export function resolveSessionLaunchCommand(
+  command: string,
+  session: GovernedSession,
+  explicitArgs?: string[],
+  options: { platform?: NodeJS.Platform; pathext?: string } = {},
+): string {
   if (path.isAbsolute(command) || command.includes(path.sep) || command.includes("/")) {
     return command;
   }
 
-  const normalized = command.toLowerCase();
+  const platform = options.platform ?? process.platform;
+  const normalized = path.basename(command).toLowerCase().replace(/\.(exe|cmd|bat|com)$/i, "");
+  const hasExtension = path.extname(command) !== "";
   if (explicitArgs && explicitArgs.length > 0 && ["sh", "bash", "zsh", "pwsh", "powershell", "cmd"].includes(normalized)) {
-    return resolveRealExecutable(normalized, session.originalPath, session.shimDir) ?? command;
+    return resolveRealExecutable(command, session.originalPath, session.shimDir, platform, options.pathext) ?? command;
   }
 
-  if (!SHIM_TOOLS.includes(normalized)) {
-    return command;
+  if (!hasExtension && SHIM_TOOLS.includes(normalized)) {
+    return platform === "win32" ? path.join(session.shimDir, `${normalized}.cmd`) : path.join(session.shimDir, normalized);
   }
 
-  return process.platform === "win32" ? path.join(session.shimDir, `${normalized}.cmd`) : path.join(session.shimDir, normalized);
+  if (platform === "win32") {
+    return resolveRealExecutable(command, session.originalPath, session.shimDir, platform, options.pathext) ?? command;
+  }
+
+  return command;
 }
 
 function expectedShimPath(session: GovernedSession, tool: string): string {
@@ -1113,12 +1127,12 @@ function defaultShellArgs(): string[] {
 
 async function launchProcess(command: string, args: string[], env: NodeJS.ProcessEnv, cwd: string): Promise<number> {
   return await new Promise<number>((resolve) => {
-    const useWindowsShell = process.platform === "win32" && /\.(cmd|bat)$/i.test(command);
-    const child = spawn(useWindowsShell ? "cmd.exe" : command, useWindowsShell ? ["/d", "/s", "/c", buildCmdCommand(command, args)] : args, {
+    const useWindowsShell = isWindowsCommandScript(command);
+    const child = spawn(useWindowsShell ? buildCmdCommand(command, args) : command, useWindowsShell ? [] : args, {
       cwd,
       env,
       stdio: "inherit",
-      shell: false,
+      shell: useWindowsShell,
     });
 
     child.on("error", (error) => {
@@ -1185,9 +1199,15 @@ async function sendShimHeartbeat(
   return await requestGuard(socketPath, { ...request, type: "heartbeat" });
 }
 
-export function resolveRealExecutable(tool: string, originalPath: string, shimDir: string): string | null {
+export function resolveRealExecutable(
+  tool: string,
+  originalPath: string,
+  shimDir: string,
+  platform: NodeJS.Platform = process.platform,
+  pathext = process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD",
+): string | null {
   const searchPaths = originalPath.split(path.delimiter).filter(Boolean).filter((entry) => path.resolve(entry) !== path.resolve(shimDir));
-  const candidates = resolveExecutableCandidates(tool);
+  const candidates = resolveExecutableCandidates(tool, platform, pathext);
 
   for (const dir of searchPaths) {
     for (const candidate of candidates) {
@@ -1201,14 +1221,18 @@ export function resolveRealExecutable(tool: string, originalPath: string, shimDi
   return null;
 }
 
-function resolveExecutableCandidates(tool: string): string[] {
-  if (process.platform === "win32") {
-    const pathext = (process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean);
+function resolveExecutableCandidates(
+  tool: string,
+  platform: NodeJS.Platform = process.platform,
+  pathext = process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD",
+): string[] {
+  if (platform === "win32") {
+    const extensions = pathext.split(";").filter(Boolean);
     const toolLower = tool.toLowerCase();
     if (path.extname(toolLower)) {
       return [tool];
     }
-    return pathext.map((ext) => `${tool}${ext.toLowerCase()}`);
+    return extensions.map((ext) => `${tool}${ext.toLowerCase()}`);
   }
 
   return [tool];
@@ -1244,27 +1268,27 @@ async function promptForApproval(reason: string): Promise<boolean> {
   return answer === "y" || answer === "yes";
 }
 
-function runResolvedExecutable(
+export function runResolvedExecutable(
   resolved: string,
   argv: string[],
   cwd: string,
   nodePath: string,
   onProcessStarted?: (child: ChildProcess) => void,
 ): Promise<ExecutionOutcome & { signal?: string | null }> {
-  const useWindowsShell = process.platform === "win32" && /\.(cmd|bat)$/i.test(resolved);
-  const command = useWindowsShell ? "cmd.exe" : resolved;
-  const args = useWindowsShell ? ["/d", "/s", "/c", buildCmdCommand(resolved, argv)] : argv;
+  const useWindowsShell = isWindowsCommandScript(resolved);
+  const command = useWindowsShell ? buildCmdCommand(resolved, argv) : resolved;
+  const args = useWindowsShell ? [] : argv;
 
   const started = Date.now();
   return new Promise<ExecutionOutcome & { signal?: string | null }>((resolve) => {
     const child = spawn(command, args, {
       cwd,
       stdio: "inherit",
-      shell: false,
       env: {
         ...process.env,
         TERMYTE_NODE: nodePath,
       },
+      shell: useWindowsShell,
     });
     onProcessStarted?.(child);
 
@@ -1302,6 +1326,10 @@ function runResolvedExecutable(
       });
     });
   });
+}
+
+function isWindowsCommandScript(value: string): boolean {
+  return process.platform === "win32" && /\.(cmd|bat)$/i.test(value);
 }
 
 function buildCmdCommand(executable: string, argv: string[]): string {
