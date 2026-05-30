@@ -93,6 +93,16 @@ function containsWildcard(target: string): boolean {
   return /[*?\[]/.test(target);
 }
 
+function isDeleteFlagToken(token: string, command: string): boolean {
+  if (token.startsWith("-")) {
+    return true;
+  }
+  if (command === "del") {
+    return token.toLowerCase() === "/s" || token.toLowerCase() === "/q";
+  }
+  return false;
+}
+
 function detectSqlPattern(command: string): ParsedAction["sqlPattern"] | undefined {
   if (/\bdrop\s+table\b/i.test(command)) {
     return "drop-table";
@@ -198,7 +208,7 @@ export function parseAction(command: string): ParsedAction {
     const force = hasFlag(tokens, ["-f", "--force", "-force", "/q"]);
     const targets = tokens.filter((token, index) => {
       if (index === 0) return false;
-      if (token.startsWith("-") || token.startsWith("/")) return false;
+      if (isDeleteFlagToken(token, lowered[0])) return false;
       return true;
     });
     const primaryTarget = targets[0] ?? "*";

@@ -136,10 +136,8 @@ export function createGovernedSession(workspaceRoot: string): GovernedSession {
 export function buildSessionEnv(session: GovernedSession): NodeJS.ProcessEnv {
   const pathKey = process.platform === "win32" ? pathEnvKey(process.env) : "PATH";
   const shimmedPath = [session.shimDir, session.originalPath].filter(Boolean).join(path.delimiter);
-  return {
+  const env: NodeJS.ProcessEnv = {
     ...process.env,
-    [pathKey]: shimmedPath,
-    PATH: shimmedPath,
     TERMYTE_SESSION_ID: session.sessionId,
     TERMYTE_GUARD_SOCKET: session.socketPath,
     TERMYTE_SHIM_DIR: session.shimDir,
@@ -151,6 +149,13 @@ export function buildSessionEnv(session: GovernedSession): NodeJS.ProcessEnv {
     TERMYTE_SHIM_MANIFEST: session.shimManifestPath,
     ZDOTDIR: session.sessionDir,
   };
+  for (const key of Object.keys(env)) {
+    if (key.toLowerCase() === "path") {
+      delete env[key];
+    }
+  }
+  env[pathKey] = shimmedPath;
+  return env;
 }
 
 function pathEnvKey(env: NodeJS.ProcessEnv): string {
@@ -756,6 +761,7 @@ export async function launchGovernedSession(options: {
   const session = createGovernedSession(options.workspaceRoot);
   writeShellHooks(session);
   const server = startGuardDaemon(session);
+  await waitForServerListening(server);
   const env = buildSessionEnv(session);
   const agentArgs = options.agentArgs ?? [];
   const requestedCommand = agentArgs.length > 0 ? agentArgs[0] : detectDefaultShell();
@@ -766,6 +772,29 @@ export async function launchGovernedSession(options: {
 
   await new Promise<void>((resolve) => server.close(() => resolve()));
   return exitCode;
+}
+
+function waitForServerListening(server: net.Server): Promise<void> {
+  if (server.listening) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve, reject) => {
+    const cleanup = (): void => {
+      server.off("listening", onListening);
+      server.off("error", onError);
+    };
+    const onListening = (): void => {
+      cleanup();
+      resolve();
+    };
+    const onError = (error: Error): void => {
+      cleanup();
+      reject(error);
+    };
+    server.once("listening", onListening);
+    server.once("error", onError);
+  });
 }
 
 function writeShellHooks(session: GovernedSession): void {

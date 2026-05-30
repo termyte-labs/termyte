@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
+import { fileURLToPath } from "node:url";
 import { defaultDbPath, openDatabase } from "./db.js";
 import { formatInspection, formatLedger, formatMemory, formatReplay, replayEntries, toJson } from "./format.js";
 import { Ledger } from "./ledger.js";
@@ -69,13 +70,18 @@ interface BenchmarkResult {
 }
 
 function loadBenchmarkCases(cwd: string): BenchmarkCase[] {
-  const benchmarkPath = path.join(cwd, "benchmarks", "commands.json");
-  if (!fs.existsSync(benchmarkPath)) {
-    return [];
+  const benchmarkPaths = [
+    path.join(cwd, "benchmarks", "commands.json"),
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "benchmarks", "commands.json"),
+  ];
+
+  for (const benchmarkPath of benchmarkPaths) {
+    if (fs.existsSync(benchmarkPath)) {
+      return JSON.parse(fs.readFileSync(benchmarkPath, "utf8")) as BenchmarkCase[];
+    }
   }
 
-  const raw = JSON.parse(fs.readFileSync(benchmarkPath, "utf8")) as BenchmarkCase[];
-  return raw;
+  return [];
 }
 
 function runBenchmarks(cwd: string): {

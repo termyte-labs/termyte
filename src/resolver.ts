@@ -149,6 +149,17 @@ function recoverabilityFor(classes: TargetClassification[], insideWorkspace: boo
   return "high";
 }
 
+function isDeleteFlagToken(token: string, command: string): boolean {
+  if (token.startsWith("-")) {
+    return true;
+  }
+  if (command.toLowerCase() === "del") {
+    const lowered = token.toLowerCase();
+    return lowered === "/s" || lowered === "/q";
+  }
+  return false;
+}
+
 export function resolveTargets(action: ParsedAction, workspaceRoot: string): ResolvedTargets {
   if (action.kind === "git.push") {
     return {
@@ -211,7 +222,7 @@ export function resolveTargets(action: ParsedAction, workspaceRoot: string): Res
     };
   }
 
-  const rawTargets = action.tokens.filter((token, index) => index > 0 && !token.startsWith("-") && !token.startsWith("/"));
+  const rawTargets = action.tokens.filter((token, index) => index > 0 && !isDeleteFlagToken(token, action.tokens[0] ?? ""));
   const patterns = rawTargets.length > 0 ? rawTargets : [action.target];
   const expandedTargets = new Set<string>();
 

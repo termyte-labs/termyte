@@ -120,6 +120,17 @@ describe("runtime parsing and risk", () => {
     expect(risk.decision).toBe("block");
   });
 
+  it("treats slash-prefixed rm targets as paths, not flags", () => {
+    const rootAction = parseAction("rm /");
+    const windowsAction = parseAction("rm -rf /Windows");
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-slash-target-"));
+
+    expect(rootAction.target).toBe("/");
+    expect(windowsAction.target).toBe("/Windows");
+    expect(analyzeRisk(rootAction, resolveTargets(rootAction, workspaceRoot)).decision).toBe("block");
+    expect(analyzeRisk(windowsAction, resolveTargets(windowsAction, workspaceRoot)).decision).toBe("block");
+  });
+
   it("writes ledger and memory entries for allowed commands", async () => {
     const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-test-"));
     const dbPath = path.join(workspaceRoot, "termyte.db");

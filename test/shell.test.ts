@@ -91,7 +91,19 @@ describe("governed shell runtime", () => {
     expect(env.TERMYTE_SHIM_DIR).toBe(session.shimDir);
     expect(env.TERMYTE_DB_PATH).toBe(session.dbPath);
     expect(env.TERMYTE_WORKSPACE_ROOT).toBe(session.workspaceRoot);
-    expect(env.PATH?.startsWith(session.shimDir)).toBe(true);
+    const pathKey = Object.keys(env).find((key) => key.toLowerCase() === "path");
+    expect(pathKey).toBeDefined();
+    expect(env[pathKey ?? "PATH"]?.startsWith(session.shimDir)).toBe(true);
+  });
+
+  it("does not emit duplicate PATH/Path keys in governed environments", () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-shell-path-"));
+    const session = createGovernedSession(workspaceRoot);
+    const env = buildSessionEnv(session);
+    const pathKeys = Object.keys(env).filter((key) => key.toLowerCase() === "path");
+
+    expect(pathKeys).toHaveLength(1);
+    expect(env[pathKeys[0]]?.split(path.delimiter)[0]).toBe(session.shimDir);
   });
 
   it("generates a Unix shim that forwards through the CLI guard", () => {

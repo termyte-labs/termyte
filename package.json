@@ -3,11 +3,27 @@
   "version": "0.2.9",
   "description": "Termyte is a local-first runtime safety layer for AI coding agents. It sits between an agent and the shell, normalizes the action semantically, resolves targets, scores blast radius, checks policy and memory, then decides whether to `allow`, `warn`, or `block`.",
   "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/termyte-labs/termyte.git"
+  },
+  "keywords": [
+    "ai-agents",
+    "agent-safety",
+    "runtime-safety",
+    "cli",
+    "local-first"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "bin": {
     "termyte": "dist/cli.js"
   },
   "files": [
     "dist",
+    "benchmarks/commands.json",
     "README.md",
     "LICENSE"
   ],
