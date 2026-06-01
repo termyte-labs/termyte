@@ -198,7 +198,7 @@ describe("runtime parsing and risk", () => {
     expect(inspection.memoryMatches[0]?.matchedBecause).toContain("same domain and operation");
   });
 
-  it("marks false positives safe and downgrades future block impact", async () => {
+  it("marks false positives safe without weakening hard blocks", async () => {
     const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-safe-"));
     fs.mkdirSync(path.join(workspaceRoot, "src"));
     const dbPath = path.join(workspaceRoot, "termyte.db");
@@ -221,6 +221,7 @@ describe("runtime parsing and risk", () => {
     expect(marked?.confidence).toBeLessThan(0.7);
 
     const inspection = inspectAction("rm -rf src", workspaceRoot, dbPath);
-    expect(inspection.finalDecision).toBe("warn");
+    expect(inspection.finalDecision).toBe("block");
+    expect(inspection.memoryMatches[0]?.confidence).toBeLessThan(0.7);
   });
 });

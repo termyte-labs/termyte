@@ -1011,6 +1011,15 @@ describe("governed shell runtime", () => {
     expect(shellLaunchArgs("codex", args, session)).toEqual(args);
   });
 
+  it("does not inject shell flags for Codex, Claude Code, or Aider", () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-launch-agent-"));
+    const session = createGovernedSession(workspaceRoot);
+
+    expect(shellLaunchArgs("codex", undefined, session)).toEqual([]);
+    expect(shellLaunchArgs("claude", undefined, session)).toEqual([]);
+    expect(shellLaunchArgs("aider", undefined, session)).toEqual([]);
+  });
+
   it("preserves an explicitly requested non-shell launch with no args", () => {
     const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-launch-empty-"));
     const session = createGovernedSession(workspaceRoot);

@@ -36,6 +36,7 @@ export interface GuardResponse {
 }
 
 const SHIM_TOOLS = ["git", "npm", "pnpm", "yarn", "npx", "node", "sh", "bash", "zsh", "pwsh", "powershell", "cmd", "python", "pip", "docker"];
+const GOVERNED_SHELLS = new Set(["bash", "zsh", "pwsh", "powershell"]);
 const STALE_SHIM_PENDING_MS = 60_000;
 const SHELL_SHIM_HEARTBEAT_INTERVAL_MS = 5_000;
 
@@ -869,13 +870,22 @@ if (Get-Command Set-PSReadLineOption -ErrorAction SilentlyContinue) {
 
 export function shellLaunchArgs(command: string, explicitArgs: string[] | undefined, session: GovernedSession): string[] {
   const normalized = path.basename(command).toLowerCase().replace(/\.(exe|cmd|bat)$/i, "");
+  if (normalized === "codex" || normalized === "claude" || normalized === "aider") {
+    return explicitArgs ?? [];
+  }
+
   if (explicitArgs !== undefined) {
-    if (explicitArgs.length === 0 && ["bash", "zsh", "pwsh", "powershell"].includes(normalized)) {
+    if (explicitArgs.length === 0 && GOVERNED_SHELLS.has(normalized)) {
       return injectHookArgs(normalized, defaultShellArgs(), session);
     }
     return explicitArgs;
   }
-  return injectHookArgs(normalized, defaultShellArgs(), session);
+
+  if (GOVERNED_SHELLS.has(normalized)) {
+    return injectHookArgs(normalized, defaultShellArgs(), session);
+  }
+
+  return [];
 }
 
 function injectHookArgs(shellName: string, args: string[], session: GovernedSession): string[] {

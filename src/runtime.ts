@@ -92,22 +92,6 @@ function buildRiskNarrative(
   return `${risk.reason}. Semantic danger: ${action.semanticId}. Targets: ${targetSummary}. Blast radius: ${risk.score}. Signals: ${danger}. Memory: ${memorySummary}.`;
 }
 
-function shouldDowngradeFromBlock(
-  policyDecision: Decision,
-  targets: ReturnType<typeof resolveTargets>,
-  memoryMatches: MemoryMatch[],
-): boolean {
-  if (policyDecision !== "block") {
-    return false;
-  }
-
-  if (hasHardCriticalTargets(targets)) {
-    return false;
-  }
-
-  return memoryMatches.some((match) => match.confidence < 0.7);
-}
-
 function resolveFinalDecision(
   policyDecision: Decision,
   policyReason: string,
@@ -119,20 +103,11 @@ function resolveFinalDecision(
 ): { decision: Decision; reason: string; overridden: boolean } {
   const narrative = buildRiskNarrative(action, targets, risk, memoryMatches);
   const baseReason = `${policyReason || risk.reason}. ${narrative}`;
-  const memoryDowngrade = shouldDowngradeFromBlock(policyDecision, targets, memoryMatches);
 
   if (allowOnce && policyDecision !== "allow" && !hasHardCriticalTargets(targets)) {
     return {
       decision: "allow",
       reason: `${baseReason} allow-once override applied.`,
-      overridden: true,
-    };
-  }
-
-  if (memoryDowngrade) {
-    return {
-      decision: "warn",
-      reason: `${baseReason} Memory confidence is low, so the block is downgraded to a warning.`,
       overridden: true,
     };
   }

@@ -12,6 +12,7 @@ import { MemoryEngine } from "./memory.js";
 import { inspectAction, inspectPolicies, runRuntime } from "./runtime.js";
 import { defaultPolicies } from "./policy.js";
 import { interceptHook, interceptShim, launchGovernedSession } from "./shell.js";
+import { formatDoctorHuman, formatDoctorJson, runDoctor } from "./doctor.js";
 import type { Decision } from "./types.js";
 
 function printUsage(): void {
@@ -20,6 +21,7 @@ function printUsage(): void {
   termyte allow-once -- <command>
   termyte mark-safe <memory-id>
   termyte bench [--json]
+  termyte doctor [--json]
   termyte logs [--limit N] [--json]
   termyte replay [--json]
   termyte memory [--limit N] [--json]
@@ -218,6 +220,11 @@ async function main(): Promise<number> {
       return 0;
     }
 
+    if (!process.stdin.isTTY || !process.stdout.isTTY) {
+      console.error("termyte shell requires an interactive terminal.");
+      return 1;
+    }
+
     const agentArgs = argsAfterDoubleDash(args);
     const exitCode = await launchGovernedSession({
       workspaceRoot: cwd,
@@ -293,6 +300,16 @@ async function main(): Promise<number> {
       }
     }
     return report.summary.total > 0 ? 0 : 1;
+  }
+
+  if (command === "doctor") {
+    const report = await runDoctor(cwd);
+    if (hasJsonFlag(args)) {
+      console.log(formatDoctorJson(report));
+    } else {
+      console.log(formatDoctorHuman(report));
+    }
+    return report.summary.fail > 0 ? 1 : 0;
   }
 
   if (command === "inspect") {
