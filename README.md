@@ -10,22 +10,56 @@ Termyte is a local-first runtime safety layer for AI coding agents. It sits betw
 npm install -g termyte
 ```
 
+## Agent Runtime
+
+Use `termyte run` when you want to launch an agent inside a governed Termyte session. This is the primary product workflow.
+
+```bash
+termyte run codex
+termyte run claude
+termyte run aider
+termyte run --dry-run codex
+termyte run --profile codex-windows codex
+```
+
+Supported agent names:
+
+- `codex`
+- `claude`
+- `aider`
+
+Supported runtime profiles:
+
+- `default`
+- `codex-windows`
+- `codex-unix`
+- `claude-windows`
+- `claude-unix`
+- `aider`
+
+`termyte run --dry-run <agent>` shows the resolved executable, args, selected profile, platform, enabled shims, disabled shims, shell-hook state, known limitations, workspace root, and database path.
+
+If you need generic command support, use `termyte run -- <command>` or `termyte shell -- <command>`.
+
 ## Governed Shell
 
-Use `termyte shell` when you want Termyte to own the session and intercept child commands automatically. This runtime is alpha: it is useful for coding-agent sessions, but it is not an OS sandbox.
+Use `termyte shell` when you need the lower-level governed session primitive directly. This runtime is alpha: it is useful for debugging and for generic command coverage, but it is not an OS sandbox.
 
 ```bash
 termyte shell
+termyte shell -- node --version
 termyte shell -- codex
 termyte shell -- claude
 termyte shell -- aider
 ```
 
-The shell runtime is local-first and works on macOS, Linux, and Windows. It prepends Termyte shims to `PATH`, exports session metadata, and keeps subprocesses inside the governed session. Interactive shell hooks currently cover bash, zsh, and PowerShell; subprocess interception is handled by PATH shims.
+The shell runtime is local-first and works on macOS, Linux, and Windows. It prepends Termyte shims to `PATH`, exports session metadata, and keeps subprocesses inside the governed session. Interactive shell hooks currently cover bash, zsh, and PowerShell; subprocess interception is handled by PATH shims. `termyte run` uses this same runtime internally and adds agent metadata, runtime profiles, and launch logging.
 
 ## 30-Second Demo
 
 ```bash
+termyte run codex
+termyte run --dry-run claude
 termyte inspect -- "rm -rf *"
 termyte inspect -- "powershell Remove-Item -Recurse -Force *"
 termyte run -- rm -rf *
@@ -106,7 +140,10 @@ termyte bench
 
 ## Command Reference
 
-- `termyte run -- <command>`: guard and optionally execute a command
+- `termyte run <agent> [...args]`: launch a supported agent in a governed runtime
+- `termyte run --dry-run <agent> [...args]`: print the selected profile and resolved runtime plan without launching the agent
+- `termyte run --profile <profile> <agent> [...args]`: launch an agent with an explicit runtime profile
+- `termyte run -- <command>`: guard and optionally execute a generic command
 - `termyte inspect -- <command>`: show parsing, targets, risk, memory, and final decision
 - `termyte logs`: show the recent ledger
 - `termyte replay`: show an incident timeline
@@ -115,9 +152,21 @@ termyte bench
 - `termyte allow-once -- <command>`: run a warned command once
 - `termyte mark-safe <memory-id>`: downgrade a memory after a false positive
 - `termyte policies`: print active policy rules
-- `termyte shell [-- <agent>]`: start a governed session and launch an optional agent inside it
+- `termyte shell [-- <agent>]`: start the lower-level governed session and launch an optional command or agent inside it
 
 ## Examples
+
+Run Codex in a governed session:
+
+```bash
+termyte run codex
+```
+
+Run Claude in dry-run mode:
+
+```bash
+termyte run --dry-run claude
+```
 
 Inspect a dangerous delete:
 
@@ -151,7 +200,7 @@ termyte replay
 - No cloud dependency
 - No remote execution service
 - Secrets are redacted before ledger persistence
-- `termyte shell` is not an OS sandbox; absolute paths, direct syscalls, or processes that do not inherit the governed environment can bypass the alpha runtime boundary
+- `termyte run` and `termyte shell` are not OS sandboxes; absolute paths, direct syscalls, or processes that do not inherit the governed environment can bypass the alpha runtime boundary
 
 ## FAQ
 
@@ -182,6 +231,7 @@ Termyte fails closed when it cannot safely evaluate the risk.
 - If the workspace is not writable, set `TERMYTE_DB_PATH` to a writable location
 - If global install cannot find `termyte`, make sure your npm global bin directory is on `PATH`
 - If `termyte --help` does not run, use `termyte -h` or `termyte` with no args
+- If `termyte run codex` disables shell-host shims on Windows, that is expected for the `codex-windows` profile
 
 ## Launch Notes
 
@@ -190,4 +240,6 @@ Termyte fails closed when it cannot safely evaluate the risk.
 - False negatives: 0
 - False positives: 0
 - Governance core is intentionally frozen for launch cleanup
+- `termyte run` is the primary agent UX
+- `termyte shell` remains the lower-level runtime primitive
 - Shell-owned runtime is alpha and should be treated as a guardrail, not a sandbox
