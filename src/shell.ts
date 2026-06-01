@@ -874,15 +874,12 @@ export function shellLaunchArgs(command: string, explicitArgs: string[] | undefi
     return explicitArgs ?? [];
   }
 
-  if (explicitArgs !== undefined) {
-    if (explicitArgs.length === 0 && GOVERNED_SHELLS.has(normalized)) {
-      return injectHookArgs(normalized, defaultShellArgs(), session);
-    }
-    return explicitArgs;
+  if (GOVERNED_SHELLS.has(normalized)) {
+    return injectHookArgs(normalized, explicitArgs ?? defaultShellArgs(), session);
   }
 
-  if (GOVERNED_SHELLS.has(normalized)) {
-    return injectHookArgs(normalized, defaultShellArgs(), session);
+  if (explicitArgs !== undefined) {
+    return explicitArgs;
   }
 
   return [];

@@ -1027,6 +1027,17 @@ describe("governed shell runtime", () => {
     expect(shellLaunchArgs("codex", [], session)).toEqual([]);
   });
 
+  it("keeps hook injection when governed shells are launched with explicit args", () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-launch-shell-"));
+    const session = createGovernedSession(workspaceRoot);
+    const args = shellLaunchArgs("bash", ["--login"], session);
+
+    expect(args[0]).toBe("--rcfile");
+    expect(args[1]).toBe(path.join(session.sessionDir, "bash-hook.sh"));
+    expect(args).toContain("--login");
+    expect(args.at(-1)).toBe("-i");
+  });
+
   it("resolves direct Windows .exe launch commands without rewriting them to shims", () => {
     const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-win-exe-"));
     const session = createGovernedSession(workspaceRoot);
