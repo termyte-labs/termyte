@@ -9,8 +9,8 @@ import { defaultDbPath, openDatabase } from "./db.js";
 import { formatInspection, formatLedger, formatMemory, formatReplay, replayEntries, toJson } from "./format.js";
 import { Ledger } from "./ledger.js";
 import { MemoryEngine } from "./memory.js";
-import { inspectAction, inspectPolicies, runRuntime } from "./runtime.js";
-import { defaultPolicies } from "./policy.js";
+import { inspectAction, runRuntime } from "./runtime.js";
+import { addPolicies, describePolicies, loadPolicies, removePolicies, resetPolicies, savePolicies, type PolicySet } from "./policy.js";
 import { interceptHook, interceptShim, launchGovernedSession } from "./shell.js";
 import { formatDoctorHuman, formatDoctorJson, runDoctor } from "./doctor.js";
 import type { Decision } from "./types.js";
@@ -27,7 +27,11 @@ function printUsage(): void {
   termyte logs [--limit N] [--json]
   termyte replay [--json]
   termyte memory [--limit N] [--json]
-  termyte policies
+  termyte policies [--json]
+  termyte policies reset
+  termyte policies set [--block <patterns...>] [--warn <patterns...>]
+  termyte policies add <block|warn> <patterns...>
+  termyte policies remove <block|warn> <patterns...>
   termyte shell [-- <agent>]
   termyte inspect [--json] -- <command>`);
 }
@@ -41,6 +45,50 @@ function parseLimit(args: string[]): number {
 
 function hasJsonFlag(args: string[]): boolean {
   return args.includes("--json");
+}
+
+function policyJsonOutput(policies: PolicySet): string {
+  return toJson(policies);
+}
+
+function parsePolicyKind(value: string): keyof PolicySet | null {
+  if (value === "block" || value === "warn") {
+    return value;
+  }
+  return null;
+}
+
+function parsePolicySetArgs(args: string[]): { block?: string[]; warn?: string[] } {
+  let mode: keyof PolicySet | null = null;
+  const block: string[] = [];
+  const warn: string[] = [];
+
+  for (const token of args) {
+    if (token === "--json") {
+      continue;
+    }
+    if (token === "--block") {
+      mode = "block";
+      continue;
+    }
+    if (token === "--warn") {
+      mode = "warn";
+      continue;
+    }
+    if (!mode) {
+      throw new Error(`Unexpected policy token: ${token}`);
+    }
+    (mode === "block" ? block : warn).push(token);
+  }
+
+  return {
+    block: args.includes("--block") ? block : undefined,
+    warn: args.includes("--warn") ? warn : undefined,
+  };
+}
+
+function printPolicySet(policies: PolicySet, json = false): void {
+  console.log(json ? policyJsonOutput(policies) : describePolicies(policies));
 }
 
 function commandAfterDoubleDash(args: string[]): string {
@@ -414,7 +462,49 @@ async function main(): Promise<number> {
   }
 
   if (command === "policies") {
-    console.log(inspectPolicies(defaultPolicies));
+    const json = hasJsonFlag(args);
+    const subcommand = args[1];
+
+    if (!subcommand || subcommand === "--json") {
+      printPolicySet(loadPolicies(dbPath), json);
+      return 0;
+    }
+
+    if (subcommand === "reset") {
+      printPolicySet(resetPolicies(dbPath), json);
+      return 0;
+    }
+
+    if (subcommand === "set") {
+      const updates = parsePolicySetArgs(args.slice(2));
+      if (updates.block === undefined && updates.warn === undefined) {
+        console.error("Usage: termyte policies set [--block <patterns...>] [--warn <patterns...>]");
+        return 1;
+      }
+
+      const current = loadPolicies(dbPath);
+      const next = savePolicies(dbPath, {
+        block: updates.block !== undefined ? updates.block : current.block,
+        warn: updates.warn !== undefined ? updates.warn : current.warn,
+      });
+      printPolicySet(next, json);
+      return 0;
+    }
+
+    if (subcommand === "add" || subcommand === "remove") {
+      const kind = parsePolicyKind(args[2] ?? "");
+      const patterns = args.slice(3).filter((token) => token !== "--json");
+      if (!kind || patterns.length === 0) {
+        console.error(`Usage: termyte policies ${subcommand} <block|warn> <patterns...>`);
+        return 1;
+      }
+
+      const next = subcommand === "add" ? addPolicies(dbPath, kind, patterns) : removePolicies(dbPath, kind, patterns);
+      printPolicySet(next, json);
+      return 0;
+    }
+
+    console.error("Usage: termyte policies [--json] | reset | set | add | remove");
     return 0;
   }
 

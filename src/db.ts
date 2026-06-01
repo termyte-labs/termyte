@@ -58,6 +58,13 @@ export function openDatabase(dbPath: string): DatabaseContext {
       updated_at TEXT NOT NULL,
       PRIMARY KEY (semantic_id, workspace_root)
     );
+
+    CREATE TABLE IF NOT EXISTS policy_state (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      block_json TEXT NOT NULL,
+      warn_json TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
   `);
   ensureColumn(db, "memory_entries", "false_positive_count", "INTEGER NOT NULL DEFAULT 0");
 

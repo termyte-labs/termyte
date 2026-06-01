@@ -120,6 +120,26 @@ agent action
 - `termyte mark-safe <memory-id>` marks a memory as safe and lowers its confidence
 - Hard-critical destructive deletes on root, home, or `.git` still stay blocked
 
+## Policy Editing
+
+Policy rules are stored locally in the same SQLite workspace state as logs and memory. You can inspect and update them with the CLI:
+
+```bash
+termyte policies
+termyte policies add warn package.custom.publish
+termyte policies remove warn package.custom.publish
+termyte policies set --block filesystem.delete.recursive.force.wildcard --warn git.push.force
+termyte policies reset
+```
+
+Supported policy commands:
+
+- `termyte policies` or `termyte policies --json`: show the current policy set
+- `termyte policies set [--block <patterns...>] [--warn <patterns...>]`: replace one or both rule lists
+- `termyte policies add <block|warn> <patterns...>`: append rules to a list
+- `termyte policies remove <block|warn> <patterns...>`: remove rules from a list
+- `termyte policies reset`: restore the built-in defaults
+
 ## Benchmark Coverage
 
 The benchmark suite currently covers:
