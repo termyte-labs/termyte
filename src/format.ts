@@ -32,6 +32,9 @@ export function formatLedger(records: RuntimeRecord[]): string {
         status: record.status,
         exit: record.exitCode,
         runtime: metadata.runtime ?? "",
+        launchedVia: metadata.launchedVia ?? "",
+        agent: metadata.agentName ?? "",
+        profile: metadata.runtimeProfile ?? "",
         correlation: shortCorrelationId(metadata.commandCorrelationId),
         semanticId: record.semanticId,
         command: record.redactedCommand,
@@ -56,10 +59,19 @@ function safeParseMetadata(metadataJson: string | null | undefined): {
   risk?: { score?: number; reason?: string };
   memoryMatches?: MemoryMatch[];
   runtime?: string;
+  launchedVia?: string;
+  agentName?: string;
+  runtimeProfile?: string;
   recovered?: boolean;
   recoveryReason?: string;
   executionError?: string;
   commandCorrelationId?: string;
+  enabledShims?: string[];
+  disabledShims?: string[];
+  shellHooksEnabled?: boolean;
+  shellHookStrategy?: string;
+  knownCompatibilityNotes?: string[];
+  runtimeWarnings?: string[];
 } {
   if (!metadataJson) return {};
   try {
@@ -68,10 +80,19 @@ function safeParseMetadata(metadataJson: string | null | undefined): {
       risk?: { score?: number; reason?: string };
       memoryMatches?: MemoryMatch[];
       runtime?: string;
+      launchedVia?: string;
+      agentName?: string;
+      runtimeProfile?: string;
       recovered?: boolean;
       recoveryReason?: string;
       executionError?: string;
       commandCorrelationId?: string;
+      enabledShims?: string[];
+      disabledShims?: string[];
+      shellHooksEnabled?: boolean;
+      shellHookStrategy?: string;
+      knownCompatibilityNotes?: string[];
+      runtimeWarnings?: string[];
     };
   } catch {
     return {};
@@ -94,6 +115,9 @@ export function replayEntries(records: RuntimeRecord[]): ReplayEntry[] {
       timestamp: record.createdAt,
       action: record.redactedCommand,
       runtime: metadata.runtime,
+      launchedVia: metadata.launchedVia,
+      agentName: metadata.agentName,
+      runtimeProfile: metadata.runtimeProfile,
       commandCorrelationId: metadata.commandCorrelationId,
       semanticMeaning: record.semanticId,
       blastRadius: {
@@ -148,6 +172,10 @@ function formatCorrelatedReplayGroup(correlationId: string, entries: ReplayEntry
   const lines = [
     `${entries[0]?.timestamp ?? ""}  CORRELATED ACTION  ${shortCorrelationId(correlationId)}`,
   ];
+  const first = entries[0];
+  if (first?.agentName) {
+    lines.push(`  agent: ${first.agentName}${first.runtimeProfile ? ` (${first.runtimeProfile})` : ""}`);
+  }
   for (const entry of entries) {
     lines.push(
       `  ${entry.runtime ?? "runtime"}: ${entry.finalDecision.toUpperCase()} ${entry.outcome}`,
@@ -165,12 +193,17 @@ function formatReplayEntry(entry: ReplayEntry): string {
   const runtime = entry.runtime ? `  ${entry.runtime}` : "";
   const lines = [
     `${entry.timestamp}  ${entry.finalDecision.toUpperCase()}  ${entry.outcome}${runtime}`,
+  ];
+  if (entry.agentName) {
+    lines.push(`  agent: ${entry.agentName}${entry.runtimeProfile ? ` (${entry.runtimeProfile})` : ""}`);
+  }
+  lines.push(
     `  action: ${entry.action}`,
     `  semantic: ${entry.semanticMeaning}`,
     `  blast radius: ${entry.blastRadius.score ?? "n/a"} (${entry.blastRadius.reason ?? "n/a"})`,
     `  targets: ${entry.blastRadius.targets}`,
     `  memory: ${summaryFromMemoryMatches(entry.memoryMatches)}`,
-  ];
+  );
   if (entry.commandCorrelationId) {
     lines.splice(1, 0, `  correlation: ${shortCorrelationId(entry.commandCorrelationId)}`);
   }

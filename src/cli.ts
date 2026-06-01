@@ -14,10 +14,12 @@ import { defaultPolicies } from "./policy.js";
 import { interceptHook, interceptShim, launchGovernedSession } from "./shell.js";
 import { formatDoctorHuman, formatDoctorJson, runDoctor } from "./doctor.js";
 import type { Decision } from "./types.js";
+import { buildAgentRunPlan, buildAgentRuntimeMetadata, formatAgentDryRunReport, parseRunInvocation } from "./agent.js";
 
 function printUsage(): void {
   console.log(`Usage:
-  termyte run -- <command>
+  termyte run [--dry-run] [--profile <profile>] <agent> [...args]
+  termyte run [--dry-run] -- <command>
   termyte allow-once -- <command>
   termyte mark-safe <memory-id>
   termyte bench [--json]
@@ -176,40 +178,87 @@ async function main(): Promise<number> {
   }
 
   if (command === "run") {
-    const rawCommand = commandAfterDoubleDash(args);
-    if (!rawCommand) {
-      console.error("Missing command after `termyte run --`.");
+    let invocation;
+    try {
+      invocation = parseRunInvocation(args.slice(1));
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : String(error));
       return 1;
     }
 
-    const approval = async (reason: string): Promise<boolean> => {
-      const rl = readline.createInterface({ input, output });
-      const answer = (await rl.question(`\n${reason}\nApprove? [y/N] `)).trim().toLowerCase();
-      rl.close();
-      return answer === "y" || answer === "yes";
-    };
+    if (invocation.mode === "command") {
+      const rawCommand = invocation.command?.join(" ") ?? "";
+      if (!rawCommand) {
+        console.error("Missing command after `termyte run --`.");
+        return 1;
+      }
 
-    const result = await runRuntime({
-      command: rawCommand,
-      cwd,
+      if (invocation.dryRun) {
+        const inspection = inspectAction(rawCommand, cwd, dbPath);
+        console.log(formatInspection(inspection));
+        return 0;
+      }
+
+      const approval = async (reason: string): Promise<boolean> => {
+        const rl = readline.createInterface({ input, output });
+        const answer = (await rl.question(`\n${reason}\nApprove? [y/N] `)).trim().toLowerCase();
+        rl.close();
+        return answer === "y" || answer === "yes";
+      };
+
+      const result = await runRuntime({
+        command: rawCommand,
+        cwd,
+        dbPath,
+        approval,
+        stdout: process.stdout,
+        stderr: process.stderr,
+        env: process.env,
+      });
+
+      if (result.stdout) {
+        process.stdout.write(result.stdout);
+      }
+      if (result.stderr) {
+        process.stderr.write(result.stderr);
+      }
+      if (!result.wasExecuted) {
+        process.stderr.write(`termyte ${result.decision}: ${result.semanticId} (${result.reason})\n`);
+      }
+
+      return result.exitCode;
+    }
+
+    const agentName = invocation.agentName;
+    const agentArgs = invocation.agentArgs;
+    if (!agentName) {
+      console.error("Missing agent name.");
+      return 1;
+    }
+
+    const plan = buildAgentRunPlan({
+      workspaceRoot: cwd,
       dbPath,
-      approval,
-      stdout: process.stdout,
-      stderr: process.stderr,
-      env: process.env,
+      agentName,
+      agentArgs,
+      profileName: invocation.profileName,
+      originalPath: process.env.TERMYTE_ORIGINAL_PATH ?? process.env.PATH ?? "",
     });
 
-    if (result.stdout) {
-      process.stdout.write(result.stdout);
-    }
-    if (result.stderr) {
-      process.stderr.write(result.stderr);
-    }
-    if (!result.wasExecuted) {
-      process.stderr.write(`termyte ${result.decision}: ${result.semanticId} (${result.reason})\n`);
+    if (invocation.dryRun) {
+      console.log(formatAgentDryRunReport(plan));
+      return 0;
     }
 
-    return result.exitCode;
+    const launchMetadata = buildAgentRuntimeMetadata(plan);
+    const exitCode = await launchGovernedSession({
+      workspaceRoot: cwd,
+      agentArgs: [agentName, ...agentArgs],
+      shimTools: plan.runtimeProfile.enabledShims,
+      shellHooksEnabled: plan.runtimeProfile.shellHooksEnabled,
+      runtimeMetadata: launchMetadata,
+    });
+    return exitCode;
   }
 
   if (command === "shell") {

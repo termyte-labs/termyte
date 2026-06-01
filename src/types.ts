@@ -98,6 +98,9 @@ export interface ReplayEntry {
   timestamp: string;
   action: string;
   runtime?: string;
+  launchedVia?: string;
+  agentName?: string;
+  runtimeProfile?: string;
   commandCorrelationId?: string;
   semanticMeaning: string;
   blastRadius: {

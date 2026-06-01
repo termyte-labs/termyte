@@ -23,6 +23,7 @@ export interface GovernedSession {
   nodePath: string;
   originalPath: string;
   shimManifestPath: string;
+  runtimeMetadata?: GovernedRuntimeMetadata;
 }
 
 export interface GuardResponse {
@@ -35,7 +36,30 @@ export interface GuardResponse {
   ledgerId?: number;
 }
 
-const SHIM_TOOLS = ["git", "npm", "pnpm", "yarn", "npx", "node", "sh", "bash", "zsh", "pwsh", "powershell", "cmd", "python", "pip", "docker"];
+export type GovernedLaunchVia = "termyte-shell" | "termyte-run";
+
+export interface GovernedRuntimeMetadata {
+  launchedVia: GovernedLaunchVia;
+  runtimeProfile: string;
+  agentName?: string;
+  agentCommand?: string;
+  agentArgs?: string[];
+  enabledShims: string[];
+  disabledShims: string[];
+  shellHooksEnabled: boolean;
+  shellHookStrategy: string;
+  knownCompatibilityNotes: string[];
+  warnings: string[];
+}
+
+export interface GovernedSessionOptions {
+  shimTools?: string[];
+  runtimeMetadata?: GovernedRuntimeMetadata;
+}
+
+export const HIGH_VALUE_SHIMS = ["git", "npm", "pnpm", "yarn", "npx", "node", "python", "pip", "docker"];
+export const SHELL_HOST_SHIMS = ["sh", "bash", "zsh", "pwsh", "powershell", "cmd"];
+export const DEFAULT_SHIM_TOOLS = [...HIGH_VALUE_SHIMS, ...SHELL_HOST_SHIMS];
 const GOVERNED_SHELLS = new Set(["bash", "zsh", "pwsh", "powershell"]);
 const STALE_SHIM_PENDING_MS = 60_000;
 const SHELL_SHIM_HEARTBEAT_INTERVAL_MS = 5_000;
@@ -112,7 +136,7 @@ interface GuardHookRequest {
   commandCorrelationId?: string;
 }
 
-export function createGovernedSession(workspaceRoot: string): GovernedSession {
+export function createGovernedSession(workspaceRoot: string, options: GovernedSessionOptions = {}): GovernedSession {
   const root = path.resolve(workspaceRoot);
   const sessionId = crypto.randomUUID();
   const sessionDir = path.join(root, ".termyte", "sessions", sessionId);
@@ -129,8 +153,20 @@ export function createGovernedSession(workspaceRoot: string): GovernedSession {
 
   fs.mkdirSync(shimDir, { recursive: true });
   hardenSessionDirectories(sessionDir, shimDir);
-  const session = { sessionId, workspaceRoot: root, sessionDir, shimDir, socketPath, dbPath, cliPath, nodePath, originalPath, shimManifestPath };
-  writeSessionShims(session, SHIM_TOOLS);
+  const session = {
+    sessionId,
+    workspaceRoot: root,
+    sessionDir,
+    shimDir,
+    socketPath,
+    dbPath,
+    cliPath,
+    nodePath,
+    originalPath,
+    shimManifestPath,
+    runtimeMetadata: options.runtimeMetadata,
+  };
+  writeSessionShims(session, options.shimTools ?? DEFAULT_SHIM_TOOLS);
   return session;
 }
 
@@ -440,6 +476,7 @@ export function handleGuardRequest(
     policy,
     memoryMatches,
     finalDecision,
+    ...sessionRuntimeMetadataFields(session),
     runtime: "shell-shim",
     shimRuntime: true,
     sessionId: session.sessionId,
@@ -508,6 +545,7 @@ function recordShimTamper(session: GovernedSession, request: GuardDecisionReques
     policy: report.policy,
     memoryMatches: report.memoryMatches,
     finalDecision: "block",
+    ...sessionRuntimeMetadataFields(session),
     runtime: "shell-shim",
     shimRuntime: true,
     sessionId: session.sessionId,
@@ -645,6 +683,7 @@ export function handleGuardHookRequest(
     policy: report.policy,
     memoryMatches: report.memoryMatches,
     finalDecision,
+    ...sessionRuntimeMetadataFields(session),
     runtime: "shell-hook",
     hookRuntime: true,
     sessionId: session.sessionId,
@@ -737,6 +776,7 @@ export function handleGuardFinalizeRequest(
     executedVia: "shell-shim",
     runtime: "shell-shim",
     shimRuntime: true,
+    ...sessionRuntimeMetadataFields(session),
     sessionId: session.sessionId,
     workspaceRoot: session.workspaceRoot,
     commandCorrelationId: request.commandCorrelationId,
@@ -758,15 +798,81 @@ export function handleGuardFinalizeRequest(
 export async function launchGovernedSession(options: {
   workspaceRoot: string;
   agentArgs?: string[];
+  shimTools?: string[];
+  shellHooksEnabled?: boolean;
+  runtimeMetadata?: GovernedRuntimeMetadata;
 }): Promise<number> {
-  const session = createGovernedSession(options.workspaceRoot);
-  writeShellHooks(session);
+  const session = createGovernedSession(options.workspaceRoot, {
+    shimTools: options.shimTools,
+    runtimeMetadata: options.runtimeMetadata,
+  });
+  if (session.runtimeMetadata) {
+    session.runtimeMetadata = {
+      ...session.runtimeMetadata,
+      agentArgs: session.runtimeMetadata.agentArgs ?? [],
+    };
+    for (const warning of session.runtimeMetadata.warnings) {
+      process.stderr.write(`Termyte run profile warning: ${warning}\n`);
+    }
+  }
+  if (options.shellHooksEnabled ?? true) {
+    writeShellHooks(session);
+  }
   const server = startGuardDaemon(session);
   await waitForServerListening(server);
   const env = buildSessionEnv(session);
   const agentArgs = options.agentArgs ?? [];
   const requestedCommand = agentArgs.length > 0 ? agentArgs[0] : detectDefaultShell();
   const explicitArgs = agentArgs.length > 0 ? agentArgs.slice(1) : undefined;
+  if (session.runtimeMetadata) {
+    session.runtimeMetadata = {
+      ...session.runtimeMetadata,
+      agentCommand: resolveSessionLaunchCommand(requestedCommand, session, explicitArgs),
+      agentArgs: explicitArgs ?? [],
+    };
+  }
+  let launchLedgerId: number | undefined;
+  if (session.runtimeMetadata) {
+    const launchCommandLine = buildGuardCommand(requestedCommand, explicitArgs ?? []);
+    const dbContext = openDatabase(session.dbPath);
+    const ledger = new Ledger(dbContext.db);
+    const memory = new MemoryEngine(dbContext.db);
+    const launchAction = inspectAction(launchCommandLine, session.workspaceRoot, session.dbPath);
+    const launchOutcome = {
+      status: "executed" as const,
+      exitCode: 0,
+      stdout: "",
+      stderr: "",
+      durationMs: 0,
+    };
+    launchLedgerId = ledger.createPending(launchAction.action, launchAction.targets, redactEnvKeys(process.env), {
+      cwd: session.workspaceRoot,
+      shell: launchAction.action.shell,
+      targets: launchAction.targets,
+      risk: launchAction.risk,
+      policy: launchAction.policy,
+      memoryMatches: launchAction.memoryMatches,
+      finalDecision: launchAction.finalDecision,
+      ...sessionRuntimeMetadataFields(session),
+      runtime: "agent-run",
+      agentLaunch: true,
+      sessionId: session.sessionId,
+      workspaceRoot: session.workspaceRoot,
+      commandCorrelationId: process.env.TERMYTE_COMMAND_CORRELATION_ID,
+      startedAt: new Date().toISOString(),
+    });
+    ledger.finalize(launchLedgerId, launchAction.finalDecision, launchOutcome, launchAction.risk.score, launchAction.finalReason, {
+      endedAt: new Date().toISOString(),
+      durationMs: 0,
+      executedVia: "termyte-run",
+      runtime: "agent-run",
+      agentLaunch: true,
+      ...sessionRuntimeMetadataFields(session),
+      sessionId: session.sessionId,
+      workspaceRoot: session.workspaceRoot,
+    });
+    memory.observe(launchAction.action, launchAction.finalDecision, launchOutcome, session.workspaceRoot);
+  }
   const command = resolveSessionLaunchCommand(requestedCommand, session, explicitArgs);
   const args = shellLaunchArgs(requestedCommand, explicitArgs, session);
   const exitCode = await launchProcess(command, args, env, session.workspaceRoot);
@@ -803,6 +909,27 @@ function writeShellHooks(session: GovernedSession): void {
   fs.writeFileSync(path.join(session.sessionDir, "zsh-hook.zsh"), buildZshHookScript(), "utf8");
   fs.writeFileSync(path.join(session.sessionDir, ".zshrc"), buildZshHookScript(), "utf8");
   fs.writeFileSync(path.join(session.sessionDir, "powershell-hook.ps1"), buildPowerShellHookScript(), "utf8");
+}
+
+function sessionRuntimeMetadataFields(session: GovernedSession): Record<string, unknown> {
+  const metadata = session.runtimeMetadata;
+  if (!metadata) {
+    return {};
+  }
+
+  return {
+    launchedVia: metadata.launchedVia,
+    agentName: metadata.agentName,
+    agentCommand: metadata.agentCommand,
+    agentArgs: metadata.agentArgs ?? [],
+    runtimeProfile: metadata.runtimeProfile,
+    enabledShims: metadata.enabledShims,
+    disabledShims: metadata.disabledShims,
+    shellHooksEnabled: metadata.shellHooksEnabled,
+    shellHookStrategy: metadata.shellHookStrategy,
+    knownCompatibilityNotes: metadata.knownCompatibilityNotes,
+    runtimeWarnings: metadata.warnings,
+  };
 }
 
 export function buildBashHookScript(): string {
@@ -915,7 +1042,7 @@ export function resolveSessionLaunchCommand(
     return resolveRealExecutable(command, session.originalPath, session.shimDir, platform, options.pathext) ?? command;
   }
 
-  if (!hasExtension && SHIM_TOOLS.includes(normalized)) {
+  if (!hasExtension && DEFAULT_SHIM_TOOLS.includes(normalized)) {
     return platform === "win32" ? path.join(session.shimDir, `${normalized}.cmd`) : path.join(session.shimDir, normalized);
   }
 
