@@ -98,6 +98,39 @@ agent action
   -> update memory
 ```
 
+## Verify Termyte Works
+
+Use `termyte doctor` as the first trust check on a machine:
+
+```bash
+termyte doctor
+termyte doctor --json
+```
+
+A healthy local runtime should report zero failures. Warnings are acceptable for optional tools you do not have installed, such as `claude`, `aider`, `zsh`, or WSL without a distro. Failures for DB writability, policy loading, daemon IPC, shim smoke, nested shim resolution, package assets, or benchmark execution mean the runtime is not healthy enough to trust yet.
+
+The core smoke sequence is:
+
+```bash
+termyte doctor --json
+termyte run --dry-run codex
+termyte run codex --version
+termyte run --dry-run claude
+termyte run --dry-run aider
+termyte shell -- node --version
+termyte bench --json
+termyte logs --limit 20
+termyte replay
+```
+
+For package/release validation from the repo, run:
+
+```bash
+npm run validate:package
+```
+
+This builds, packs, installs Termyte into a temporary project, runs the installed CLI, verifies doctor, runs `termyte shell -- node --version`, and confirms benchmark coverage without changing your global npm install.
+
 ## What Gets Blocked Or Warned
 
 - Recursive or wildcard filesystem deletes
@@ -281,6 +314,8 @@ Termyte fails closed when it cannot safely evaluate the risk.
 - If `termyte --help` does not run, use `termyte -h` or `termyte` with no args
 - If `termyte run codex` disables shell-host shims on Windows, that is expected for the `codex-windows` profile
 - Run `termyte doctor` when a governed subprocess hangs or behaves differently from a direct shell command; it checks PATH insertion, PATHEXT, shim manifest health, daemon IPC, and a real shim smoke command
+- If doctor reports stale recovered shim rows, inspect `termyte replay`; old recovered rows are historical evidence, but new stale rows after a fresh doctor run indicate subprocess finalization is unhealthy
+- If `termyte run --dry-run claude` or `termyte run --dry-run aider` says the executable is not found, install that agent or fix PATH before launching it without `--dry-run`
 
 ## Launch Notes
 

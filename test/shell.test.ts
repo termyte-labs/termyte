@@ -1024,6 +1024,36 @@ describe("governed shell runtime", () => {
     });
   });
 
+  it("strips Termyte preview shim directories when creating sessions", () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-preview-session-"));
+    const previewShimDir = path.join(workspaceRoot, ".termyte", "preview", "shims");
+    const realDir = path.join(workspaceRoot, "real-bin");
+    fs.mkdirSync(previewShimDir, { recursive: true });
+    fs.mkdirSync(realDir, { recursive: true });
+
+    const executableName = process.platform === "win32" ? "node.exe" : "node";
+    const previewShim = path.join(previewShimDir, process.platform === "win32" ? "node.cmd" : "node");
+    const realNode = path.join(realDir, executableName);
+    fs.writeFileSync(previewShim, "shim", "utf8");
+    fs.writeFileSync(realNode, "real", "utf8");
+    if (process.platform !== "win32") {
+      fs.chmodSync(previewShim, 0o755);
+      fs.chmodSync(realNode, 0o755);
+    }
+
+    withEnv({
+      PATH: [previewShimDir, realDir, process.env.PATH ?? ""].filter(Boolean).join(path.delimiter),
+      TERMYTE_ORIGINAL_PATH: [previewShimDir, realDir].join(path.delimiter),
+    }, () => {
+      const session = createGovernedSession(workspaceRoot);
+      const entries = session.originalPath.split(path.delimiter).map((entry) => path.resolve(entry));
+
+      expect(entries).not.toContain(path.resolve(previewShimDir));
+      expect(entries).toContain(path.resolve(realDir));
+      expect(resolveRealExecutable("node", session.originalPath, session.shimDir)).toBe(realNode);
+    });
+  });
+
   it("resolves Windows npm-style global commands to .cmd launchers", () => {
     const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-win-launch-"));
     const session = createGovernedSession(workspaceRoot);

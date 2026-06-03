@@ -31,7 +31,8 @@
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/cli.ts",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "validate:package": "node scripts/validate-package.mjs"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1",

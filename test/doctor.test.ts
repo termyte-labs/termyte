@@ -105,4 +105,14 @@ describe("doctor diagnostics", () => {
     expect(healthy.status).toBe("PASS");
     expect(limited.status).toBe("WARN");
   });
+
+  it("includes policy, nested shim, and stale row reliability checks", async () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-doctor-reliability-"));
+    const report = await import("../src/doctor.js").then(({ runDoctor }) => runDoctor(workspaceRoot));
+    const checkById = new Map(report.checks.map((check) => [check.id, check]));
+
+    expect(checkById.get("workspace.policy_state")?.status).toBe("PASS");
+    expect(checkById.get("shell.nested_shim_resolution")?.status).toBe("PASS");
+    expect(checkById.get("shell.stale_shim_rows")?.status).toBe("PASS");
+  });
 });

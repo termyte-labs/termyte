@@ -6,7 +6,9 @@ import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import type { Server } from "node:net";
 import { defaultDbPath, openDatabase } from "./db.js";
-import { buildSessionEnv, createGovernedSession, startGuardDaemon, verifyShimManifest, type GovernedSession } from "./shell.js";
+import { Ledger } from "./ledger.js";
+import { loadPolicies, validatePolicySet } from "./policy.js";
+import { buildSessionEnv, createGovernedSession, resolveRealExecutable, startGuardDaemon, verifyShimManifest, type GovernedSession } from "./shell.js";
 
 export type DoctorStatus = "PASS" | "WARN" | "FAIL";
 
@@ -63,6 +65,7 @@ export async function runDoctor(cwd = process.cwd()): Promise<DoctorReport> {
   });
   addCheck(checks, checkWriteAccess(cwd, "workspace.write", "Workspace write access"));
   addCheck(checks, checkDbWritable(cwd));
+  addCheck(checks, checkPolicyLoadable(cwd));
   addCheck(checks, checkDirectoryCreatable(path.join(cwd, ".termyte"), "workspace.termyte_dir", ".termyte directory"));
 
   try {
@@ -100,6 +103,8 @@ export async function runDoctor(cwd = process.cwd()): Promise<DoctorReport> {
     await waitForListening(server);
     addCheck(checks, await checkDaemonIpc(session));
     addCheck(checks, await checkShimSmoke(session, env));
+    addCheck(checks, checkNestedShimResolution(session));
+    addCheck(checks, checkStaleShimRows(session));
   } catch (error) {
     addCheck(checks, {
       id: "shell.startup",
@@ -320,6 +325,33 @@ function checkDbWritable(cwd: string): DoctorCheck {
   }
 }
 
+function checkPolicyLoadable(cwd: string): DoctorCheck {
+  const dbPath = defaultDbPath(cwd);
+  try {
+    const policies = loadPolicies(dbPath);
+    const errors = validatePolicySet(policies);
+    return {
+      id: "workspace.policy_state",
+      section: "Workspace",
+      label: "Policy state",
+      status: errors.length === 0 ? "PASS" : "FAIL",
+      message: errors.length === 0
+        ? `Policies loaded: ${policies.block.length} block rules, ${policies.warn.length} warn rules.`
+        : `Policy state is invalid: ${errors.join("; ")}`,
+      details: { dbPath, blockRules: policies.block.length, warnRules: policies.warn.length, errors },
+    };
+  } catch (error) {
+    return {
+      id: "workspace.policy_state",
+      section: "Workspace",
+      label: "Policy state",
+      status: "FAIL",
+      message: `Cannot load local policies from ${dbPath}: ${errorMessage(error)}`,
+      details: { dbPath },
+    };
+  }
+}
+
 function checkDirectoryCreatable(directory: string, id: string, label: string): DoctorCheck {
   try {
     fs.mkdirSync(directory, { recursive: true });
@@ -403,6 +435,79 @@ async function checkShimSmoke(session: GovernedSession, env: NodeJS.ProcessEnv):
       : `Shim smoke failed; shell runtime cannot govern subprocesses: ${result.errorMessage ?? firstBufferedLine(result)}`,
     details: { exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr },
   };
+}
+
+function checkNestedShimResolution(session: GovernedSession): DoctorCheck {
+  const fakeOlderShimDir = path.join(session.workspaceRoot, ".termyte", "sessions", "doctor-nested-smoke", "shims");
+  const fakePreviewShimDir = path.join(session.workspaceRoot, ".termyte", "preview", "shims");
+  const nodeDir = path.dirname(process.execPath);
+  const syntheticOriginalPath = [
+    fakeOlderShimDir,
+    fakePreviewShimDir,
+    nodeDir,
+    session.originalPath,
+  ].join(path.delimiter);
+  const resolved = resolveRealExecutable("node", syntheticOriginalPath, session.shimDir);
+  const expected = path.resolve(process.execPath);
+  const ok = resolved ? path.resolve(resolved).toLowerCase() === expected.toLowerCase() : false;
+
+  return {
+    id: "shell.nested_shim_resolution",
+    section: "Shell Runtime",
+    label: "Nested shim resolution",
+    status: ok ? "PASS" : "FAIL",
+    message: ok
+      ? "Nested runtime resolution skips older Termyte shim directories."
+      : `Nested runtime resolution did not find the real Node executable; resolved ${resolved ?? "<missing>"}.`,
+    details: {
+      expected: process.execPath,
+      resolved,
+      syntheticShimEntries: [fakeOlderShimDir, fakePreviewShimDir],
+    },
+  };
+}
+
+function checkStaleShimRows(session: GovernedSession): DoctorCheck {
+  const { db } = openDatabase(session.dbPath);
+  try {
+    const rows = new Ledger(db).listLatest(200);
+    const now = Date.now();
+    const stalePending = rows.filter((row) => {
+      if (row.status !== "planned" || row.decision !== "pending") return false;
+      const metadata = safeParseMetadata(row.metadataJson);
+      if (metadata.runtime !== "shell-shim" && metadata.shimRuntime !== true) return false;
+      if (metadata.sessionId === session.sessionId) return false;
+      const lastSeen = typeof metadata.lastHeartbeatAt === "string"
+        ? Date.parse(metadata.lastHeartbeatAt)
+        : Date.parse(row.createdAt);
+      return Number.isFinite(lastSeen) && now - lastSeen > 60_000;
+    });
+    const recovered = rows.filter((row) => {
+      const metadata = safeParseMetadata(row.metadataJson);
+      return row.status === "failed" && metadata.recovered === true && typeof metadata.recoveryReason === "string";
+    });
+
+    return {
+      id: "shell.stale_shim_rows",
+      section: "Shell Runtime",
+      label: "Stale shim rows",
+      status: stalePending.length === 0 ? "PASS" : "WARN",
+      message: stalePending.length === 0
+        ? recovered.length === 0
+          ? "No stale pending shell-shim rows found in recent ledger history."
+          : `No stale pending shell-shim rows found; ${recovered.length} recent recovered shim failures remain visible in replay.`
+        : `${stalePending.length} stale pending shell-shim row(s) found. Run doctor again; if new stale rows appear, subprocess finalization is unhealthy.`,
+      details: {
+        inspectedRows: rows.length,
+        stalePendingCount: stalePending.length,
+        recoveredFailureCount: recovered.length,
+        stalePendingIds: stalePending.map((row) => row.id),
+        recoveredFailureIds: recovered.map((row) => row.id),
+      },
+    };
+  } finally {
+    db.close();
+  }
 }
 
 function checkNpmGlobalBinPath(): DoctorCheck {
@@ -853,6 +958,15 @@ function firstBufferedLine(result: { stdout: string; stderr: string }): string {
 
 function pathEnvKey(env: NodeJS.ProcessEnv): string {
   return Object.keys(env).find((key) => key.toLowerCase() === "path") ?? "PATH";
+}
+
+function safeParseMetadata(value: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
+  } catch {
+    return {};
+  }
 }
 
 function quoteCmdArg(value: string): string {
