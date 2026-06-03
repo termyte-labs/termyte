@@ -13,6 +13,7 @@ import {
   resolveRuntimeProfile,
 } from "../src/agent.js";
 import { createGovernedSession, handleGuardRequest, SHELL_HOST_SHIMS } from "../src/shell.js";
+import { formatLedger, formatReplay } from "../src/format.js";
 
 function makeAgentExecutable(directory: string, name: string): string {
   const executable = process.platform === "win32" ? path.join(directory, `${name}.cmd`) : path.join(directory, name);
@@ -59,8 +60,26 @@ describe("agent run planning", () => {
     });
 
     expect(codexPlan.resolvedExecutable).toBe(codex);
+    expect(codexPlan.executableFound).toBe(true);
     expect(claudePlan.resolvedExecutable).toBe(claude);
     expect(aiderPlan.resolvedExecutable).toBe(aider);
+  });
+
+  it("marks dry-run plans when an agent executable is missing", () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-agent-missing-"));
+    const plan = buildAgentRunPlan({
+      workspaceRoot,
+      dbPath: path.join(workspaceRoot, "termyte.db"),
+      agentName: "claude",
+      agentArgs: ["--version"],
+      originalPath: workspaceRoot,
+      platform: process.platform,
+    });
+    const output = formatAgentDryRunReport(plan);
+
+    expect(plan.executableFound).toBe(false);
+    expect(output).toContain("resolved executable: claude (not found on PATH)");
+    expect(output).toContain("claude executable was not found on PATH");
   });
 
   it("fails clearly for unknown agents", () => {
@@ -126,6 +145,10 @@ describe("agent run planning", () => {
     expect(ledgerMetadata.agentArgs).toEqual(["--version"]);
     expect(ledgerMetadata.runtimeProfile).toBe("codex-windows");
     expect(ledgerMetadata.shellHooksEnabled).toBe(false);
+
+    const ledger = new Ledger(openDatabase(session.dbPath).db);
+    expect(formatLedger(ledger.listLatest())).toContain("termyte-run");
+    expect(formatReplay(ledger.replay())).toContain("launched via: termyte-run");
   });
 
   it("keeps high-value shims enabled under the codex Windows profile", () => {

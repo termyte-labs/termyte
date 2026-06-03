@@ -80,6 +80,30 @@ function testShimPath(shimDir: string, tool: string): string {
   return process.platform === "win32" ? path.join(shimDir, `${tool}.cmd`) : path.join(shimDir, tool);
 }
 
+function withEnv<T>(values: Record<string, string | undefined>, run: () => T): T {
+  const previous = new Map<string, string | undefined>();
+  for (const [key, value] of Object.entries(values)) {
+    previous.set(key, process.env[key]);
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+
+  try {
+    return run();
+  } finally {
+    for (const [key, value] of previous) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+}
+
 describe("governed shell runtime", () => {
   it("builds a governed session environment with shimmed PATH", () => {
     const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-shell-"));
@@ -971,6 +995,35 @@ describe("governed shell runtime", () => {
     expect(resolveRealExecutable("git", [shimDir, realDir].join(path.delimiter), shimDir)).toBe(realPath);
   });
 
+  it("strips older Termyte shim directories when creating nested sessions", () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-nested-session-"));
+    const outerShimDir = path.join(workspaceRoot, ".termyte", "sessions", "outer", "shims");
+    const realDir = path.join(workspaceRoot, "real-bin");
+    fs.mkdirSync(outerShimDir, { recursive: true });
+    fs.mkdirSync(realDir, { recursive: true });
+
+    const executableName = process.platform === "win32" ? "node.exe" : "node";
+    const outerShim = path.join(outerShimDir, process.platform === "win32" ? "node.cmd" : "node");
+    const realNode = path.join(realDir, executableName);
+    fs.writeFileSync(outerShim, "shim", "utf8");
+    fs.writeFileSync(realNode, "real", "utf8");
+    if (process.platform !== "win32") {
+      fs.chmodSync(outerShim, 0o755);
+      fs.chmodSync(realNode, 0o755);
+    }
+
+    withEnv({
+      PATH: [outerShimDir, realDir, process.env.PATH ?? ""].filter(Boolean).join(path.delimiter),
+      TERMYTE_ORIGINAL_PATH: [outerShimDir, realDir].join(path.delimiter),
+    }, () => {
+      const session = createGovernedSession(workspaceRoot);
+
+      expect(session.originalPath.split(path.delimiter).map((entry) => path.resolve(entry))).not.toContain(path.resolve(outerShimDir));
+      expect(session.originalPath.split(path.delimiter).map((entry) => path.resolve(entry))).toContain(path.resolve(realDir));
+      expect(resolveRealExecutable("node", session.originalPath, session.shimDir)).toBe(realNode);
+    });
+  });
+
   it("resolves Windows npm-style global commands to .cmd launchers", () => {
     const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-win-launch-"));
     const session = createGovernedSession(workspaceRoot);
@@ -1074,6 +1127,22 @@ describe("governed shell runtime", () => {
     expect(spawned.error?.message).toContain("EINVAL");
     expect(() => execFileSync(wrapper, ["publish"], { encoding: "utf8" })).toThrow();
     expect(execSync(`"${wrapper}" publish`, { encoding: "utf8" }).trim()).toBe("npm:publish");
+  });
+
+  it("fails shim child execution with a clear timeout outcome", async () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-shim-timeout-"));
+    const outcome = await runResolvedExecutable(
+      process.execPath,
+      ["-e", "setTimeout(() => {}, 1000)"],
+      workspaceRoot,
+      process.execPath,
+      undefined,
+      25,
+    );
+
+    expect(outcome.status).toBe("failed");
+    expect(outcome.errorMessage).toBe("shell_shim_execution_timeout");
+    expect(outcome.stderr).toContain("timed out");
   });
 
   it("runs npm.cmd through Termyte's Windows command wrapper", async () => {

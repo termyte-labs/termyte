@@ -206,6 +206,66 @@ export function analyzeRisk(action: ParsedAction, targets: ResolvedTargets): Ris
     };
   }
 
+  if (action.kind === "git.destructive") {
+    signals.push("git destructive history operation");
+    return {
+      decision: "warn",
+      score: 65,
+      reason: "git destructive history operation requires approval",
+      signals,
+    };
+  }
+
+  if (action.kind === "remote-script.execution") {
+    signals.push("remote script execution");
+    return {
+      decision: "warn",
+      score: 70,
+      reason: "remote script execution requires approval",
+      signals,
+    };
+  }
+
+  if (action.kind === "privilege.escalation") {
+    signals.push("privilege escalation");
+    return {
+      decision: "warn",
+      score: 70,
+      reason: "privilege escalation requires approval",
+      signals,
+    };
+  }
+
+  if (action.kind === "secret.access") {
+    signals.push("secret access");
+    return {
+      decision: "warn",
+      score: 60,
+      reason: "secret access requires approval",
+      signals,
+    };
+  }
+
+  if (action.kind === "docker.destructive") {
+    signals.push("docker destructive operation");
+    return {
+      decision: "warn",
+      score: 60,
+      reason: "docker destructive operation requires approval",
+      signals,
+    };
+  }
+
+  if (action.kind === "deploy.mutation") {
+    signals.push("deployment mutation");
+    return {
+      decision: "warn",
+      score: 65,
+      reason: "deployment mutation requires approval",
+      signals,
+    };
+  }
+
   return {
     decision: "allow",
     score,

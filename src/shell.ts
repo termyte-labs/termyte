@@ -63,6 +63,7 @@ export const DEFAULT_SHIM_TOOLS = [...HIGH_VALUE_SHIMS, ...SHELL_HOST_SHIMS];
 const GOVERNED_SHELLS = new Set(["bash", "zsh", "pwsh", "powershell"]);
 const STALE_SHIM_PENDING_MS = 60_000;
 const SHELL_SHIM_HEARTBEAT_INTERVAL_MS = 5_000;
+const DEFAULT_SHIM_EXECUTION_TIMEOUT_MS = 30 * 60_000;
 
 interface ShimManifestEntry {
   name: string;
@@ -144,7 +145,7 @@ export function createGovernedSession(workspaceRoot: string, options: GovernedSe
   const dbPath = defaultDbPath(root);
   const cliPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "cli.js");
   const nodePath = process.execPath;
-  const originalPath = currentPathValue(process.env);
+  const originalPath = originalExecutablePath(process.env);
   const shimManifestPath = path.join(sessionDir, "shim-manifest.json");
   const socketPath =
       process.platform === "win32"
@@ -201,6 +202,28 @@ function pathEnvKey(env: NodeJS.ProcessEnv): string {
 
 function currentPathValue(env: NodeJS.ProcessEnv): string {
   return env[pathEnvKey(env)] ?? env.PATH ?? "";
+}
+
+function originalExecutablePath(env: NodeJS.ProcessEnv): string {
+  return stripTermyteShimPathEntries(env.TERMYTE_ORIGINAL_PATH ?? currentPathValue(env));
+}
+
+function stripTermyteShimPathEntries(value: string, currentShimDir?: string): string {
+  return value
+    .split(path.delimiter)
+    .filter(Boolean)
+    .filter((entry) => !isTermyteShimPath(entry, currentShimDir))
+    .join(path.delimiter);
+}
+
+function isTermyteShimPath(entry: string, currentShimDir?: string): boolean {
+  const resolved = path.resolve(entry);
+  if (currentShimDir && resolved === path.resolve(currentShimDir)) {
+    return true;
+  }
+
+  const normalized = resolved.replace(/\\/g, "/").toLowerCase();
+  return /(?:^|\/)\.termyte\/(?:sessions\/[^/]+|preview)\/shims$/.test(normalized);
 }
 
 export function buildGuardCommand(tool: string, argv: string[]): string {
@@ -1088,7 +1111,7 @@ export async function interceptShim(tool: string, argv: string[]): Promise<numbe
   const sessionId = process.env.TERMYTE_SESSION_ID;
   const socketPath = process.env.TERMYTE_GUARD_SOCKET;
   const cwd = process.cwd();
-  const originalPath = process.env.TERMYTE_ORIGINAL_PATH ?? process.env.PATH ?? "";
+  const originalPath = stripTermyteShimPathEntries(process.env.TERMYTE_ORIGINAL_PATH ?? process.env.PATH ?? "", process.env.TERMYTE_SHIM_DIR);
   const shimDir = process.env.TERMYTE_SHIM_DIR ?? "";
   const cliPath = process.env.TERMYTE_CLI_PATH ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), "cli.js");
   const nodePath = process.env.TERMYTE_NODE ?? process.execPath;
@@ -1369,7 +1392,7 @@ export function resolveRealExecutable(
   platform: NodeJS.Platform = process.platform,
   pathext = process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD",
 ): string | null {
-  const searchPaths = originalPath.split(path.delimiter).filter(Boolean).filter((entry) => path.resolve(entry) !== path.resolve(shimDir));
+  const searchPaths = originalPath.split(path.delimiter).filter(Boolean).filter((entry) => !isTermyteShimPath(entry, shimDir));
   const candidates = resolveExecutableCandidates(tool, platform, pathext);
 
   for (const dir of searchPaths) {
@@ -1437,6 +1460,7 @@ export function runResolvedExecutable(
   cwd: string,
   nodePath: string,
   onProcessStarted?: (child: ChildProcess) => void,
+  timeoutMs = shimExecutionTimeoutMs(process.env),
 ): Promise<ExecutionOutcome & { signal?: string | null }> {
   const useWindowsShell = isWindowsCommandScript(resolved);
   const command = useWindowsShell ? buildCmdCommand(resolved, argv) : resolved;
@@ -1444,20 +1468,48 @@ export function runResolvedExecutable(
 
   const started = Date.now();
   return new Promise<ExecutionOutcome & { signal?: string | null }>((resolve) => {
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const finish = (outcome: ExecutionOutcome & { signal?: string | null }): void => {
+      if (settled) return;
+      settled = true;
+      if (timer) {
+        clearTimeout(timer);
+      }
+      resolve(outcome);
+    };
+    const env = {
+      ...process.env,
+      TERMYTE_NODE: nodePath,
+      TERMYTE_ORIGINAL_PATH: stripTermyteShimPathEntries(process.env.TERMYTE_ORIGINAL_PATH ?? process.env.PATH ?? "", process.env.TERMYTE_SHIM_DIR),
+    };
+
     const child = spawn(command, args, {
       cwd,
       stdio: "inherit",
-      env: {
-        ...process.env,
-        TERMYTE_NODE: nodePath,
-      },
+      env,
       shell: useWindowsShell,
     });
     onProcessStarted?.(child);
+    if (timeoutMs > 0) {
+      timer = setTimeout(() => {
+        const message = `Termyte shim execution timed out after ${timeoutMs}ms.`;
+        child.kill();
+        finish({
+          status: "failed",
+          exitCode: null,
+          stdout: "",
+          stderr: `${message}\n`,
+          durationMs: Date.now() - started,
+          errorMessage: "shell_shim_execution_timeout",
+          signal: null,
+        });
+      }, timeoutMs);
+    }
 
     child.on("error", (error) => {
       process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-      resolve({
+      finish({
         status: "failed",
         exitCode: null,
         stdout: "",
@@ -1468,7 +1520,7 @@ export function runResolvedExecutable(
     });
     child.on("exit", (code, signal) => {
       if (signal) {
-        resolve({
+        finish({
           status: "failed",
           exitCode: code,
           stdout: "",
@@ -1479,7 +1531,7 @@ export function runResolvedExecutable(
         });
         return;
       }
-      resolve({
+      finish({
         status: code === 0 ? "executed" : "failed",
         exitCode: code ?? 0,
         stdout: "",
@@ -1489,6 +1541,15 @@ export function runResolvedExecutable(
       });
     });
   });
+}
+
+function shimExecutionTimeoutMs(env: NodeJS.ProcessEnv): number {
+  const raw = env.TERMYTE_SHIM_EXECUTION_TIMEOUT_MS;
+  if (!raw) {
+    return DEFAULT_SHIM_EXECUTION_TIMEOUT_MS;
+  }
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : DEFAULT_SHIM_EXECUTION_TIMEOUT_MS;
 }
 
 function isWindowsCommandScript(value: string): boolean {

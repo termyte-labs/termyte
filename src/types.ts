@@ -3,7 +3,13 @@ export type Decision = "allow" | "warn" | "block";
 export type ActionKind =
   | "filesystem.delete"
   | "git.push"
+  | "git.destructive"
   | "package.publish"
+  | "secret.access"
+  | "remote-script.execution"
+  | "privilege.escalation"
+  | "docker.destructive"
+  | "deploy.mutation"
   | "sql.destructive"
   | "shell.generic";
 

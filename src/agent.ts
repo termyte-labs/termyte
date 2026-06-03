@@ -1,6 +1,5 @@
 import path from "node:path";
-import type { GovernedSession } from "./shell.js";
-import { DEFAULT_SHIM_TOOLS, HIGH_VALUE_SHIMS, SHELL_HOST_SHIMS, resolveSessionLaunchCommand } from "./shell.js";
+import { DEFAULT_SHIM_TOOLS, HIGH_VALUE_SHIMS, SHELL_HOST_SHIMS, resolveRealExecutable } from "./shell.js";
 
 export type AgentName = "codex" | "claude" | "aider";
 export type RuntimeProfileName = "default" | "codex-windows" | "codex-unix" | "claude-windows" | "claude-unix" | "aider";
@@ -28,6 +27,7 @@ export interface AgentRunPlan {
   agentName: AgentName;
   agentArgs: string[];
   resolvedExecutable: string;
+  executableFound: boolean;
   resolvedArgs: string[];
   runtimeProfile: RuntimeProfile;
   workspaceRoot: string;
@@ -177,17 +177,18 @@ export function buildAgentRunPlan(options: {
   const platform = options.platform ?? process.platform;
   const runtimeProfile = resolveRuntimeProfile(options.agentName, platform, options.profileName);
   const originalPath = options.originalPath ?? process.env.TERMYTE_ORIGINAL_PATH ?? process.env.PATH ?? "";
-  const sessionLike = {
-    originalPath,
-    shimDir: path.join(options.workspaceRoot, ".termyte", "preview", "shims"),
-  } as unknown as GovernedSession;
-  const resolvedExecutable = resolveSessionLaunchCommand(options.agentName, sessionLike, options.agentArgs, { platform });
+  const previewShimDir = path.join(options.workspaceRoot, ".termyte", "preview", "shims");
+  const resolvedExecutable = resolveRealExecutable(options.agentName, originalPath, previewShimDir, platform);
   const warnings = buildRuntimeWarnings(runtimeProfile);
+  if (!resolvedExecutable) {
+    warnings.push(`${options.agentName} executable was not found on PATH. Install it or update PATH before launching without --dry-run.`);
+  }
 
   return {
     agentName: options.agentName,
     agentArgs: [...options.agentArgs],
-    resolvedExecutable,
+    resolvedExecutable: resolvedExecutable ?? options.agentName,
+    executableFound: Boolean(resolvedExecutable),
     resolvedArgs: [...options.agentArgs],
     runtimeProfile,
     workspaceRoot: options.workspaceRoot,
@@ -233,7 +234,7 @@ export function formatAgentDryRunReport(plan: AgentRunPlan): string {
     `  platform: ${plan.platform}`,
     `  workspace root: ${plan.workspaceRoot}`,
     `  db path: ${plan.dbPath}`,
-    `  resolved executable: ${plan.resolvedExecutable}`,
+    `  resolved executable: ${plan.executableFound ? plan.resolvedExecutable : `${plan.resolvedExecutable} (not found on PATH)`}`,
     `  resolved args: ${plan.resolvedArgs.length > 0 ? plan.resolvedArgs.join(" ") : "(none)"}`,
     `  enabled shims: ${plan.runtimeProfile.enabledShims.join(", ") || "(none)"}`,
     `  disabled shims: ${plan.runtimeProfile.disabledShims.length > 0 ? plan.runtimeProfile.disabledShims.join(", ") : "(none)"}`,

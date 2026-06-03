@@ -105,7 +105,11 @@ agent action
 - Force pushes to protected branches
 - Package publishing
 - SQL destructive operations
-- Remote script execution and permission escalation are covered in the benchmark suite
+- Secret access attempts such as reading `.env`, credentials, or API keys
+- Remote script execution such as `curl ... | sh`, `irm ... | iex`, and language-level network execution
+- Permission escalation such as `sudo`, `runas`, `pkexec`, and PowerShell `-Verb RunAs`
+- Destructive git history actions such as `git reset --hard`, `git clean -fdx`, forced checkout, stash drops, tag deletes, and reflog expiry
+- Docker destructive actions and deployment mutations are warned by default
 
 ## Storage And State
 
@@ -126,19 +130,29 @@ Policy rules are stored locally in the same SQLite workspace state as logs and m
 
 ```bash
 termyte policies
+termyte policies defaults
 termyte policies add warn package.custom.publish
 termyte policies remove warn package.custom.publish
 termyte policies set --block filesystem.delete.recursive.force.wildcard --warn git.push.force
+termyte policies export --file termyte-policies.json
+termyte policies validate termyte-policies.json
+termyte policies import termyte-policies.json
 termyte policies reset
 ```
 
 Supported policy commands:
 
 - `termyte policies` or `termyte policies --json`: show the current policy set
+- `termyte policies defaults`: show the built-in default rules
 - `termyte policies set [--block <patterns...>] [--warn <patterns...>]`: replace one or both rule lists
 - `termyte policies add <block|warn> <patterns...>`: append rules to a list
 - `termyte policies remove <block|warn> <patterns...>`: remove rules from a list
+- `termyte policies export [--file <path>]`: export a reviewable JSON policy document
+- `termyte policies import <path>`: validate and load a JSON policy document into local SQLite
+- `termyte policies validate <path>`: validate a JSON policy document without changing local state
 - `termyte policies reset`: restore the built-in defaults
+
+Policy patterns match semantic action IDs, not raw shell strings. For example, `package.*.publish` covers `npm publish`, `pnpm publish`, and `yarn publish` after command parsing. Termyte rejects empty, malformed, or global `*` policy patterns so a bad edit does not silently weaken governance.
 
 ## Benchmark Coverage
 
@@ -150,6 +164,8 @@ The benchmark suite currently covers:
 - secret access
 - remote script execution
 - permission escalation
+- Docker destructive operations
+- deployment mutation commands
 - SQL destructive operations
 
 Run it with:
@@ -172,6 +188,10 @@ termyte bench
 - `termyte allow-once -- <command>`: run a warned command once
 - `termyte mark-safe <memory-id>`: downgrade a memory after a false positive
 - `termyte policies`: print active policy rules
+- `termyte policies defaults`: print built-in policy rules
+- `termyte policies export [--file <path>]`: export active policies as JSON
+- `termyte policies import <path>`: validate and load policies from JSON
+- `termyte policies validate <path>`: validate a policy JSON file
 - `termyte shell [-- <agent>]`: start the lower-level governed session and launch an optional command or agent inside it
 
 ## Examples
@@ -213,6 +233,14 @@ termyte logs
 termyte replay
 ```
 
+Export and review policies:
+
+```bash
+termyte policies export --file termyte-policies.json
+termyte policies validate termyte-policies.json
+termyte policies import termyte-policies.json
+```
+
 ## Security And Privacy
 
 - Local-first only
@@ -252,6 +280,7 @@ Termyte fails closed when it cannot safely evaluate the risk.
 - If global install cannot find `termyte`, make sure your npm global bin directory is on `PATH`
 - If `termyte --help` does not run, use `termyte -h` or `termyte` with no args
 - If `termyte run codex` disables shell-host shims on Windows, that is expected for the `codex-windows` profile
+- Run `termyte doctor` when a governed subprocess hangs or behaves differently from a direct shell command; it checks PATH insertion, PATHEXT, shim manifest health, daemon IPC, and a real shim smoke command
 
 ## Launch Notes
 

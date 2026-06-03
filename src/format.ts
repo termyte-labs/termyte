@@ -176,6 +176,9 @@ function formatCorrelatedReplayGroup(correlationId: string, entries: ReplayEntry
   if (first?.agentName) {
     lines.push(`  agent: ${first.agentName}${first.runtimeProfile ? ` (${first.runtimeProfile})` : ""}`);
   }
+  if (first?.launchedVia) {
+    lines.push(`  launched via: ${first.launchedVia}`);
+  }
   for (const entry of entries) {
     lines.push(
       `  ${entry.runtime ?? "runtime"}: ${entry.finalDecision.toUpperCase()} ${entry.outcome}`,
@@ -196,6 +199,9 @@ function formatReplayEntry(entry: ReplayEntry): string {
   ];
   if (entry.agentName) {
     lines.push(`  agent: ${entry.agentName}${entry.runtimeProfile ? ` (${entry.runtimeProfile})` : ""}`);
+  }
+  if (entry.launchedVia) {
+    lines.push(`  launched via: ${entry.launchedVia}`);
   }
   lines.push(
     `  action: ${entry.action}`,

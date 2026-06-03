@@ -10,7 +10,19 @@ import { formatInspection, formatLedger, formatMemory, formatReplay, replayEntri
 import { Ledger } from "./ledger.js";
 import { MemoryEngine } from "./memory.js";
 import { inspectAction, runRuntime } from "./runtime.js";
-import { addPolicies, describePolicies, loadPolicies, removePolicies, resetPolicies, savePolicies, type PolicySet } from "./policy.js";
+import {
+  addPolicies,
+  defaultPolicies,
+  describePolicies,
+  exportPolicyDocument,
+  loadPolicies,
+  parsePolicyDocument,
+  removePolicies,
+  resetPolicies,
+  savePolicies,
+  validatePolicySet,
+  type PolicySet,
+} from "./policy.js";
 import { interceptHook, interceptShim, launchGovernedSession } from "./shell.js";
 import { formatDoctorHuman, formatDoctorJson, runDoctor } from "./doctor.js";
 import type { Decision } from "./types.js";
@@ -28,10 +40,14 @@ function printUsage(): void {
   termyte replay [--json]
   termyte memory [--limit N] [--json]
   termyte policies [--json]
+  termyte policies defaults [--json]
   termyte policies reset
   termyte policies set [--block <patterns...>] [--warn <patterns...>]
   termyte policies add <block|warn> <patterns...>
   termyte policies remove <block|warn> <patterns...>
+  termyte policies export [--file <path>]
+  termyte policies import <path>
+  termyte policies validate <path>
   termyte shell [-- <agent>]
   termyte inspect [--json] -- <command>`);
 }
@@ -89,6 +105,14 @@ function parsePolicySetArgs(args: string[]): { block?: string[]; warn?: string[]
 
 function printPolicySet(policies: PolicySet, json = false): void {
   console.log(json ? policyJsonOutput(policies) : describePolicies(policies));
+}
+
+function parseFileFlag(args: string[], fallbackIndex: number): string | null {
+  const fileIndex = args.indexOf("--file");
+  if (fileIndex >= 0) {
+    return args[fileIndex + 1] ?? null;
+  }
+  return args[fallbackIndex] && args[fallbackIndex] !== "--json" ? args[fallbackIndex] : null;
 }
 
 function commandAfterDoubleDash(args: string[]): string {
@@ -313,16 +337,16 @@ async function main(): Promise<number> {
     if (args.includes("-h") || args.includes("--help")) {
       console.log(`Usage:
   termyte shell
-  termyte shell -- <agent>`);
+  termyte shell -- <command>`);
       return 0;
     }
 
-    if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    const agentArgs = argsAfterDoubleDash(args);
+    if (agentArgs.length === 0 && (!process.stdin.isTTY || !process.stdout.isTTY)) {
       console.error("termyte shell requires an interactive terminal.");
       return 1;
     }
 
-    const agentArgs = argsAfterDoubleDash(args);
     const exitCode = await launchGovernedSession({
       workspaceRoot: cwd,
       agentArgs: agentArgs.length > 0 ? agentArgs : undefined,
@@ -470,25 +494,93 @@ async function main(): Promise<number> {
       return 0;
     }
 
+    if (subcommand === "defaults") {
+      printPolicySet(defaultPolicies, json);
+      return 0;
+    }
+
     if (subcommand === "reset") {
       printPolicySet(resetPolicies(dbPath), json);
       return 0;
     }
 
+    if (subcommand === "export") {
+      const exportPath = parseFileFlag(args, 2);
+      const document = exportPolicyDocument(loadPolicies(dbPath));
+      const outputText = `${toJson(document)}\n`;
+      if (exportPath) {
+        fs.mkdirSync(path.dirname(path.resolve(exportPath)), { recursive: true });
+        fs.writeFileSync(exportPath, outputText, "utf8");
+        console.log(`Exported policies to ${path.resolve(exportPath)}`);
+      } else {
+        console.log(outputText.trimEnd());
+      }
+      return 0;
+    }
+
+    if (subcommand === "import") {
+      const importPath = parseFileFlag(args, 2);
+      if (!importPath) {
+        console.error("Usage: termyte policies import <path>");
+        return 1;
+      }
+      try {
+        const next = savePolicies(dbPath, parsePolicyDocument(fs.readFileSync(importPath, "utf8")));
+        printPolicySet(next, json);
+        return 0;
+      } catch (error) {
+        console.error(error instanceof Error ? error.message : String(error));
+        return 1;
+      }
+    }
+
+    if (subcommand === "validate") {
+      const validatePath = parseFileFlag(args, 2);
+      if (!validatePath) {
+        console.error("Usage: termyte policies validate <path>");
+        return 1;
+      }
+      try {
+        const policies = parsePolicyDocument(fs.readFileSync(validatePath, "utf8"));
+        const errors = validatePolicySet(policies);
+        if (errors.length > 0) {
+          console.error(`Invalid policy file: ${errors.join("; ")}`);
+          return 1;
+        }
+        console.log(json ? toJson({ ok: true, policies }) : "Policy file is valid.");
+        return 0;
+      } catch (error) {
+        console.error(error instanceof Error ? error.message : String(error));
+        return 1;
+      }
+    }
+
     if (subcommand === "set") {
-      const updates = parsePolicySetArgs(args.slice(2));
+      let updates: { block?: string[]; warn?: string[] };
+      try {
+        updates = parsePolicySetArgs(args.slice(2));
+      } catch (error) {
+        console.error(error instanceof Error ? error.message : String(error));
+        console.error("Usage: termyte policies set [--block <patterns...>] [--warn <patterns...>]");
+        return 1;
+      }
       if (updates.block === undefined && updates.warn === undefined) {
         console.error("Usage: termyte policies set [--block <patterns...>] [--warn <patterns...>]");
         return 1;
       }
 
       const current = loadPolicies(dbPath);
-      const next = savePolicies(dbPath, {
-        block: updates.block !== undefined ? updates.block : current.block,
-        warn: updates.warn !== undefined ? updates.warn : current.warn,
-      });
-      printPolicySet(next, json);
-      return 0;
+      try {
+        const next = savePolicies(dbPath, {
+          block: updates.block !== undefined ? updates.block : current.block,
+          warn: updates.warn !== undefined ? updates.warn : current.warn,
+        });
+        printPolicySet(next, json);
+        return 0;
+      } catch (error) {
+        console.error(error instanceof Error ? error.message : String(error));
+        return 1;
+      }
     }
 
     if (subcommand === "add" || subcommand === "remove") {
@@ -499,12 +591,17 @@ async function main(): Promise<number> {
         return 1;
       }
 
-      const next = subcommand === "add" ? addPolicies(dbPath, kind, patterns) : removePolicies(dbPath, kind, patterns);
-      printPolicySet(next, json);
-      return 0;
+      try {
+        const next = subcommand === "add" ? addPolicies(dbPath, kind, patterns) : removePolicies(dbPath, kind, patterns);
+        printPolicySet(next, json);
+        return 0;
+      } catch (error) {
+        console.error(error instanceof Error ? error.message : String(error));
+        return 1;
+      }
     }
 
-    console.error("Usage: termyte policies [--json] | reset | set | add | remove");
+    console.error("Usage: termyte policies [--json] | defaults | reset | set | add | remove | export | import | validate");
     return 0;
   }
 

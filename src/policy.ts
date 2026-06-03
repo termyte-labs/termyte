@@ -6,6 +6,12 @@ export interface PolicySet {
   warn: string[];
 }
 
+export interface PolicyDocument {
+  version: 1;
+  exportedAt: string;
+  policies: PolicySet;
+}
+
 export const defaultPolicies: PolicySet = {
   block: [
     "filesystem.delete.recursive.force.wildcard",
@@ -14,13 +20,33 @@ export const defaultPolicies: PolicySet = {
     "sql.truncate-table",
     "sql.delete-without-where",
   ],
-  warn: ["filesystem.delete.recursive.force", "git.push.force", "package.*.publish", "sql.delete-with-where"],
+  warn: [
+    "filesystem.delete.recursive.force",
+    "git.push.force",
+    "git.reset.*",
+    "git.clean.*",
+    "git.checkout.force",
+    "git.branch.delete.force",
+    "git.tag.delete",
+    "git.stash.drop",
+    "git.rebase.interactive",
+    "git.reflog.expire",
+    "package.*.publish",
+    "secret.access",
+    "remote-script.*",
+    "privilege.escalation",
+    "docker.*",
+    "deploy.*",
+    "sql.delete-with-where",
+  ],
 };
 
 interface StoredPolicyRow {
   block_json: string;
   warn_json: string;
 }
+
+const POLICY_PATTERN_RE = /^[A-Za-z0-9*_.-]+$/;
 
 function matchesPattern(value: string, pattern: string): boolean {
   if (pattern === value) return true;
@@ -68,6 +94,10 @@ export function loadPolicies(dbPath: string): PolicySet {
 
 export function savePolicies(dbPath: string, policies: PolicySet): PolicySet {
   const normalized = normalizePolicySet(policies);
+  const errors = validatePolicySet(normalized);
+  if (errors.length > 0) {
+    throw new Error(`Invalid policy set: ${errors.join("; ")}`);
+  }
   const { db } = openDatabase(dbPath);
   db.prepare(
     `
@@ -115,11 +145,72 @@ export function describePolicies(policies: PolicySet): string {
   return JSON.stringify(policies, null, 2);
 }
 
+export function exportPolicyDocument(policies: PolicySet, exportedAt = new Date().toISOString()): PolicyDocument {
+  return {
+    version: 1,
+    exportedAt,
+    policies: normalizePolicySet(policies),
+  };
+}
+
+export function parsePolicyDocument(raw: string): PolicySet {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    throw new Error(`Policy file is not valid JSON: ${error instanceof Error ? error.message : String(error)}`);
+  }
+
+  if (!isRecord(parsed)) {
+    throw new Error("Policy file must be a JSON object.");
+  }
+
+  const candidate = isRecord(parsed.policies) ? parsed.policies : parsed;
+  const block = Array.isArray(candidate.block) ? candidate.block : undefined;
+  const warn = Array.isArray(candidate.warn) ? candidate.warn : undefined;
+
+  if (!block || !warn) {
+    throw new Error("Policy file must include block and warn arrays, either at the top level or under policies.");
+  }
+
+  const policies = normalizePolicySet({
+    block: block.filter((value): value is string => typeof value === "string"),
+    warn: warn.filter((value): value is string => typeof value === "string"),
+  });
+  const errors = validatePolicySet(policies);
+  if (errors.length > 0) {
+    throw new Error(`Invalid policy file: ${errors.join("; ")}`);
+  }
+  return policies;
+}
+
+export function validatePolicySet(policies: PolicySet): string[] {
+  const errors: string[] = [];
+  validatePatterns("block", policies.block, errors);
+  validatePatterns("warn", policies.warn, errors);
+  return errors;
+}
+
 function normalizePolicySet(policies: PolicySet): PolicySet {
   return {
     block: normalizePatterns(policies.block),
     warn: normalizePatterns(policies.warn),
   };
+}
+
+function validatePatterns(kind: keyof PolicySet, patterns: string[], errors: string[]): void {
+  for (const pattern of patterns) {
+    if (!POLICY_PATTERN_RE.test(pattern)) {
+      errors.push(`${kind} pattern "${pattern}" must use only letters, numbers, dot, dash, underscore, and *`);
+    }
+    if (pattern === "*") {
+      errors.push(`${kind} pattern "*" is too broad; use a narrower semantic pattern`);
+    }
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function normalizePatterns(patterns: string[]): string[] {
