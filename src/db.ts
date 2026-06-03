@@ -63,10 +63,14 @@ export function openDatabase(dbPath: string): DatabaseContext {
       id INTEGER PRIMARY KEY CHECK (id = 1),
       block_json TEXT NOT NULL,
       warn_json TEXT NOT NULL,
+      default_version INTEGER NOT NULL DEFAULT 0,
+      customized INTEGER NOT NULL DEFAULT 0,
       updated_at TEXT NOT NULL
     );
   `);
   ensureColumn(db, "memory_entries", "false_positive_count", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(db, "policy_state", "default_version", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(db, "policy_state", "customized", "INTEGER NOT NULL DEFAULT 0");
 
   return { db, dbPath };
 }

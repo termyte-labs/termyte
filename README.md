@@ -163,6 +163,7 @@ Policy rules are stored locally in the same SQLite workspace state as logs and m
 
 ```bash
 termyte policies
+termyte policies status
 termyte policies defaults
 termyte policies add warn package.custom.publish
 termyte policies remove warn package.custom.publish
@@ -176,6 +177,7 @@ termyte policies reset
 Supported policy commands:
 
 - `termyte policies` or `termyte policies --json`: show the current policy set
+- `termyte policies status`: show default policy version, customization, and missing default rules
 - `termyte policies defaults`: show the built-in default rules
 - `termyte policies set [--block <patterns...>] [--warn <patterns...>]`: replace one or both rule lists
 - `termyte policies add <block|warn> <patterns...>`: append rules to a list
@@ -186,6 +188,8 @@ Supported policy commands:
 - `termyte policies reset`: restore the built-in defaults
 
 Policy patterns match semantic action IDs, not raw shell strings. For example, `package.*.publish` covers `npm publish`, `pnpm publish`, and `yarn publish` after command parsing. Termyte rejects empty, malformed, or global `*` policy patterns so a bad edit does not silently weaken governance.
+
+Termyte tracks the built-in default policy version separately from your active workspace policies. If doctor or `termyte policies status` reports stale default-origin policies, run `termyte policies reset` to adopt current defaults. If you intentionally customized policies, Termyte reports the drift without overwriting your rules.
 
 ## Benchmark Coverage
 
@@ -221,6 +225,7 @@ termyte bench
 - `termyte allow-once -- <command>`: run a warned command once
 - `termyte mark-safe <memory-id>`: downgrade a memory after a false positive
 - `termyte policies`: print active policy rules
+- `termyte policies status`: print policy version and drift status
 - `termyte policies defaults`: print built-in policy rules
 - `termyte policies export [--file <path>]`: export active policies as JSON
 - `termyte policies import <path>`: validate and load policies from JSON

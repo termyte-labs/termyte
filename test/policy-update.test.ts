@@ -5,8 +5,11 @@ import path from "node:path";
 import { inspectAction, runRuntime } from "../src/runtime.js";
 import {
   addPolicies,
+  analyzePolicyDrift,
+  DEFAULT_POLICY_VERSION,
   defaultPolicies,
   exportPolicyDocument,
+  loadPolicyState,
   loadPolicies,
   parsePolicyDocument,
   removePolicies,
@@ -34,6 +37,10 @@ describe("policy updates", () => {
 
     const reset = resetPolicies(dbPath);
     expect(reset).toEqual(defaultPolicies);
+    expect(loadPolicyState(dbPath).metadata).toMatchObject({
+      defaultVersion: DEFAULT_POLICY_VERSION,
+      customized: false,
+    });
   });
 
   it("applies stored policies to runtime decisions", async () => {
@@ -71,6 +78,7 @@ describe("policy updates", () => {
     expect(document).toEqual({
       version: 1,
       exportedAt: "2026-06-03T00:00:00.000Z",
+      defaultPolicyVersion: DEFAULT_POLICY_VERSION,
       policies,
     });
 
@@ -86,5 +94,26 @@ describe("policy updates", () => {
 
     expect(() => savePolicies(path.join(os.tmpdir(), "termyte-invalid-policy.db"), { block: ["*"], warn: [] })).toThrow(/Invalid policy set/);
     expect(() => parsePolicyDocument(JSON.stringify({ block: ["shell.generic"], warn: ["git push"] }))).toThrow(/Invalid policy file/);
+  });
+
+  it("tracks default policy drift without overwriting custom policy state", () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-policy-drift-"));
+    const dbPath = path.join(workspaceRoot, "termyte.db");
+
+    savePolicies(dbPath, {
+      block: [...defaultPolicies.block],
+      warn: ["filesystem.delete.recursive.force"],
+    }, { customized: false, defaultVersion: 1 });
+
+    const state = loadPolicyState(dbPath);
+    const drift = analyzePolicyDrift(state);
+
+    expect(state.metadata.customized).toBe(false);
+    expect(state.metadata.defaultVersion).toBe(1);
+    expect(drift.staleDefaultVersion).toBe(true);
+    expect(drift.missingWarnDefaults).toEqual(expect.arrayContaining(["git.push.force", "package.*.publish"]));
+
+    addPolicies(dbPath, "warn", ["team.custom.warn"]);
+    expect(loadPolicyState(dbPath).metadata.customized).toBe(true);
   });
 });

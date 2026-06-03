@@ -12,9 +12,12 @@ import { MemoryEngine } from "./memory.js";
 import { inspectAction, runRuntime } from "./runtime.js";
 import {
   addPolicies,
+  analyzePolicyDrift,
+  DEFAULT_POLICY_VERSION,
   defaultPolicies,
   describePolicies,
   exportPolicyDocument,
+  loadPolicyState,
   loadPolicies,
   parsePolicyDocument,
   removePolicies,
@@ -40,6 +43,7 @@ function printUsage(): void {
   termyte replay [--json]
   termyte memory [--limit N] [--json]
   termyte policies [--json]
+  termyte policies status [--json]
   termyte policies defaults [--json]
   termyte policies reset
   termyte policies set [--block <patterns...>] [--warn <patterns...>]
@@ -105,6 +109,38 @@ function parsePolicySetArgs(args: string[]): { block?: string[]; warn?: string[]
 
 function printPolicySet(policies: PolicySet, json = false): void {
   console.log(json ? policyJsonOutput(policies) : describePolicies(policies));
+}
+
+function formatPolicyStatus(dbPath: string, json = false): string {
+  const state = loadPolicyState(dbPath);
+  const drift = analyzePolicyDrift(state);
+  const missingDefaultCount = drift.missingBlockDefaults.length + drift.missingWarnDefaults.length;
+  const payload = {
+    defaultPolicyVersion: DEFAULT_POLICY_VERSION,
+    activeDefaultVersion: state.metadata.defaultVersion,
+    customized: state.metadata.customized,
+    blockRules: state.policies.block.length,
+    warnRules: state.policies.warn.length,
+    staleDefaultVersion: drift.staleDefaultVersion,
+    missingDefaultCount,
+    drift,
+  };
+  if (json) {
+    return toJson(payload);
+  }
+
+  return [
+    "Termyte policy status",
+    `  default policy version: ${payload.defaultPolicyVersion}`,
+    `  active default version: ${payload.activeDefaultVersion}`,
+    `  customized: ${payload.customized ? "yes" : "no"}`,
+    `  rules: ${payload.blockRules} block, ${payload.warnRules} warn`,
+    `  stale default version: ${payload.staleDefaultVersion ? "yes" : "no"}`,
+    `  missing current default rules: ${payload.missingDefaultCount}`,
+    payload.missingDefaultCount > 0
+      ? "  next step: run `termyte policies reset` to adopt current defaults, or keep custom policies intentionally."
+      : "  next step: none",
+  ].join("\n");
 }
 
 function parseFileFlag(args: string[], fallbackIndex: number): string | null {
@@ -494,6 +530,11 @@ async function main(): Promise<number> {
       return 0;
     }
 
+    if (subcommand === "status") {
+      console.log(formatPolicyStatus(dbPath, json));
+      return 0;
+    }
+
     if (subcommand === "defaults") {
       printPolicySet(defaultPolicies, json);
       return 0;
@@ -601,7 +642,7 @@ async function main(): Promise<number> {
       }
     }
 
-    console.error("Usage: termyte policies [--json] | defaults | reset | set | add | remove | export | import | validate");
+    console.error("Usage: termyte policies [--json] | status | defaults | reset | set | add | remove | export | import | validate");
     return 0;
   }
 

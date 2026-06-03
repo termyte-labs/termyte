@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import type { Server } from "node:net";
 import { defaultDbPath, openDatabase } from "./db.js";
 import { Ledger } from "./ledger.js";
-import { loadPolicies, validatePolicySet } from "./policy.js";
+import { DEFAULT_POLICY_VERSION, analyzePolicyDrift, loadPolicyState, validatePolicySet } from "./policy.js";
 import { buildSessionEnv, createGovernedSession, resolveRealExecutable, startGuardDaemon, verifyShimManifest, type GovernedSession } from "./shell.js";
 
 export type DoctorStatus = "PASS" | "WARN" | "FAIL";
@@ -328,17 +328,32 @@ function checkDbWritable(cwd: string): DoctorCheck {
 function checkPolicyLoadable(cwd: string): DoctorCheck {
   const dbPath = defaultDbPath(cwd);
   try {
-    const policies = loadPolicies(dbPath);
+    const state = loadPolicyState(dbPath);
+    const policies = state.policies;
     const errors = validatePolicySet(policies);
+    const drift = analyzePolicyDrift(state);
+    const missingDefaultCount = drift.missingBlockDefaults.length + drift.missingWarnDefaults.length;
+    const shouldWarnForDrift = errors.length === 0 && drift.staleDefaultVersion && !drift.customized && missingDefaultCount > 0;
     return {
       id: "workspace.policy_state",
       section: "Workspace",
       label: "Policy state",
-      status: errors.length === 0 ? "PASS" : "FAIL",
+      status: errors.length > 0 ? "FAIL" : shouldWarnForDrift ? "WARN" : "PASS",
       message: errors.length === 0
-        ? `Policies loaded: ${policies.block.length} block rules, ${policies.warn.length} warn rules.`
+        ? shouldWarnForDrift
+          ? `Policies loaded but default policy version is stale (${state.metadata.defaultVersion}/${DEFAULT_POLICY_VERSION}); ${missingDefaultCount} current default rule(s) are missing. Run \`termyte policies reset\` to adopt current defaults, or keep custom policies intentionally.`
+          : `Policies loaded: ${policies.block.length} block rules, ${policies.warn.length} warn rules.`
         : `Policy state is invalid: ${errors.join("; ")}`,
-      details: { dbPath, blockRules: policies.block.length, warnRules: policies.warn.length, errors },
+      details: {
+        dbPath,
+        blockRules: policies.block.length,
+        warnRules: policies.warn.length,
+        defaultVersion: state.metadata.defaultVersion,
+        currentDefaultVersion: DEFAULT_POLICY_VERSION,
+        customized: state.metadata.customized,
+        drift,
+        errors,
+      },
     };
   } catch (error) {
     return {

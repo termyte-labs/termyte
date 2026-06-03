@@ -6,11 +6,25 @@ export interface PolicySet {
   warn: string[];
 }
 
+export interface PolicyMetadata {
+  defaultVersion: number;
+  customized: boolean;
+  updatedAt?: string;
+}
+
+export interface PolicyState {
+  policies: PolicySet;
+  metadata: PolicyMetadata;
+}
+
 export interface PolicyDocument {
   version: 1;
   exportedAt: string;
+  defaultPolicyVersion: number;
   policies: PolicySet;
 }
+
+export const DEFAULT_POLICY_VERSION = 2;
 
 export const defaultPolicies: PolicySet = {
   block: [
@@ -44,6 +58,9 @@ export const defaultPolicies: PolicySet = {
 interface StoredPolicyRow {
   block_json: string;
   warn_json: string;
+  default_version?: number;
+  customized?: number;
+  updated_at?: string;
 }
 
 const POLICY_PATTERN_RE = /^[A-Za-z0-9*_.-]+$/;
@@ -75,49 +92,73 @@ export function evaluatePolicies(action: ParsedAction, risk: RiskResult, policie
 }
 
 export function loadPolicies(dbPath: string): PolicySet {
+  return loadPolicyState(dbPath).policies;
+}
+
+export function loadPolicyState(dbPath: string): PolicyState {
   const { db } = openDatabase(dbPath);
-  const row = db.prepare("SELECT block_json, warn_json FROM policy_state WHERE id = 1").get() as StoredPolicyRow | undefined;
+  const row = db.prepare("SELECT block_json, warn_json, default_version, customized, updated_at FROM policy_state WHERE id = 1").get() as StoredPolicyRow | undefined;
   if (!row) {
     const defaults = clonePolicySet(defaultPolicies);
-    savePolicies(dbPath, defaults);
-    return defaults;
+    savePolicies(dbPath, defaults, { customized: false, defaultVersion: DEFAULT_POLICY_VERSION });
+    return {
+      policies: defaults,
+      metadata: {
+        defaultVersion: DEFAULT_POLICY_VERSION,
+        customized: false,
+      },
+    };
   }
 
   const block = parsePolicyList(row.block_json);
   const warn = parsePolicyList(row.warn_json);
 
   return {
-    block,
-    warn,
+    policies: {
+      block,
+      warn,
+    },
+    metadata: {
+      defaultVersion: typeof row.default_version === "number" ? row.default_version : 0,
+      customized: row.customized === 1,
+      updatedAt: row.updated_at,
+    },
   };
 }
 
-export function savePolicies(dbPath: string, policies: PolicySet): PolicySet {
+export function savePolicies(dbPath: string, policies: PolicySet, metadata: Partial<PolicyMetadata> = { customized: true }): PolicySet {
   const normalized = normalizePolicySet(policies);
   const errors = validatePolicySet(normalized);
   if (errors.length > 0) {
     throw new Error(`Invalid policy set: ${errors.join("; ")}`);
   }
   const { db } = openDatabase(dbPath);
+  const existing = db.prepare("SELECT default_version, customized FROM policy_state WHERE id = 1").get() as StoredPolicyRow | undefined;
+  const defaultVersion = metadata.defaultVersion ?? existing?.default_version ?? 0;
+  const customized = metadata.customized ?? (existing ? existing.customized === 1 : true);
   db.prepare(
     `
-    INSERT INTO policy_state (id, block_json, warn_json, updated_at)
-    VALUES (1, @block_json, @warn_json, @updated_at)
+    INSERT INTO policy_state (id, block_json, warn_json, default_version, customized, updated_at)
+    VALUES (1, @block_json, @warn_json, @default_version, @customized, @updated_at)
     ON CONFLICT(id) DO UPDATE SET
       block_json = excluded.block_json,
       warn_json = excluded.warn_json,
+      default_version = excluded.default_version,
+      customized = excluded.customized,
       updated_at = excluded.updated_at
     `,
   ).run({
     block_json: JSON.stringify(normalized.block),
     warn_json: JSON.stringify(normalized.warn),
+    default_version: defaultVersion,
+    customized: customized ? 1 : 0,
     updated_at: new Date().toISOString(),
   });
   return normalized;
 }
 
 export function resetPolicies(dbPath: string): PolicySet {
-  return savePolicies(dbPath, defaultPolicies);
+  return savePolicies(dbPath, defaultPolicies, { customized: false, defaultVersion: DEFAULT_POLICY_VERSION });
 }
 
 export function addPolicies(dbPath: string, kind: keyof PolicySet, patterns: string[]): PolicySet {
@@ -149,7 +190,28 @@ export function exportPolicyDocument(policies: PolicySet, exportedAt = new Date(
   return {
     version: 1,
     exportedAt,
+    defaultPolicyVersion: DEFAULT_POLICY_VERSION,
     policies: normalizePolicySet(policies),
+  };
+}
+
+export function analyzePolicyDrift(state: PolicyState, defaults: PolicySet = defaultPolicies): {
+  staleDefaultVersion: boolean;
+  customized: boolean;
+  missingBlockDefaults: string[];
+  missingWarnDefaults: string[];
+  extraBlockRules: string[];
+  extraWarnRules: string[];
+} {
+  const policies = normalizePolicySet(state.policies);
+  const normalizedDefaults = normalizePolicySet(defaults);
+  return {
+    staleDefaultVersion: state.metadata.defaultVersion < DEFAULT_POLICY_VERSION,
+    customized: state.metadata.customized,
+    missingBlockDefaults: difference(normalizedDefaults.block, policies.block),
+    missingWarnDefaults: difference(normalizedDefaults.warn, policies.warn),
+    extraBlockRules: difference(policies.block, normalizedDefaults.block),
+    extraWarnRules: difference(policies.warn, normalizedDefaults.warn),
   };
 }
 
@@ -245,4 +307,9 @@ function clonePolicySet(policies: PolicySet): PolicySet {
 
 function mergeUnique(existing: string[], additions: string[]): string[] {
   return normalizePatterns([...existing, ...additions]);
+}
+
+function difference(expected: string[], actual: string[]): string[] {
+  const actualSet = new Set(actual);
+  return expected.filter((pattern) => !actualSet.has(pattern));
 }

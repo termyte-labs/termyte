@@ -12,6 +12,7 @@ import {
   summarizeChecks,
   type DoctorReport,
 } from "../src/doctor.js";
+import { defaultPolicies, savePolicies } from "../src/policy.js";
 
 function fakeReport(): DoctorReport {
   const checks = [
@@ -114,5 +115,20 @@ describe("doctor diagnostics", () => {
     expect(checkById.get("workspace.policy_state")?.status).toBe("PASS");
     expect(checkById.get("shell.nested_shim_resolution")?.status).toBe("PASS");
     expect(checkById.get("shell.stale_shim_rows")?.status).toBe("PASS");
+  });
+
+  it("warns when default-origin policies are stale and missing current defaults", async () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-doctor-policy-drift-"));
+    const dbPath = path.join(workspaceRoot, ".termyte", "termyte.db");
+    savePolicies(dbPath, {
+      block: [...defaultPolicies.block],
+      warn: ["filesystem.delete.recursive.force"],
+    }, { customized: false, defaultVersion: 1 });
+
+    const report = await import("../src/doctor.js").then(({ runDoctor }) => runDoctor(workspaceRoot));
+    const policyCheck = report.checks.find((check) => check.id === "workspace.policy_state");
+
+    expect(policyCheck?.status).toBe("WARN");
+    expect(policyCheck?.message).toContain("default policy version is stale");
   });
 });
