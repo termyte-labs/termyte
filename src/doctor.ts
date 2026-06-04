@@ -325,7 +325,7 @@ function checkDbWritable(cwd: string): DoctorCheck {
   }
 }
 
-function checkPolicyLoadable(cwd: string): DoctorCheck {
+export function checkPolicyLoadable(cwd: string): DoctorCheck {
   const dbPath = defaultDbPath(cwd);
   try {
     const state = loadPolicyState(dbPath);
@@ -452,7 +452,7 @@ async function checkShimSmoke(session: GovernedSession, env: NodeJS.ProcessEnv):
   };
 }
 
-function checkNestedShimResolution(session: GovernedSession): DoctorCheck {
+export function checkNestedShimResolution(session: GovernedSession): DoctorCheck {
   const fakeOlderShimDir = path.join(session.workspaceRoot, ".termyte", "sessions", "doctor-nested-smoke", "shims");
   const fakePreviewShimDir = path.join(session.workspaceRoot, ".termyte", "preview", "shims");
   const nodeDir = path.dirname(process.execPath);
@@ -482,7 +482,7 @@ function checkNestedShimResolution(session: GovernedSession): DoctorCheck {
   };
 }
 
-function checkStaleShimRows(session: GovernedSession): DoctorCheck {
+export function checkStaleShimRows(session: GovernedSession): DoctorCheck {
   const { db } = openDatabase(session.dbPath);
   try {
     const rows = new Ledger(db).listLatest(200);

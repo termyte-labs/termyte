@@ -1,8 +1,13 @@
 # Termyte
 
-Termyte is a local-first runtime safety layer for AI coding agents. It sits between an agent and the shell, normalizes the action semantically, resolves targets, scores blast radius, checks policy and memory, then decides whether to `allow`, `warn`, or `block`.
+Termyte is a local-first safety runtime for AI coding agents.
 
-> Benchmark: 230 dangerous/safe agent actions, 100% accuracy, 0 false negatives, 0 false positives.
+The current alpha focuses on checking risky command text without executing it,
+applying local policies, recording decisions, and remembering commands that a
+user marked safe or unsafe.
+
+**Alpha:** Runtime interception is experimental. The non-executing `check` and
+`policy` surfaces are the recommended starting point.
 
 ## Install
 
@@ -10,325 +15,255 @@ Termyte is a local-first runtime safety layer for AI coding agents. It sits betw
 npm install -g termyte
 ```
 
-## Agent Runtime
+Termyte requires Node.js 20 or later. It does not require signup, a cloud
+service, or initialization before use.
 
-Use `termyte run` when you want to launch an agent inside a governed Termyte session. This is the primary product workflow.
+## Quickstart
 
-```bash
-termyte run codex
-termyte run claude
-termyte run aider
-termyte run --dry-run codex
-termyte run --profile codex-windows codex
-```
-
-Supported agent names:
-
-- `codex`
-- `claude`
-- `aider`
-
-Supported runtime profiles:
-
-- `default`
-- `codex-windows`
-- `codex-unix`
-- `claude-windows`
-- `claude-unix`
-- `aider`
-
-`termyte run --dry-run <agent>` shows the resolved executable, args, selected profile, platform, enabled shims, disabled shims, shell-hook state, known limitations, workspace root, and database path.
-
-If you need generic command support, use `termyte run -- <command>` or `termyte shell -- <command>`.
-
-## Governed Shell
-
-Use `termyte shell` when you need the lower-level governed session primitive directly. This runtime is alpha: it is useful for debugging and for generic command coverage, but it is not an OS sandbox.
+Run these commands inside a repository:
 
 ```bash
-termyte shell
-termyte shell -- node --version
-termyte shell -- codex
-termyte shell -- claude
-termyte shell -- aider
-```
-
-The shell runtime is local-first and works on macOS, Linux, and Windows. It prepends Termyte shims to `PATH`, exports session metadata, and keeps subprocesses inside the governed session. Interactive shell hooks currently cover bash, zsh, and PowerShell; subprocess interception is handled by PATH shims. `termyte run` uses this same runtime internally and adds agent metadata, runtime profiles, and launch logging.
-
-## 30-Second Demo
-
-```bash
-termyte run codex
-termyte run --dry-run claude
-termyte inspect -- "rm -rf *"
-termyte inspect -- "powershell Remove-Item -Recurse -Force *"
-termyte run -- rm -rf *
-termyte bench
+npm install -g termyte
+termyte check "cat .env"
+termyte policy local add "Ask before touching auth or payments" --dry-run
+termyte policy local add "Ask before touching auth or payments" --yes
 termyte logs
-termyte replay
+termyte memory
+termyte doctor
 ```
 
-## What It Does
+What happens:
 
-Termyte turns raw commands into semantic actions before execution.
+- `check "cat .env"` returns a block decision without executing `cat`.
+- The policy dry run prints deterministic generated YAML and writes nothing.
+- The policy command with `--yes` creates or updates `termyte.policy.yaml`.
+- `logs` shows decisions written by `check`.
+- `memory` shows commands explicitly marked safe or unsafe.
+- `doctor` reports local setup and experimental runtime readiness.
 
-Example:
+## Safe Demo
 
-```txt
-rm -rf *
-==
-Remove-Item -Recurse -Force *
+The [repeatable demo guide](https://github.com/termyte-labs/termyte/blob/main/docs/demo.md)
+uses a temporary directory and never executes the dangerous-looking command
+examples. It demonstrates command checks, policy creation, logs, memory, and
+doctor.
+
+## Check Commands Without Executing Them
+
+```bash
+termyte check "cat .env"
+termyte check "git push --force origin main"
+termyte check "npm publish"
+termyte check "npm test"
+termyte check "npm publish" --json
 ```
 
-Both normalize to the same destructive filesystem action. That matters because risk should follow meaning, not shell syntax.
+`termyte check` parses and evaluates the supplied command text but does not
+execute it. A blocked check exits non-zero. Each check writes a local log event.
 
-## Runtime Flow
+Built-in defaults currently block known secret access, destructive filesystem
+operations, protected-branch force pushes, and destructive SQL. Package
+publishing and other risky operations may warn.
+
+Memory is evaluated after policy. Unsafe memory can upgrade an otherwise
+allowed command to a warning, but safe or unsafe memory cannot weaken a policy
+block.
+
+## Policies
+
+Termyte works with built-in defaults when no policy files exist.
+
+```bash
+termyte policy presets
+termyte policy show
+termyte policy show --json
+termyte policy test "cat .env"
+```
+
+`policy test` evaluates command text without executing it and does not write a
+log event.
+
+Policy layers:
+
+1. Built-in defaults
+2. Global policy at `~/.termyte/policy.yaml`
+3. Local policy at `termyte.policy.yaml`
+
+Source priority is local over global over built-in. When multiple matching rules
+conflict, the safest decision wins:
 
 ```text
-agent action
-  -> Termyte runtime
-  -> parse command
-  -> resolve targets
-  -> analyze blast radius
-  -> evaluate policy
-  -> check operational memory
-  -> allow / warn / block
-  -> execute if safe
-  -> write ledger
-  -> update memory
+block > ask > warn > allow
 ```
 
-## Verify Termyte Works
+Run `termyte policy presets` to see the preset names available in this alpha.
 
-Use `termyte doctor` as the first trust check on a machine:
+Policy files use YAML:
+
+```yaml
+version: 1
+presets: []
+rules:
+  - name: ask-auth-changes
+    description: Ask before touching auth
+    action: ask
+    match:
+      paths:
+        - "src/auth/**"
+```
+
+Current matchers are `semantic_ids`, `commands`, and `paths`.
+
+## Natural-Language Policies
+
+Termyte includes a deterministic, local-only compiler for a narrow set of
+plain-English policy patterns. It does not call an LLM or external API.
+
+```bash
+termyte policy local add "Ask before touching auth or payments" --dry-run
+termyte policy local add "Ask before touching auth or payments" --yes
+termyte policy global add "Never allow agents to read .env files" --yes
+```
+
+- Generated YAML is shown before saving.
+- Interactive use asks for confirmation.
+- `--dry-run` prints the rule and writes nothing.
+- `--yes` or `-y` saves without prompting.
+- Unsupported or ambiguous input fails without changing policy files.
+
+Supported alpha pattern families:
+
+- Secret access
+- Force push
+- Auth and payment paths
+- Test deletion
+- Package publishing
+- Infrastructure and deployment paths
+- Destructive database commands
+
+This is template-based policy creation, not free-form language understanding.
+
+## Logs And Memory
+
+```bash
+termyte logs
+termyte logs --blocked
+termyte logs --warned
+termyte logs --agent codex
+termyte logs --today
+termyte logs --json
+
+termyte mark-safe "npm test"
+termyte mark-unsafe "npm publish"
+termyte memory
+```
+
+The stable alpha check flow stores repo-local state in:
+
+```text
+.termyte/logs.jsonl
+.termyte/memory.jsonl
+```
+
+`check` writes logs. `policy test`, `logs`, and `memory` do not write check log
+events. Alpha memory uses exact normalized command matching and is repo-scoped.
+
+Unsafe memory may upgrade `allow` to `warn`. Memory never downgrades `block`,
+`ask`, or `warn`.
+
+## Doctor
 
 ```bash
 termyte doctor
 termyte doctor --json
 ```
 
-A healthy local runtime should report zero failures. Warnings are acceptable for optional tools you do not have installed, such as `claude`, `aider`, `zsh`, or WSL without a distro. Failures for DB writability, policy loading, daemon IPC, shim smoke, nested shim resolution, package assets, or benchmark execution mean the runtime is not healthy enough to trust yet.
+Doctor checks system tools, workspace state, policy/database health,
+experimental runtime readiness, optional agent executables, and packaged
+assets. Missing optional tools may appear as warnings.
 
-The core smoke sequence is:
+Doctor includes environment-dependent process and runtime checks, so it may
+take longer than pure `check` or `policy` commands. A successful doctor report
+does not mean Termyte is a sandbox or can observe every execution path.
 
-```bash
-termyte doctor --json
-termyte run --dry-run codex
-termyte run codex --version
-termyte run --dry-run claude
-termyte run --dry-run aider
-termyte shell -- node --version
-termyte bench --json
-termyte logs --limit 20
-termyte replay
-```
+## Experimental Runtime
 
-For package/release validation from the repo, run:
-
-```bash
-npm run validate:package
-```
-
-This builds, packs, installs Termyte into a temporary project, runs the installed CLI, verifies doctor, runs `termyte shell -- node --version`, and confirms benchmark coverage without changing your global npm install.
-
-## What Gets Blocked Or Warned
-
-- Recursive or wildcard filesystem deletes
-- Deletion of `.git`, `.github`, home, or root paths
-- Force pushes to protected branches
-- Package publishing
-- SQL destructive operations
-- Secret access attempts such as reading `.env`, credentials, or API keys
-- Remote script execution such as `curl ... | sh`, `irm ... | iex`, and language-level network execution
-- Permission escalation such as `sudo`, `runas`, `pkexec`, and PowerShell `-Verb RunAs`
-- Destructive git history actions such as `git reset --hard`, `git clean -fdx`, forced checkout, stash drops, tag deletes, and reflog expiry
-- Docker destructive actions and deployment mutations are warned by default
-
-## Storage And State
-
-- SQLite database: `.termyte/termyte.db`
-- Override path with `TERMYTE_DB_PATH`
-- Logs, replay, and memory all read from the same local SQLite state
-- Secrets are redacted before persistence
-
-## Safety Overrides
-
-- `termyte allow-once -- <command>` allows one warned action through
-- `termyte mark-safe <memory-id>` marks a memory as safe and lowers its confidence
-- Hard-critical destructive deletes on root, home, or `.git` still stay blocked
-
-## Policy Editing
-
-Policy rules are stored locally in the same SQLite workspace state as logs and memory. You can inspect and update them with the CLI:
-
-```bash
-termyte policies
-termyte policies status
-termyte policies defaults
-termyte policies add warn package.custom.publish
-termyte policies remove warn package.custom.publish
-termyte policies set --block filesystem.delete.recursive.force.wildcard --warn git.push.force
-termyte policies export --file termyte-policies.json
-termyte policies validate termyte-policies.json
-termyte policies import termyte-policies.json
-termyte policies reset
-```
-
-Supported policy commands:
-
-- `termyte policies` or `termyte policies --json`: show the current policy set
-- `termyte policies status`: show default policy version, customization, and missing default rules
-- `termyte policies defaults`: show the built-in default rules
-- `termyte policies set [--block <patterns...>] [--warn <patterns...>]`: replace one or both rule lists
-- `termyte policies add <block|warn> <patterns...>`: append rules to a list
-- `termyte policies remove <block|warn> <patterns...>`: remove rules from a list
-- `termyte policies export [--file <path>]`: export a reviewable JSON policy document
-- `termyte policies import <path>`: validate and load a JSON policy document into local SQLite
-- `termyte policies validate <path>`: validate a JSON policy document without changing local state
-- `termyte policies reset`: restore the built-in defaults
-
-Policy patterns match semantic action IDs, not raw shell strings. For example, `package.*.publish` covers `npm publish`, `pnpm publish`, and `yarn publish` after command parsing. Termyte rejects empty, malformed, or global `*` policy patterns so a bad edit does not silently weaken governance.
-
-Termyte tracks the built-in default policy version separately from your active workspace policies. If doctor or `termyte policies status` reports stale default-origin policies, run `termyte policies reset` to adopt current defaults. If you intentionally customized policies, Termyte reports the drift without overwriting your rules.
-
-## Benchmark Coverage
-
-The benchmark suite currently covers:
-
-- filesystem deletion
-- git destructive operations
-- package publishing
-- secret access
-- remote script execution
-- permission escalation
-- Docker destructive operations
-- deployment mutation commands
-- SQL destructive operations
-
-Run it with:
-
-```bash
-termyte bench
-```
-
-## Command Reference
-
-- `termyte run <agent> [...args]`: launch a supported agent in a governed runtime
-- `termyte run --dry-run <agent> [...args]`: print the selected profile and resolved runtime plan without launching the agent
-- `termyte run --profile <profile> <agent> [...args]`: launch an agent with an explicit runtime profile
-- `termyte run -- <command>`: guard and optionally execute a generic command
-- `termyte inspect -- <command>`: show parsing, targets, risk, memory, and final decision
-- `termyte logs`: show the recent ledger
-- `termyte replay`: show an incident timeline
-- `termyte memory`: list operational memories
-- `termyte bench`: run the benchmark suite
-- `termyte allow-once -- <command>`: run a warned command once
-- `termyte mark-safe <memory-id>`: downgrade a memory after a false positive
-- `termyte policies`: print active policy rules
-- `termyte policies status`: print policy version and drift status
-- `termyte policies defaults`: print built-in policy rules
-- `termyte policies export [--file <path>]`: export active policies as JSON
-- `termyte policies import <path>`: validate and load policies from JSON
-- `termyte policies validate <path>`: validate a policy JSON file
-- `termyte shell [-- <agent>]`: start the lower-level governed session and launch an optional command or agent inside it
-
-## Examples
-
-Run Codex in a governed session:
+The repository also contains an experimental governed runtime:
 
 ```bash
 termyte run codex
+termyte run claude
+termyte run aider
 ```
 
-Run Claude in dry-run mode:
+Runtime interception is shell- and platform-dependent. It is not a full
+sandbox and may not observe every subprocess, direct API call, or command that
+bypasses the governed environment. Use `termyte doctor` before evaluating the
+experimental runtime on a machine.
+
+## Threat Model
+
+Termyte reduces accidental damage by inspecting known command patterns,
+applying local policies, recording decisions, and remembering user-marked
+unsafe actions. It does not make agents safe.
+
+### Termyte Protects Against
+
+- Accidental dangerous shell commands
+- Obvious destructive file operations
+- Secret and config access
+- Git history rewrite commands
+- Package publishing mistakes
+- Destructive database commands
+- Repeated unsafe actions through local memory
+
+Protection is strongest when command text is evaluated through `termyte check`,
+`termyte policy test`, or an explicitly governed experimental runtime path.
+
+### Termyte Does Not Protect Against
+
+- Malicious root-level attackers
+- Commands bypassing Termyte
+- Arbitrary malware
+- Kernel-level attacks
+- All shell obfuscation
+- Full sandbox isolation
+- All direct API calls outside monitored surfaces
+
+## Alpha Limitations
+
+- Runtime interception is experimental and is not production-grade isolation.
+- Commands that bypass Termyte are not governed.
+- Direct API calls outside monitored surfaces are not governed.
+- The natural-language compiler supports only deterministic templates.
+- YAML policy matching currently supports `semantic_ids`, `commands`, and
+  `paths`.
+- Stable alpha check logs and memory are repo-local JSONL files.
+- Current built-in preset names are an alpha set and may change before a stable
+  policy schema release.
+- Broader PRD commands such as `explain`, optional `init`, and policy
+  use/edit/reset are not documented alpha surfaces yet.
+- Cross-platform runtime behavior must be verified with `termyte doctor`.
+
+## Development And Release Verification
 
 ```bash
-termyte run --dry-run claude
+npm run build
+npx vitest run --fileParallelism false
+npm run validate:package
 ```
 
-Inspect a dangerous delete:
-
-```bash
-termyte inspect -- "rm -rf *"
-```
-
-Inspect a PowerShell delete:
-
-```bash
-termyte inspect -- "powershell Remove-Item -Recurse -Force *"
-```
-
-Run through the runtime:
-
-```bash
-termyte run -- rm -rf *
-```
-
-View recent events:
-
-```bash
-termyte logs
-termyte replay
-```
-
-Export and review policies:
-
-```bash
-termyte policies export --file termyte-policies.json
-termyte policies validate termyte-policies.json
-termyte policies import termyte-policies.json
-```
+`validate:package` exercises the packaged artifact and experimental runtime
+checks. Its result depends on the local machine and installed tools.
 
 ## Security And Privacy
 
-- Local-first only
-- SQLite only
+- Local-first
 - No cloud dependency
-- No remote execution service
-- Secrets are redacted before ledger persistence
-- `termyte run` and `termyte shell` are not OS sandboxes; absolute paths, direct syscalls, or processes that do not inherit the governed environment can bypass the alpha runtime boundary
+- No LLM or external API in deterministic natural-language policy compilation
+- Policy files and stable alpha logs/memory remain on the local machine
+- Termyte is a guardrail, not a sandbox
 
-## FAQ
+## License
 
-### Why not just regex rules?
-
-Regexes miss equivalent actions across shells. Termyte normalizes semantics first, then applies risk rules.
-
-### Why not rely only on LLMs?
-
-Safety decisions should not depend on probabilistic output. Termyte uses deterministic parsing, target resolution, and policy checks.
-
-### Does this execute commands remotely?
-
-No. Execution is local through the host shell.
-
-### Does this send data to a server?
-
-No. The runtime is local-first and uses SQLite on disk.
-
-### What happens on unknown dangerous actions?
-
-Termyte fails closed when it cannot safely evaluate the risk.
-
-## Troubleshooting
-
-- PowerShell commands require `powershell.exe` or `pwsh` on the host
-- The SQLite database defaults to `.termyte/termyte.db` under the current workspace
-- If the workspace is not writable, set `TERMYTE_DB_PATH` to a writable location
-- If global install cannot find `termyte`, make sure your npm global bin directory is on `PATH`
-- If `termyte --help` does not run, use `termyte -h` or `termyte` with no args
-- If `termyte run codex` disables shell-host shims on Windows, that is expected for the `codex-windows` profile
-- Run `termyte doctor` when a governed subprocess hangs or behaves differently from a direct shell command; it checks PATH insertion, PATHEXT, shim manifest health, daemon IPC, and a real shim smoke command
-- If doctor reports stale recovered shim rows, inspect `termyte replay`; old recovered rows are historical evidence, but new stale rows after a fresh doctor run indicate subprocess finalization is unhealthy
-- If `termyte run --dry-run claude` or `termyte run --dry-run aider` says the executable is not found, install that agent or fix PATH before launching it without `--dry-run`
-
-## Launch Notes
-
-- Current benchmark: 230 cases
-- Current benchmark accuracy: 100%
-- False negatives: 0
-- False positives: 0
-- Governance core is intentionally frozen for launch cleanup
-- `termyte run` is the primary agent UX
-- `termyte shell` remains the lower-level runtime primitive
-- Shell-owned runtime is alpha and should be treated as a guardrail, not a sandbox
+MIT

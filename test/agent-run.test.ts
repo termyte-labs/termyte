@@ -11,6 +11,7 @@ import {
   isSupportedAgentName,
   parseRunInvocation,
   resolveRuntimeProfile,
+  resolveAgentExecutable,
 } from "../src/agent.js";
 import { createGovernedSession, handleGuardRequest, SHELL_HOST_SHIMS } from "../src/shell.js";
 import { formatLedger, formatReplay } from "../src/format.js";
@@ -84,9 +85,48 @@ describe("agent run planning", () => {
 
   it("fails clearly for unknown agents", () => {
     expect(() => parseRunInvocation(["bogus"])).toThrow(
-      /Unknown agent: bogus\. Supported agents: codex, claude, aider\./,
+      /Unknown agent: bogus\. Supported agents: codex, claude, claudecode, aider\./,
     );
     expect(isSupportedAgentName("bogus")).toBe(false);
+  });
+
+  it("resolves claudecode to claude when only the alias target is available", () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-agent-alias-"));
+    const binDir = path.join(workspaceRoot, "bin");
+    fs.mkdirSync(binDir);
+    const claude = makeAgentExecutable(binDir, "claude");
+
+    const resolution = resolveAgentExecutable("claudecode", binDir, process.platform);
+    const plan = buildAgentRunPlan({
+      workspaceRoot,
+      dbPath: path.join(workspaceRoot, "termyte.db"),
+      agentName: "claudecode",
+      agentArgs: [],
+      originalPath: binDir,
+      platform: process.platform,
+    });
+
+    expect(resolution.attemptedExecutables).toEqual(["claudecode", "claude"]);
+    expect(resolution.resolvedAgentName).toBe("claude");
+    expect(resolution.resolvedExecutable).toBe(claude);
+    expect(plan.resolvedAgentName).toBe("claude");
+    expect(formatAgentDryRunReport(plan)).toContain("resolved alias: claudecode -> claude");
+  });
+
+  it("prefers a claudecode executable and reports both alias attempts when missing", () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-agent-alias-order-"));
+    const binDir = path.join(workspaceRoot, "bin");
+    fs.mkdirSync(binDir);
+    const claudecode = makeAgentExecutable(binDir, "claudecode");
+    makeAgentExecutable(binDir, "claude");
+
+    const found = resolveAgentExecutable("claudecode", binDir, process.platform);
+    const missing = resolveAgentExecutable("claudecode", workspaceRoot, process.platform);
+
+    expect(found.resolvedAgentName).toBe("claudecode");
+    expect(found.resolvedExecutable).toBe(claudecode);
+    expect(missing.attemptedExecutables).toEqual(["claudecode", "claude"]);
+    expect(missing.resolvedExecutable).toBeNull();
   });
 
   it("includes profile and shim details in dry-run output", () => {

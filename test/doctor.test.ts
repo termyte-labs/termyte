@@ -3,6 +3,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
+  checkNestedShimResolution,
+  checkPolicyLoadable,
+  checkStaleShimRows,
   evaluateWindowsPathNormalization,
   evaluateWindowsPathext,
   formatDoctorHuman,
@@ -13,6 +16,7 @@ import {
   type DoctorReport,
 } from "../src/doctor.js";
 import { defaultPolicies, savePolicies } from "../src/policy.js";
+import { createGovernedSession } from "../src/shell.js";
 
 function fakeReport(): DoctorReport {
   const checks = [
@@ -107,17 +111,33 @@ describe("doctor diagnostics", () => {
     expect(limited.status).toBe("WARN");
   });
 
-  it("includes policy, nested shim, and stale row reliability checks", async () => {
+  it("reports policy state for a fresh workspace", () => {
     const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-doctor-reliability-"));
-    const report = await import("../src/doctor.js").then(({ runDoctor }) => runDoctor(workspaceRoot));
-    const checkById = new Map(report.checks.map((check) => [check.id, check]));
+    const check = checkPolicyLoadable(workspaceRoot);
 
-    expect(checkById.get("workspace.policy_state")?.status).toBe("PASS");
-    expect(checkById.get("shell.nested_shim_resolution")?.status).toBe("PASS");
-    expect(checkById.get("shell.stale_shim_rows")?.status).toBe("PASS");
+    expect(check.id).toBe("workspace.policy_state");
+    expect(check.status).toBe("PASS");
   });
 
-  it("warns when default-origin policies are stale and missing current defaults", async () => {
+  it("reports nested shim resolution for a governed session", () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-doctor-nested-shim-"));
+    const session = createGovernedSession(workspaceRoot);
+    const check = checkNestedShimResolution(session);
+
+    expect(check.id).toBe("shell.nested_shim_resolution");
+    expect(check.status).toBe("PASS");
+  });
+
+  it("reports stale shim rows for a governed session", () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-doctor-stale-rows-"));
+    const session = createGovernedSession(workspaceRoot);
+    const check = checkStaleShimRows(session);
+
+    expect(check.id).toBe("shell.stale_shim_rows");
+    expect(check.status).toBe("PASS");
+  });
+
+  it("warns when default-origin policies are stale and missing current defaults", () => {
     const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-doctor-policy-drift-"));
     const dbPath = path.join(workspaceRoot, ".termyte", "termyte.db");
     savePolicies(dbPath, {
@@ -125,8 +145,7 @@ describe("doctor diagnostics", () => {
       warn: ["filesystem.delete.recursive.force"],
     }, { customized: false, defaultVersion: 1 });
 
-    const report = await import("../src/doctor.js").then(({ runDoctor }) => runDoctor(workspaceRoot));
-    const policyCheck = report.checks.find((check) => check.id === "workspace.policy_state");
+    const policyCheck = checkPolicyLoadable(workspaceRoot);
 
     expect(policyCheck?.status).toBe("WARN");
     expect(policyCheck?.message).toContain("default policy version is stale");

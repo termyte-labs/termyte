@@ -1,4 +1,4 @@
-export type Decision = "allow" | "warn" | "block";
+export type Decision = "allow" | "warn" | "ask" | "block";
 
 export type ActionKind =
   | "filesystem.delete"
@@ -167,4 +167,44 @@ export interface MemoryEntry {
   falsePositiveCount: number;
   confidence: number;
   updatedAt: string;
+}
+
+export interface LocalMemoryRecord {
+  memory_id: string;
+  created_at: string;
+  type: "safe" | "unsafe";
+  pattern: string;
+  normalized_pattern: string;
+  reason_optional?: string;
+  repo_scope: "repo";
+  source: "user";
+}
+
+export interface LocalMemoryMatch {
+  memory_id: string;
+  type: "safe" | "unsafe";
+  pattern: string;
+  source: "user";
+}
+
+export interface LocalLogEvent {
+  event_id: string;
+  timestamp: string;
+  repo: string;
+  agent?: string;
+  session_id?: string;
+  command: string;
+  normalized_command: string;
+  decision: Decision;
+  action: Decision;
+  risk: "low" | "medium" | "high" | "critical";
+  reason: string;
+  matched_rules: Array<{
+    name: string;
+    action: Decision;
+    source: string;
+    preset?: string;
+  }>;
+  policy_sources: string[];
+  memory_matches: LocalMemoryMatch[];
 }

@@ -29,19 +29,31 @@ import {
 import { interceptHook, interceptShim, launchGovernedSession } from "./shell.js";
 import { formatDoctorHuman, formatDoctorJson, runDoctor } from "./doctor.js";
 import type { Decision } from "./types.js";
-import { buildAgentRunPlan, buildAgentRuntimeMetadata, formatAgentDryRunReport, parseRunInvocation } from "./agent.js";
+import { buildAgentRunPlan, formatAgentDryRunReport, parseRunInvocation } from "./agent.js";
+import { runAgent } from "./agent-runner.js";
+import { checkCommand, formatCheckHuman } from "./check.js";
+import { buildPolicyAddPlan, formatPolicyPresets, formatPolicyShow, runPolicyTest, savePolicyAddPlan, slimCheckResult } from "./policy-cli.js";
+import { formatLocalLogsHuman, listLocalLogs } from "./local-logs.js";
+import { formatLocalMemoryHuman, listLocalMemory, storeLocalMemory } from "./local-memory.js";
 
 function printUsage(): void {
   console.log(`Usage:
+  termyte check [--json] "<command>"
+  termyte policy presets [--json]
+  termyte policy show [--json]
+  termyte policy test [--json] "<command>"
+  termyte policy global add "<natural language rule>" [--dry-run|--yes]
+  termyte policy local add "<natural language rule>" [--dry-run|--yes]
+  termyte logs [--blocked] [--warned] [--agent <agent>] [--today] [--json]
+  termyte memory
+  termyte mark-safe "<command>"
+  termyte mark-unsafe "<command>"
   termyte run [--dry-run] [--profile <profile>] <agent> [...args]
   termyte run [--dry-run] -- <command>
   termyte allow-once -- <command>
-  termyte mark-safe <memory-id>
   termyte bench [--json]
   termyte doctor [--json]
-  termyte logs [--limit N] [--json]
   termyte replay [--json]
-  termyte memory [--limit N] [--json]
   termyte policies [--json]
   termyte policies status [--json]
   termyte policies defaults [--json]
@@ -61,6 +73,16 @@ function parseLimit(args: string[]): number {
   if (index === -1) return 50;
   const value = Number(args[index + 1]);
   return Number.isFinite(value) && value > 0 ? Math.floor(value) : 50;
+}
+
+function parseLogsFilters(args: string[]): { blocked?: boolean; warned?: boolean; agent?: string; today?: boolean } {
+  const agentIndex = args.indexOf("--agent");
+  return {
+    blocked: args.includes("--blocked"),
+    warned: args.includes("--warned"),
+    agent: agentIndex >= 0 ? args[agentIndex + 1] : undefined,
+    today: args.includes("--today"),
+  };
 }
 
 function hasJsonFlag(args: string[]): boolean {
@@ -156,6 +178,18 @@ function commandAfterDoubleDash(args: string[]): string {
   return separatorIndex >= 0 ? args.slice(separatorIndex + 1).join(" ") : args.slice(1).join(" ");
 }
 
+function commandArgument(args: string[], startIndex: number): string {
+  return args.slice(startIndex).filter((token) => token !== "--json").join(" ").trim();
+}
+
+function naturalLanguagePolicyArgument(args: string[], startIndex: number): string {
+  return args.slice(startIndex).filter((token) => token !== "--json" && token !== "--dry-run" && token !== "--yes" && token !== "-y").join(" ").trim();
+}
+
+function hasYesFlag(args: string[]): boolean {
+  return args.includes("--yes") || args.includes("-y");
+}
+
 function argsAfterDoubleDash(args: string[]): string[] {
   const separatorIndex = args.indexOf("--");
   return separatorIndex >= 0 ? args.slice(separatorIndex + 1) : args.slice(1);
@@ -164,7 +198,8 @@ function argsAfterDoubleDash(args: string[]): string[] {
 function decisionRank(decision: Decision): number {
   if (decision === "allow") return 0;
   if (decision === "warn") return 1;
-  return 2;
+  if (decision === "ask") return 2;
+  return 3;
 }
 
 interface BenchmarkCase {
@@ -285,6 +320,157 @@ async function main(): Promise<number> {
     return 1;
   }
 
+  if (command === "check") {
+    const rawCommand = commandArgument(args, 1);
+    if (!rawCommand) {
+      console.error('Usage: termyte check [--json] "<command>"');
+      return 1;
+    }
+    try {
+      const result = checkCommand(rawCommand, cwd);
+      if (hasJsonFlag(args)) {
+        console.log(toJson(slimCheckResult(result)));
+      } else {
+        console.log(formatCheckHuman(result));
+      }
+      return result.decision === "block" ? 1 : 0;
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : String(error));
+      return 1;
+    }
+  }
+
+  if (command === "logs") {
+    try {
+      const events = listLocalLogs(cwd, parseLogsFilters(args.slice(1)));
+      if (hasJsonFlag(args)) {
+        console.log(toJson(events));
+      } else {
+        console.log(formatLocalLogsHuman(events));
+      }
+      return 0;
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : String(error));
+      return 1;
+    }
+  }
+
+  if (command === "memory") {
+    try {
+      const records = listLocalMemory(cwd);
+      if (hasJsonFlag(args)) {
+        console.log(toJson(records));
+      } else {
+        console.log(formatLocalMemoryHuman(records));
+      }
+      return 0;
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : String(error));
+      return 1;
+    }
+  }
+
+  if (command === "mark-safe" || command === "mark-unsafe") {
+    const rawCommand = commandArgument(args, 1);
+    if (!rawCommand) {
+      console.error(`Usage: termyte ${command} "<command>"`);
+      return 1;
+    }
+    try {
+      const stored = storeLocalMemory(command === "mark-safe" ? "safe" : "unsafe", rawCommand, cwd);
+      console.log(`${command === "mark-safe" ? "Marked safe" : "Marked unsafe"}:\n  ${stored.pattern}`);
+      return 0;
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : String(error));
+      return 1;
+    }
+  }
+
+  if (command === "policy") {
+    const json = hasJsonFlag(args);
+    const subcommand = args[1];
+
+    try {
+      if (subcommand === "-h" || subcommand === "--help") {
+        console.log(`Usage:
+  termyte policy presets [--json]
+  termyte policy show [--json]
+  termyte policy test [--json] "<command>"
+  termyte policy global add "<natural language rule>" [--dry-run|--yes]
+  termyte policy local add "<natural language rule>" [--dry-run|--yes]`);
+        return 0;
+      }
+
+      if ((subcommand === "global" || subcommand === "local") && args[2] === "add") {
+        const rawRule = naturalLanguagePolicyArgument(args, 3);
+        if (!rawRule) {
+          console.error(`Usage: termyte policy ${subcommand} add "<natural language rule>" [--dry-run|--yes]`);
+          return 1;
+        }
+
+        const planResult = buildPolicyAddPlan(subcommand, rawRule, cwd);
+        if (!planResult.ok) {
+          console.error(planResult.output);
+          return 1;
+        }
+
+        console.log(planResult.plan.preview);
+
+        if (args.includes("--dry-run")) {
+          console.log("");
+          console.log("Dry run only. No policy file was changed.");
+          return 0;
+        }
+
+        if (!hasYesFlag(args)) {
+          if (!process.stdin.isTTY) {
+            console.error("");
+            console.error("Refusing to save without confirmation in non-interactive mode. Use --yes to save or --dry-run to preview.");
+            return 1;
+          }
+          const rl = readline.createInterface({ input, output });
+          const answer = (await rl.question("Save this rule? [Y/n] ")).trim().toLowerCase();
+          rl.close();
+          if (answer && answer !== "y" && answer !== "yes") {
+            console.log("No policy file was changed.");
+            return 0;
+          }
+        }
+
+        console.log("");
+        console.log(savePolicyAddPlan(planResult.plan));
+        return 0;
+      }
+
+      if (subcommand === "presets") {
+        console.log(formatPolicyPresets(json));
+        return 0;
+      }
+
+      if (subcommand === "show") {
+        console.log(formatPolicyShow(cwd, json));
+        return 0;
+      }
+
+      if (subcommand === "test") {
+        const rawCommand = commandArgument(args, 2);
+        if (!rawCommand) {
+          console.error('Usage: termyte policy test [--json] "<command>"');
+          return 1;
+        }
+        const result = runPolicyTest(rawCommand, cwd, json);
+        console.log(result.output);
+        return result.exitCode;
+      }
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : String(error));
+      return 1;
+    }
+
+    console.error("Usage: termyte policy presets | show | test | global add | local add");
+    return 1;
+  }
+
   if (command === "run") {
     let invocation;
     try {
@@ -350,7 +536,7 @@ async function main(): Promise<number> {
       agentName,
       agentArgs,
       profileName: invocation.profileName,
-      originalPath: process.env.TERMYTE_ORIGINAL_PATH ?? process.env.PATH ?? "",
+      originalPath: process.env.PATH ?? "",
     });
 
     if (invocation.dryRun) {
@@ -358,15 +544,7 @@ async function main(): Promise<number> {
       return 0;
     }
 
-    const launchMetadata = buildAgentRuntimeMetadata(plan);
-    const exitCode = await launchGovernedSession({
-      workspaceRoot: cwd,
-      agentArgs: [agentName, ...agentArgs],
-      shimTools: plan.runtimeProfile.enabledShims,
-      shellHooksEnabled: plan.runtimeProfile.shellHooksEnabled,
-      runtimeMetadata: launchMetadata,
-    });
-    return exitCode;
+    return (await runAgent(plan)).exitCode;
   }
 
   if (command === "shell") {
@@ -420,7 +598,7 @@ async function main(): Promise<number> {
     return result.exitCode;
   }
 
-  if (command === "mark-safe") {
+  if (command === "_legacy-mark-safe") {
     const memoryIdValue = Number(args[1]);
     if (!Number.isInteger(memoryIdValue) || memoryIdValue <= 0) {
       console.error("Usage: termyte mark-safe <memory-id>");
@@ -675,6 +853,6 @@ main()
     process.exitCode = code;
   })
   .catch((error) => {
-    console.error(error);
+    console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
   });
