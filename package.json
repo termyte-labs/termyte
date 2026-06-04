@@ -25,6 +25,8 @@
     "dist",
     "benchmarks/commands.json",
     "README.md",
+    "docs/demo.md",
+    "CHANGELOG.md",
     "LICENSE"
   ],
   "scripts": {

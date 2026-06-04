@@ -6,66 +6,219 @@ import { spawnSync } from "node:child_process";
 const root = process.cwd();
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-package-proof-"));
 const packDir = path.join(tempRoot, "pack");
-const installDir = path.join(tempRoot, "install");
+const prefixDir = path.join(tempRoot, "prefix");
+const smokeDir = path.join(tempRoot, "smoke");
+const demoDir = path.join(tempRoot, "demo");
+const homeDir = path.join(tempRoot, "home");
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 
-fs.mkdirSync(packDir, { recursive: true });
-fs.mkdirSync(installDir, { recursive: true });
+const requiredPackageFiles = [
+  "CHANGELOG.md",
+  "LICENSE",
+  "README.md",
+  "benchmarks/commands.json",
+  "dist/agent-runner.js",
+  "dist/cli.js",
+  "docs/demo.md",
+  "package.json",
+];
+const forbiddenPackagePatterns = [
+  /^\.termyte(?:\/|$)/,
+  /^plans(?:\/|$)/,
+  /^Progress(?:\/|$)/,
+  /^src(?:\/|$)/,
+  /^test(?:\/|$)/,
+  /^node_modules(?:\/|$)/,
+  /(^|\/)\.env(?:\.|$)/,
+  /(^|\/)(logs|memory)\.jsonl$/,
+  /\.log$/,
+  /\.tgz$/,
+];
+
+for (const directory of [packDir, prefixDir, smokeDir, demoDir, homeDir]) {
+  fs.mkdirSync(directory, { recursive: true });
+}
 
 try {
   run(npm, ["run", "build"], { cwd: root });
+
+  const dryPack = run(npm, ["pack", "--dry-run", "--json"], { cwd: root });
+  const dryPackEntry = parsePackEntry(dryPack.stdout);
+  const packedFiles = dryPackEntry.files.map((entry) => normalizePath(entry.path));
+  assertPackageContents(packedFiles);
+
   const pack = run(npm, ["pack", "--json", "--pack-destination", packDir], { cwd: root });
-  const packEntries = JSON.parse(pack.stdout);
-  const filename = Array.isArray(packEntries) ? packEntries[0]?.filename : undefined;
-  const tarball = filename ? path.join(packDir, filename) : findTarball(packDir);
-  if (!tarball || !fs.existsSync(tarball)) {
-    throw new Error(`npm pack did not produce a tarball in ${packDir}`);
+  const packEntry = parsePackEntry(pack.stdout);
+  const tarball = path.join(packDir, packEntry.filename);
+  assertFile(tarball, "packed tarball");
+
+  run(npm, ["install", "--global", tarball, "--prefix", prefixDir, "--no-audit", "--no-fund"], {
+    cwd: root,
+    timeoutMs: 120_000,
+  });
+
+  const packageRoot = installedPackageRoot(prefixDir);
+  const installedBin = installedBinary(prefixDir);
+  for (const requiredFile of requiredPackageFiles) {
+    assertFile(path.join(packageRoot, ...requiredFile.split("/")), `installed ${requiredFile}`);
   }
-
-  run(npm, ["install", tarball, "--prefix", installDir, "--no-audit", "--no-fund"], { cwd: root, timeoutMs: 120_000 });
-
-  const packageRoot = path.join(installDir, "node_modules", "termyte");
-  const cli = path.join(packageRoot, "dist", "cli.js");
-  assertFile(cli, "installed CLI");
-  assertFile(path.join(packageRoot, "benchmarks", "commands.json"), "installed benchmark file");
+  assertFile(installedBin, "installed termyte binary");
 
   const env = {
     ...process.env,
-    TERMYTE_DB_PATH: path.join(installDir, ".termyte", "termyte.db"),
+    TERMYTE_HOME: homeDir,
   };
 
-  const help = run(process.execPath, [cli, "--help"], { cwd: installDir, env });
+  const help = run(installedBin, ["--help"], { cwd: smokeDir, env });
+  assertIncludes(help.stdout, "termyte policy presets", "help output");
   assertIncludes(help.stdout, "termyte run", "help output");
 
-  const doctor = run(process.execPath, [cli, "doctor", "--json"], { cwd: installDir, env, timeoutMs: 120_000 });
+  const presets = run(installedBin, ["policy", "presets"], { cwd: smokeDir, env });
+  assertIncludes(presets.stdout, "safe-default", "policy presets output");
+
+  const blockedCheck = run(installedBin, ["check", "cat .env", "--json"], {
+    cwd: smokeDir,
+    env,
+    expectedStatuses: [1],
+  });
+  const blockedJson = JSON.parse(blockedCheck.stdout);
+  assertEqual(blockedJson.decision, "block", "blocked check decision");
+  assertEqual(blockedJson.executed, false, "blocked check execution state");
+
+  const dryPolicy = run(installedBin, ["policy", "local", "add", "Ask before touching auth or payments", "--dry-run"], {
+    cwd: smokeDir,
+    env,
+  });
+  assertIncludes(dryPolicy.stdout, "Dry run only. No policy file was changed.", "policy dry-run output");
+  assertMissing(path.join(smokeDir, "termyte.policy.yaml"), "policy dry-run output file");
+
+  run(installedBin, ["mark-unsafe", "npm publish"], { cwd: smokeDir, env });
+  const memory = run(installedBin, ["memory"], { cwd: smokeDir, env });
+  assertIncludes(memory.stdout, "npm publish", "memory output");
+
+  const logs = run(installedBin, ["logs"], { cwd: smokeDir, env });
+  assertIncludes(logs.stdout, "cat .env", "logs output");
+
+  const doctor = run(installedBin, ["doctor", "--json"], { cwd: smokeDir, env, timeoutMs: 120_000 });
   const doctorJson = JSON.parse(doctor.stdout);
-  if (doctorJson.summary?.fail !== 0) {
-    throw new Error(`packaged doctor reported ${doctorJson.summary?.fail ?? "unknown"} failure(s)`);
-  }
+  assertEqual(doctorJson.summary?.fail, 0, "packaged doctor failure count");
 
-  const dryRun = run(process.execPath, [cli, "run", "--dry-run", "codex"], { cwd: installDir, env });
-  assertIncludes(dryRun.stdout, "Termyte agent run dry run", "codex dry-run output");
+  const missingAgent = run(installedBin, ["run", "definitely-missing-agent"], {
+    cwd: smokeDir,
+    env,
+    expectedStatuses: [1],
+  });
+  assertIncludes(missingAgent.stderr, "Unknown agent: definitely-missing-agent", "missing agent output");
+  assertExcludes(missingAgent.stderr, "ENOENT", "missing agent output");
 
-  const shell = run(process.execPath, [cli, "shell", "--", "node", "--version"], { cwd: installDir, env, timeoutMs: 120_000 });
-  assertIncludes(shell.stdout, process.version, "shell node smoke output");
+  const agentDryRun = run(installedBin, ["run", "--dry-run", "codex"], { cwd: smokeDir, env });
+  assertIncludes(agentDryRun.stdout, "Termyte agent run plan", "codex dry-run output");
 
-  const bench = run(process.execPath, [cli, "bench", "--json"], { cwd: installDir, env, timeoutMs: 120_000 });
+  const bench = run(installedBin, ["bench", "--json"], { cwd: smokeDir, env, timeoutMs: 120_000 });
   const benchJson = JSON.parse(bench.stdout);
   if ((benchJson.summary?.total ?? 0) < 230 || benchJson.summary?.falseNegatives !== 0) {
     throw new Error(`packaged bench failed reliability expectations: ${JSON.stringify(benchJson.summary)}`);
   }
 
+  verifyDemo(installedBin, demoDir, env);
+  assertNoStateLeak(packageRoot);
+
   console.log(JSON.stringify({
     ok: true,
-    packageRoot,
+    package: {
+      id: dryPackEntry.id,
+      filename: packEntry.filename,
+      size: packEntry.size,
+      unpackedSize: packEntry.unpackedSize,
+      files: packedFiles.length,
+    },
+    installedBinary: installedBin,
     doctor: doctorJson.summary,
     bench: benchJson.summary,
+    smoke: {
+      help: "pass",
+      policyPresets: "pass",
+      blockedCheck: "pass",
+      policyDryRun: "pass",
+      memory: "pass",
+      logs: "pass",
+      missingAgent: "pass",
+      demo: "pass",
+    },
   }, null, 2));
 } finally {
   fs.rmSync(tempRoot, { recursive: true, force: true });
 }
 
+function verifyDemo(installedBin, workspace, env) {
+  const secret = run(installedBin, ["check", "cat .env"], { cwd: workspace, env, expectedStatuses: [1] });
+  assertIncludes(secret.stdout, "Decision: block", "demo secret check");
+
+  const forcePush = run(installedBin, ["check", "git push --force origin main"], {
+    cwd: workspace,
+    env,
+    expectedStatuses: [1],
+  });
+  assertIncludes(forcePush.stdout, "Decision: block", "demo force-push check");
+
+  const publish = run(installedBin, ["check", "npm publish"], { cwd: workspace, env });
+  assertIncludes(publish.stdout, "Decision: warn", "demo package publish check");
+
+  run(installedBin, ["policy", "test", "cat .env"], { cwd: workspace, env, expectedStatuses: [1] });
+
+  run(installedBin, ["policy", "local", "add", "Ask before touching auth or payments", "--dry-run"], { cwd: workspace, env });
+  assertMissing(path.join(workspace, "termyte.policy.yaml"), "demo policy dry-run output file");
+
+  run(installedBin, ["policy", "local", "add", "Ask before touching auth or payments", "--yes"], { cwd: workspace, env });
+  assertFile(path.join(workspace, "termyte.policy.yaml"), "demo local policy");
+
+  const blockedLogs = run(installedBin, ["logs", "--blocked"], { cwd: workspace, env });
+  assertIncludes(blockedLogs.stdout, "cat .env", "demo blocked logs");
+
+  run(installedBin, ["mark-unsafe", "npm test"], { cwd: workspace, env });
+  const memoryWarn = run(installedBin, ["check", "npm test"], { cwd: workspace, env });
+  assertIncludes(memoryWarn.stdout, "Decision: warn", "demo memory-influenced check");
+
+  const memory = run(installedBin, ["memory"], { cwd: workspace, env });
+  assertIncludes(memory.stdout, "npm test", "demo memory output");
+}
+
+function assertPackageContents(files) {
+  for (const required of requiredPackageFiles) {
+    if (!files.includes(required)) {
+      throw new Error(`Packed package is missing required file: ${required}`);
+    }
+  }
+  for (const file of files) {
+    for (const pattern of forbiddenPackagePatterns) {
+      if (pattern.test(file)) {
+        throw new Error(`Packed package contains forbidden file: ${file}`);
+      }
+    }
+  }
+}
+
+function assertNoStateLeak(packageRoot) {
+  const packageFiles = walkFiles(packageRoot, new Set(["node_modules"])).map((file) => normalizePath(path.relative(packageRoot, file)));
+  for (const file of packageFiles) {
+    if (forbiddenPackagePatterns.some((pattern) => pattern.test(file))) {
+      throw new Error(`Installed package contains forbidden state or source file: ${file}`);
+    }
+  }
+}
+
+function walkFiles(directory, skippedDirectories = new Set()) {
+  return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    if (entry.isDirectory() && skippedDirectories.has(entry.name)) {
+      return [];
+    }
+    const fullPath = path.join(directory, entry.name);
+    return entry.isDirectory() ? walkFiles(fullPath, skippedDirectories) : [fullPath];
+  });
+}
+
 function run(command, args, options = {}) {
+  const expectedStatuses = options.expectedStatuses ?? [0];
   const isWindowsCommandScript = process.platform === "win32" && /\.(cmd|bat)$/i.test(command);
   const result = isWindowsCommandScript ? spawnSync([quoteCmdArg(command), ...args.map(quoteCmdArg)].join(" "), {
     cwd: options.cwd,
@@ -79,10 +232,11 @@ function run(command, args, options = {}) {
     encoding: "utf8",
     timeout: options.timeoutMs ?? 30_000,
   });
-  if (result.status !== 0) {
+  if (!expectedStatuses.includes(result.status)) {
     throw new Error([
       `Command failed: ${command} ${args.join(" ")}`,
       `exit: ${result.status}`,
+      `expected: ${expectedStatuses.join(", ")}`,
       `stdout: ${result.stdout ?? ""}`.trimEnd(),
       `stderr: ${result.stderr ?? ""}`.trimEnd(),
       result.error ? `error: ${result.error.message}` : "",
@@ -91,9 +245,36 @@ function run(command, args, options = {}) {
   return result;
 }
 
+function parsePackEntry(value) {
+  const entries = JSON.parse(value);
+  const entry = Array.isArray(entries) ? entries[0] : undefined;
+  if (!entry || typeof entry.filename !== "string" || !Array.isArray(entry.files)) {
+    throw new Error("npm pack did not return a valid package manifest");
+  }
+  return entry;
+}
+
+function installedPackageRoot(prefix) {
+  return process.platform === "win32"
+    ? path.join(prefix, "node_modules", "termyte")
+    : path.join(prefix, "lib", "node_modules", "termyte");
+}
+
+function installedBinary(prefix) {
+  return process.platform === "win32"
+    ? path.join(prefix, "termyte.cmd")
+    : path.join(prefix, "bin", "termyte");
+}
+
 function assertFile(filePath, label) {
-  if (!fs.existsSync(filePath)) {
+  if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
     throw new Error(`Missing ${label}: ${filePath}`);
+  }
+}
+
+function assertMissing(filePath, label) {
+  if (fs.existsSync(filePath)) {
+    throw new Error(`Unexpected ${label}: ${filePath}`);
   }
 }
 
@@ -103,10 +284,20 @@ function assertIncludes(value, expected, label) {
   }
 }
 
-function findTarball(directory) {
-  return fs.readdirSync(directory)
-    .filter((entry) => entry.endsWith(".tgz"))
-    .map((entry) => path.join(directory, entry))[0];
+function assertExcludes(value, unexpected, label) {
+  if (String(value).includes(unexpected)) {
+    throw new Error(`${label} unexpectedly included ${unexpected}`);
+  }
+}
+
+function assertEqual(actual, expected, label) {
+  if (actual !== expected) {
+    throw new Error(`${label} expected ${JSON.stringify(expected)}, received ${JSON.stringify(actual)}`);
+  }
+}
+
+function normalizePath(value) {
+  return value.replaceAll("\\", "/");
 }
 
 function quoteCmdArg(value) {

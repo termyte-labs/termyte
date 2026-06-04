@@ -89,8 +89,9 @@ Policy layers:
 2. Global policy at `~/.termyte/policy.yaml`
 3. Local policy at `termyte.policy.yaml`
 
-Source priority is local over global over built-in. When multiple matching rules
-conflict, the safest decision wins:
+Rules from all loaded layers are evaluated together. Local and global rules
+cannot weaken a safer built-in result. When multiple matching rules conflict,
+the safest decision wins:
 
 ```text
 block > ask > warn > allow
@@ -186,20 +187,24 @@ Doctor includes environment-dependent process and runtime checks, so it may
 take longer than pure `check` or `policy` commands. A successful doctor report
 does not mean Termyte is a sandbox or can observe every execution path.
 
-## Experimental Runtime
+## Limited Agent Runner
 
-The repository also contains an experimental governed runtime:
+Termyte can start supported coding agents after preparing local policy, logs,
+memory, and session context:
 
 ```bash
 termyte run codex
 termyte run claude
+termyte run claudecode
 termyte run aider
 ```
 
-Runtime interception is shell- and platform-dependent. It is not a full
-sandbox and may not observe every subprocess, direct API call, or command that
-bypasses the governed environment. Use `termyte doctor` before evaluating the
-experimental runtime on a machine.
+The agent runner starts in `runtime mode: limited`. Termyte prepares local
+policy, logs, memory, and session context, but full subprocess interception is
+not guaranteed. Runtime interception is shell- and platform-dependent. It is
+not a full sandbox and may not observe every subprocess, direct API call, or
+command that bypasses the governed environment. Use `termyte doctor` before
+evaluating the experimental runtime on a machine.
 
 ## Threat Model
 
@@ -232,6 +237,7 @@ Protection is strongest when command text is evaluated through `termyte check`,
 
 ## Alpha Limitations
 
+- Runtime mode is limited. Full subprocess interception is not guaranteed.
 - Runtime interception is experimental and is not production-grade isolation.
 - Commands that bypass Termyte are not governed.
 - Direct API calls outside monitored surfaces are not governed.
@@ -253,8 +259,12 @@ npx vitest run --fileParallelism false
 npm run validate:package
 ```
 
-`validate:package` exercises the packaged artifact and experimental runtime
-checks. Its result depends on the local machine and installed tools.
+`validate:package` builds, packs, installs into an isolated npm prefix, and
+exercises the installed CLI. Doctor results still depend on the local machine
+and installed optional tools.
+
+See [CHANGELOG.md](https://github.com/termyte-labs/termyte/blob/main/CHANGELOG.md)
+for current alpha release notes.
 
 ## Security And Privacy
 
