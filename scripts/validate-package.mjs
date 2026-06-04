@@ -17,8 +17,10 @@ const requiredPackageFiles = [
   "LICENSE",
   "README.md",
   "benchmarks/commands.json",
+  "benchmarks/governance.json",
   "dist/agent-runner.js",
   "dist/cli.js",
+  "docs/benchmark.md",
   "docs/demo.md",
   "package.json",
 ];
@@ -116,7 +118,7 @@ try {
 
   const bench = run(installedBin, ["bench", "--json"], { cwd: smokeDir, env, timeoutMs: 120_000 });
   const benchJson = JSON.parse(bench.stdout);
-  if ((benchJson.summary?.total ?? 0) < 230 || benchJson.summary?.falseNegatives !== 0) {
+  if ((benchJson.summary?.total ?? 0) < 1200 || benchJson.summary?.falseSafe !== 0) {
     throw new Error(`packaged bench failed reliability expectations: ${JSON.stringify(benchJson.summary)}`);
   }
 

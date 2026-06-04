@@ -48,6 +48,23 @@ uses a temporary directory and never executes the dangerous-looking command
 examples. It demonstrates command checks, policy creation, logs, memory, and
 doctor.
 
+## Governance Benchmark
+
+Termyte is evaluated against a deterministic 1,200-action governance suite
+spanning safe, review-required, and blocked command text. The benchmark uses
+the stable non-executing policy/check path and reports decision precision,
+recall, a confusion matrix, false-safe rate, and overblock rate.
+
+```bash
+termyte bench
+termyte bench --json
+termyte bench --legacy
+```
+
+The benchmark validates labeled fixtures; it does not prove complete command
+coverage or sandbox isolation. See the
+[benchmark methodology](https://github.com/termyte-labs/termyte/blob/main/docs/benchmark.md).
+
 ## Check Commands Without Executing Them
 
 ```bash

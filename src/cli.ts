@@ -1,10 +1,8 @@
 #!/usr/bin/env node
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
-import { fileURLToPath } from "node:url";
 import { defaultDbPath, openDatabase } from "./db.js";
 import { formatInspection, formatLedger, formatMemory, formatReplay, replayEntries, toJson } from "./format.js";
 import { Ledger } from "./ledger.js";
@@ -35,6 +33,7 @@ import { checkCommand, formatCheckHuman } from "./check.js";
 import { buildPolicyAddPlan, formatPolicyPresets, formatPolicyShow, runPolicyTest, savePolicyAddPlan, slimCheckResult } from "./policy-cli.js";
 import { formatLocalLogsHuman, listLocalLogs } from "./local-logs.js";
 import { formatLocalMemoryHuman, listLocalMemory, storeLocalMemory } from "./local-memory.js";
+import { runGovernanceBenchmarks, runLegacyBenchmarks } from "./benchmark.js";
 
 function printUsage(): void {
   console.log(`Usage:
@@ -51,7 +50,7 @@ function printUsage(): void {
   termyte run [--dry-run] [--profile <profile>] <agent> [...args]
   termyte run [--dry-run] -- <command>
   termyte allow-once -- <command>
-  termyte bench [--json]
+  termyte bench [--json] [--legacy]
   termyte doctor [--json]
   termyte replay [--json]
   termyte policies [--json]
@@ -193,116 +192,6 @@ function hasYesFlag(args: string[]): boolean {
 function argsAfterDoubleDash(args: string[]): string[] {
   const separatorIndex = args.indexOf("--");
   return separatorIndex >= 0 ? args.slice(separatorIndex + 1) : args.slice(1);
-}
-
-function decisionRank(decision: Decision): number {
-  if (decision === "allow") return 0;
-  if (decision === "warn") return 1;
-  if (decision === "ask") return 2;
-  return 3;
-}
-
-interface BenchmarkCase {
-  command: string;
-  category: string;
-  expectedDecisions: Decision[];
-}
-
-interface BenchmarkResult {
-  command: string;
-  category: string;
-  expectedDecisions: Decision[];
-  actualDecision: Decision;
-  passed: boolean;
-}
-
-function loadBenchmarkCases(cwd: string): BenchmarkCase[] {
-  const benchmarkPaths = [
-    path.join(cwd, "benchmarks", "commands.json"),
-    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "benchmarks", "commands.json"),
-  ];
-
-  for (const benchmarkPath of benchmarkPaths) {
-    if (fs.existsSync(benchmarkPath)) {
-      return JSON.parse(fs.readFileSync(benchmarkPath, "utf8")) as BenchmarkCase[];
-    }
-  }
-
-  return [];
-}
-
-function runBenchmarks(cwd: string): {
-  summary: {
-    total: number;
-    correct: number;
-    accuracy: number;
-    falsePositives: number;
-    falseNegatives: number;
-  };
-  categories: Record<string, { total: number; correct: number; falsePositives: number; falseNegatives: number; accuracy: number }>;
-  cases: BenchmarkResult[];
-} {
-  const cases = loadBenchmarkCases(cwd);
-  const tempDbPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "termyte-bench-")), "bench.db");
-  const results: BenchmarkResult[] = cases.map((entry) => {
-    const inspection = inspectAction(entry.command, cwd, tempDbPath);
-    const actualDecision = inspection.finalDecision;
-    const passed = entry.expectedDecisions.includes(actualDecision);
-    return {
-      command: entry.command,
-      category: entry.category,
-      expectedDecisions: entry.expectedDecisions,
-      actualDecision,
-      passed,
-    };
-  });
-
-  const categories: Record<string, { total: number; correct: number; falsePositives: number; falseNegatives: number; accuracy: number }> = {};
-  let correct = 0;
-  let falsePositives = 0;
-  let falseNegatives = 0;
-
-  for (const result of results) {
-    const expectedRanks = result.expectedDecisions.map(decisionRank);
-    const minExpected = Math.min(...expectedRanks);
-    const maxExpected = Math.max(...expectedRanks);
-    const actualRank = decisionRank(result.actualDecision);
-
-    if (result.passed) {
-      correct += 1;
-    }
-    if (!result.passed && actualRank > maxExpected) {
-      falsePositives += 1;
-    }
-    if (!result.passed && actualRank < minExpected) {
-      falseNegatives += 1;
-    }
-
-    const bucket = categories[result.category] ?? { total: 0, correct: 0, falsePositives: 0, falseNegatives: 0, accuracy: 0 };
-    bucket.total += 1;
-    if (result.passed) {
-      bucket.correct += 1;
-    } else if (actualRank > maxExpected) {
-      bucket.falsePositives += 1;
-    } else if (actualRank < minExpected) {
-      bucket.falseNegatives += 1;
-    }
-    bucket.accuracy = bucket.total > 0 ? bucket.correct / bucket.total : 0;
-    categories[result.category] = bucket;
-  }
-
-  const total = results.length;
-  return {
-    summary: {
-      total,
-      correct,
-      accuracy: total > 0 ? correct / total : 0,
-      falsePositives,
-      falseNegatives,
-    },
-    categories,
-    cases: results,
-  };
 }
 
 async function main(): Promise<number> {
@@ -621,20 +510,29 @@ async function main(): Promise<number> {
   }
 
   if (command === "bench") {
-    const report = runBenchmarks(cwd);
+    const report = args.includes("--legacy") ? runLegacyBenchmarks(cwd) : runGovernanceBenchmarks(cwd);
     if (hasJsonFlag(args)) {
       console.log(toJson(report));
     } else {
+      console.log(`Suite: ${report.suite}`);
+      console.log(`Engine: ${report.engine}`);
       console.log(`Cases: ${report.summary.total}`);
       console.log(`Accuracy: ${(report.summary.accuracy * 100).toFixed(1)}%`);
       console.log(`False positives: ${report.summary.falsePositives}`);
       console.log(`False negatives: ${report.summary.falseNegatives}`);
+      console.log(`False-safe rate: ${(report.summary.falseSafeRate * 100).toFixed(2)}%`);
+      console.log(`Overblock rate: ${(report.summary.overblockRate * 100).toFixed(2)}%`);
+      console.log("Decision recall:");
+      for (const decision of ["allow", "warn", "ask", "block"] as Decision[]) {
+        const stats = report.decisions[decision];
+        console.log(`  ${decision}: ${stats.correct}/${stats.expected} correct, recall=${(stats.recall * 100).toFixed(1)}%, precision=${(stats.precision * 100).toFixed(1)}%`);
+      }
       console.log("Category breakdown:");
       for (const [category, stats] of Object.entries(report.categories)) {
         console.log(`  ${category}: ${stats.correct}/${stats.total} correct, fp=${stats.falsePositives}, fn=${stats.falseNegatives}, acc=${(stats.accuracy * 100).toFixed(1)}%`);
       }
     }
-    return report.summary.total > 0 ? 0 : 1;
+    return report.summary.total > 0 && report.summary.falseSafe === 0 ? 0 : 1;
   }
 
   if (command === "doctor") {

@@ -24,13 +24,17 @@
   "files": [
     "dist",
     "benchmarks/commands.json",
+    "benchmarks/governance.json",
     "README.md",
+    "docs/benchmark.md",
     "docs/demo.md",
     "CHANGELOG.md",
     "LICENSE"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "bench:generate": "node scripts/generate-governance-benchmarks.mjs",
+    "bench": "node dist/cli.js bench",
     "dev": "tsx src/cli.ts",
     "test": "vitest run",
     "test:watch": "vitest",

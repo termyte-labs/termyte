@@ -12,6 +12,8 @@
 - Limited agent runner support for `codex`, `claude`, `claudecode`, and
   `aider`.
 - `claudecode` falls back to `claude` when appropriate.
+- Deterministic 1,200-action governance benchmark with balanced allow, warn,
+  and block labels plus false-safe and overblock reporting.
 
 ### Experimental
 
