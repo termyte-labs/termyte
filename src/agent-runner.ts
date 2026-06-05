@@ -1,13 +1,13 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { spawn } from "node:child_process";
-import type { AgentRunPlan } from "./agent.js";
+import { buildAgentRuntimeMetadata, type AgentRunPlan } from "./agent.js";
 import { listLocalLogs } from "./local-logs.js";
 import { listLocalMemory } from "./local-memory.js";
 import { ensureLocalStateDir, type LocalStatePaths } from "./local-state.js";
 import { loadPhaseOnePolicies } from "./policy-loader.js";
 import { mergePhaseOnePolicies, type EffectivePhaseOnePolicy } from "./policy-merge.js";
+import { launchGovernedSession } from "./shell.js";
 
 export type AgentRuntimeMode = "limited" | "intercepted" | "unavailable";
 
@@ -61,7 +61,7 @@ export function prepareAgentRun(cwd: string): AgentRunReadiness {
     policy,
     logs: "enabled",
     memory: "enabled",
-    runtimeMode: "limited",
+    runtimeMode: "intercepted",
   };
 }
 
@@ -118,8 +118,9 @@ export function formatAgentStartupBanner(plan: AgentRunPlan, readiness: AgentRun
     `  ${readiness.runtimeMode}`,
     "",
     "Note:",
-    "  Termyte prepared policy, logs, memory, and session context.",
-    "  Full subprocess interception is experimental on this platform.",
+    "  Termyte is launching the agent inside a governed session.",
+    "  Supported subprocess tools route through local policy, approvals, and ledger.",
+    "  This is interception, not a full OS sandbox.",
     "",
     "Running:",
     `  ${plan.resolvedAgentName}`,
@@ -137,40 +138,19 @@ function createSessionId(): string {
 }
 
 async function launchAgentProcess(plan: AgentRunPlan, readiness: AgentRunReadiness): Promise<number> {
-  return await new Promise<number>((resolve) => {
-    const isWindowsCommandScript = process.platform === "win32" && /\.(cmd|bat)$/i.test(plan.resolvedExecutable);
-    const child = spawn(plan.resolvedExecutable, plan.agentArgs, {
-      cwd: plan.workspaceRoot,
-      env: {
-        ...process.env,
-        TERMYTE_SESSION_ID: readiness.sessionId,
-        TERMYTE_AGENT: plan.agentName,
-        TERMYTE_RESOLVED_AGENT: plan.resolvedAgentName,
-        TERMYTE_WORKSPACE_ROOT: readiness.repoRoot,
-        TERMYTE_RUNTIME_MODE: readiness.runtimeMode,
-      },
-      stdio: "inherit",
-      shell: isWindowsCommandScript,
+  try {
+    return await launchGovernedSession({
+      workspaceRoot: readiness.repoRoot,
+      sessionId: readiness.sessionId,
+      agentArgs: [plan.resolvedExecutable, ...plan.agentArgs],
+      shimTools: plan.runtimeProfile.enabledShims,
+      shellHooksEnabled: plan.runtimeProfile.shellHooksEnabled,
+      runtimeMetadata: buildAgentRuntimeMetadata(plan),
     });
-
-    child.once("error", (error) => {
-      process.stderr.write(`Termyte could not start the agent executable: ${plan.agentName}\n${cleanSpawnError(error)}\n`);
-      resolve(1);
-    });
-    child.once("exit", (code, signal) => {
-      if (signal) {
-        process.stderr.write(`Termyte agent process exited after signal: ${signal}\n`);
-        resolve(1);
-        return;
-      }
-      resolve(code ?? 1);
-    });
-  });
-}
-
-function cleanSpawnError(error: Error): string {
-  const code = "code" in error && typeof error.code === "string" ? error.code : undefined;
-  return code ? `Process launch failed (${code}). Run \`termyte doctor\` for details.` : "Process launch failed. Run `termyte doctor` for details.";
+  } catch (error) {
+    process.stderr.write(`Termyte could not start the governed agent runtime: ${plan.agentName}\n${errorMessage(error)}\n\nTry:\n  termyte doctor\n`);
+    return 1;
+  }
 }
 
 function errorMessage(error: unknown): string {

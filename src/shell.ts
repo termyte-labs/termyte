@@ -53,6 +53,7 @@ export interface GovernedRuntimeMetadata {
 }
 
 export interface GovernedSessionOptions {
+  sessionId?: string;
   shimTools?: string[];
   runtimeMetadata?: GovernedRuntimeMetadata;
 }
@@ -139,7 +140,7 @@ interface GuardHookRequest {
 
 export function createGovernedSession(workspaceRoot: string, options: GovernedSessionOptions = {}): GovernedSession {
   const root = path.resolve(workspaceRoot);
-  const sessionId = crypto.randomUUID();
+  const sessionId = options.sessionId ?? crypto.randomUUID();
   const sessionDir = path.join(root, ".termyte", "sessions", sessionId);
   const shimDir = path.join(sessionDir, "shims");
   const dbPath = defaultDbPath(root);
@@ -820,12 +821,14 @@ export function handleGuardFinalizeRequest(
 
 export async function launchGovernedSession(options: {
   workspaceRoot: string;
+  sessionId?: string;
   agentArgs?: string[];
   shimTools?: string[];
   shellHooksEnabled?: boolean;
   runtimeMetadata?: GovernedRuntimeMetadata;
 }): Promise<number> {
   const session = createGovernedSession(options.workspaceRoot, {
+    sessionId: options.sessionId,
     shimTools: options.shimTools,
     runtimeMetadata: options.runtimeMetadata,
   });

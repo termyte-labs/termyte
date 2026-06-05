@@ -66,6 +66,20 @@ describe("agent run planning", () => {
     expect(aiderPlan.resolvedExecutable).toBe(aider);
   });
 
+  it("prefers runnable Windows launcher extensions over extensionless npm shims", () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-agent-windows-launcher-"));
+    const binDir = path.join(workspaceRoot, "bin");
+    fs.mkdirSync(binDir);
+    const extensionless = path.join(binDir, "codex");
+    const cmdLauncher = path.join(binDir, "codex.cmd");
+    fs.writeFileSync(extensionless, "#!/bin/sh\nnode cli.js\n", "utf8");
+    fs.writeFileSync(cmdLauncher, "@echo off\r\nnode cli.js %*\r\n", "utf8");
+
+    const resolution = resolveAgentExecutable("codex", binDir, "win32", ".COM;.EXE;.BAT;.CMD");
+
+    expect(resolution.resolvedExecutable).toBe(cmdLauncher);
+  });
+
   it("marks dry-run plans when an agent executable is missing", () => {
     const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-agent-missing-"));
     const plan = buildAgentRunPlan({

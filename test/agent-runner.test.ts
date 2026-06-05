@@ -3,6 +3,8 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { openDatabase } from "../src/db.js";
+import { Ledger } from "../src/ledger.js";
 
 const cliPath = path.resolve("dist/cli.js");
 
@@ -12,12 +14,23 @@ function makeWorkspace(prefix: string): string {
   return workspace;
 }
 
-function makeFakeAgent(binDir: string, name: string, exitCode = 0): string {
+function makeFakeAgent(binDir: string, name: string, exitCode = 0, body?: string): string {
   fs.mkdirSync(binDir, { recursive: true });
   const executable = process.platform === "win32" ? path.join(binDir, `${name}.cmd`) : path.join(binDir, name);
   const content = process.platform === "win32"
-    ? `@echo off\r\necho fake-${name}-stdout\r\necho fake-${name}-stderr 1>&2\r\necho session:%TERMYTE_SESSION_ID%\r\nexit /b ${exitCode}\r\n`
-    : `#!/bin/sh\necho fake-${name}-stdout\necho fake-${name}-stderr >&2\necho session:$TERMYTE_SESSION_ID\nexit ${exitCode}\n`;
+    ? `@echo off\r\necho fake-${name}-stdout\r\necho fake-${name}-stderr 1>&2\r\necho session:%TERMYTE_SESSION_ID%\r\n${body ?? ""}\r\nexit /b ${exitCode}\r\n`
+    : `#!/bin/sh\necho fake-${name}-stdout\necho fake-${name}-stderr >&2\necho session:$TERMYTE_SESSION_ID\n${body ?? ""}\nexit ${exitCode}\n`;
+  fs.writeFileSync(executable, content, "utf8");
+  if (process.platform !== "win32") fs.chmodSync(executable, 0o755);
+  return executable;
+}
+
+function makeFakeTool(binDir: string, name: string): string {
+  fs.mkdirSync(binDir, { recursive: true });
+  const executable = process.platform === "win32" ? path.join(binDir, `${name}.cmd`) : path.join(binDir, name);
+  const content = process.platform === "win32"
+    ? `@echo off\r\necho fake-${name}:%*\r\nexit /b 0\r\n`
+    : `#!/bin/sh\necho fake-${name}:$*\nexit 0\n`;
   fs.writeFileSync(executable, content, "utf8");
   if (process.platform !== "win32") fs.chmodSync(executable, 0o755);
   return executable;
@@ -32,13 +45,12 @@ function runCli(workspace: string, binDir: string, args: string[]) {
       PATH: binDir,
       Path: binDir,
       TERMYTE_HOME: home,
-      TERMYTE_ORIGINAL_PATH: "",
     },
     encoding: "utf8",
   });
 }
 
-describe("Phase 6 limited agent runner", () => {
+describe("governed agent runner", () => {
   it("fails cleanly when a supported agent executable is missing", () => {
     const workspace = makeWorkspace("termyte-agent-run-missing-");
     const binDir = path.join(workspace, "empty-bin");
@@ -53,7 +65,7 @@ describe("Phase 6 limited agent runner", () => {
     expect(result.stderr).not.toContain("ENOENT");
   });
 
-  it("resolves claudecode to claude and shows an honest limited banner", () => {
+  it("resolves claudecode to claude and shows an honest governed banner", () => {
     const workspace = makeWorkspace("termyte-agent-run-alias-");
     const binDir = path.join(workspace, "bin");
     makeFakeAgent(binDir, "claude");
@@ -68,12 +80,66 @@ describe("Phase 6 limited agent runner", () => {
     expect(result.stdout).toContain("built-in: safe-default");
     expect(result.stdout).toContain("logs: enabled");
     expect(result.stdout).toContain("memory: enabled");
-    expect(result.stdout).toContain("Runtime mode:\n  limited");
+    expect(result.stdout).toContain("Runtime mode:\n  intercepted");
+    expect(result.stdout).toContain("Termyte is launching the agent inside a governed session.");
+    expect(result.stdout).toContain("This is interception, not a full OS sandbox.");
     expect(result.stdout).toContain("Running:\n  claude");
     expect(result.stdout).toContain("fake-claude-stdout");
     expect(result.stderr).toContain("fake-claude-stderr");
     expect(fs.existsSync(path.join(workspace, ".termyte"))).toBe(true);
     expect(fs.existsSync(path.join(workspace, "termyte.policy.yaml"))).toBe(false);
+  });
+
+  it("routes agent subprocess tools through the governed shim and ledger", () => {
+    const workspace = makeWorkspace("termyte-agent-run-governed-");
+    const binDir = path.join(workspace, "bin");
+    makeFakeTool(binDir, "git");
+    makeFakeAgent(binDir, "codex", 0, "git status");
+
+    const result = runCli(workspace, binDir, ["run", "codex"]);
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("Runtime mode:\n  intercepted");
+    expect(result.stdout).toContain("fake-git:status");
+
+    const ledger = new Ledger(openDatabase(path.join(workspace, ".termyte", "termyte.db")).db);
+    const records = ledger.replay();
+    const launchRecord = records.find((record) => {
+      const metadata = JSON.parse(record.metadataJson ?? "{}") as Record<string, unknown>;
+      return metadata.runtime === "agent-run" && metadata.agentLaunch === true;
+    });
+    const shimRecord = records.find((record) => {
+      const metadata = JSON.parse(record.metadataJson ?? "{}") as Record<string, unknown>;
+      return metadata.runtime === "shell-shim" && metadata.tool === "git";
+    });
+    const shimMetadata = JSON.parse(shimRecord?.metadataJson ?? "{}") as Record<string, unknown>;
+
+    expect(launchRecord?.decision).toBe("allow");
+    expect(shimRecord?.decision).toBe("allow");
+    expect(shimRecord?.status).toBe("executed");
+    expect(shimMetadata.executedVia).toBe("shell-shim");
+    expect(shimMetadata.argv).toEqual(["status"]);
+  });
+
+  it("supports top-level agent shortcuts through the same governed runtime", () => {
+    const workspace = makeWorkspace("termyte-agent-run-shortcut-");
+    const binDir = path.join(workspace, "bin");
+    makeFakeTool(binDir, "git");
+    makeFakeAgent(binDir, "codex", 0, "git status");
+
+    const result = runCli(workspace, binDir, ["codex"]);
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("Runtime mode:\n  intercepted");
+    expect(result.stdout).toContain("fake-git:status");
+
+    const ledger = new Ledger(openDatabase(path.join(workspace, ".termyte", "termyte.db")).db);
+    const shimRecord = ledger.replay().find((record) => {
+      const metadata = JSON.parse(record.metadataJson ?? "{}") as Record<string, unknown>;
+      return metadata.runtime === "shell-shim" && metadata.tool === "git";
+    });
+
+    expect(shimRecord?.status).toBe("executed");
   });
 
   it("passes session context through stdio and propagates child exit code", () => {

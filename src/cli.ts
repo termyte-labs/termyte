@@ -27,7 +27,7 @@ import {
 import { interceptHook, interceptShim, launchGovernedSession } from "./shell.js";
 import { formatDoctorHuman, formatDoctorJson, runDoctor } from "./doctor.js";
 import type { Decision } from "./types.js";
-import { buildAgentRunPlan, formatAgentDryRunReport, parseRunInvocation } from "./agent.js";
+import { buildAgentRunPlan, formatAgentDryRunReport, isSupportedAgentName, parseRunInvocation } from "./agent.js";
 import { runAgent } from "./agent-runner.js";
 import { checkCommand, formatCheckHuman } from "./check.js";
 import { buildPolicyAddPlan, formatPolicyPresets, formatPolicyShow, runPolicyTest, savePolicyAddPlan, slimCheckResult } from "./policy-cli.js";
@@ -47,6 +47,7 @@ function printUsage(): void {
   termyte memory
   termyte mark-safe "<command>"
   termyte mark-unsafe "<command>"
+  termyte <codex|claude|claudecode|aider> [...args]
   termyte run [--dry-run] [--profile <profile>] <agent> [...args]
   termyte run [--dry-run] -- <command>
   termyte allow-once -- <command>
@@ -207,6 +208,18 @@ async function main(): Promise<number> {
   if (!command) {
     printUsage();
     return 1;
+  }
+
+  if (isSupportedAgentName(command)) {
+    const plan = buildAgentRunPlan({
+      workspaceRoot: cwd,
+      dbPath,
+      agentName: command,
+      agentArgs: args.slice(1),
+      originalPath: process.env.PATH ?? "",
+    });
+
+    return (await runAgent(plan)).exitCode;
   }
 
   if (command === "check") {

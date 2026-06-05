@@ -2,12 +2,13 @@
 
 Termyte is a local-first safety runtime for AI coding agents.
 
-The current alpha focuses on checking risky command text without executing it,
-applying local policies, recording decisions, and remembering commands that a
-user marked safe or unsafe.
+The current alpha focuses on launching coding agents through a governed local
+runtime, checking risky command text, applying local policies, recording
+decisions, and remembering commands that a user marked safe or unsafe.
 
-**Alpha:** Runtime interception is experimental. The non-executing `check` and
-`policy` surfaces are the recommended starting point.
+**Alpha:** Runtime interception is experimental and is not sandbox containment.
+Use `termyte codex` or `termyte run codex` for governed agent sessions; use
+`check` and `policy` for non-executing evaluation.
 
 ## Install
 
@@ -24,6 +25,7 @@ Run these commands inside a repository:
 
 ```bash
 npm install -g termyte
+termyte codex
 termyte check "cat .env"
 termyte policy local add "Ask before touching auth or payments" --dry-run
 termyte policy local add "Ask before touching auth or payments" --yes
@@ -204,24 +206,32 @@ Doctor includes environment-dependent process and runtime checks, so it may
 take longer than pure `check` or `policy` commands. A successful doctor report
 does not mean Termyte is a sandbox or can observe every execution path.
 
-## Limited Agent Runner
+## Governed Agent Runner
 
-Termyte can start supported coding agents after preparing local policy, logs,
-memory, and session context:
+Termyte can start supported coding agents inside a governed local session:
 
 ```bash
+termyte codex
+termyte claude
+termyte aider
+
 termyte run codex
 termyte run claude
 termyte run claudecode
 termyte run aider
 ```
 
-The agent runner starts in `runtime mode: limited`. Termyte prepares local
-policy, logs, memory, and session context, but full subprocess interception is
-not guaranteed. Runtime interception is shell- and platform-dependent. It is
-not a full sandbox and may not observe every subprocess, direct API call, or
-command that bypasses the governed environment. Use `termyte doctor` before
-evaluating the experimental runtime on a machine.
+The top-level agent commands are aliases for the governed `run` path.
+
+The agent runner starts in `runtime mode: intercepted`. Termyte creates the
+same governed session used by `termyte shell`: command shims are prepended to
+`PATH`, supported shell hooks are installed, a local guard evaluates intercepted
+commands before dispatch, and runtime actions are written to the SQLite ledger.
+
+This is interception, not containment. It is not a full sandbox and may not
+observe absolute executable paths, unshimmed tools, direct syscalls, direct API
+calls, or processes that do not inherit the governed environment. Use
+`termyte doctor` before evaluating runtime coverage on a machine.
 
 ## Threat Model
 
@@ -254,8 +264,9 @@ Protection is strongest when command text is evaluated through `termyte check`,
 
 ## Alpha Limitations
 
-- Runtime mode is limited. Full subprocess interception is not guaranteed.
 - Runtime interception is experimental and is not production-grade isolation.
+- `termyte run <agent>` governs supported subprocess paths through shims and
+  hooks, but it is not full process containment.
 - Commands that bypass Termyte are not governed.
 - Direct API calls outside monitored surfaces are not governed.
 - The natural-language compiler supports only deterministic templates.

@@ -226,7 +226,7 @@ function executableCandidateNames(command: string, platform: NodeJS.Platform, pa
       .split(";")
       .map((extension) => extension.trim().toLowerCase())
       .filter(Boolean);
-    return [command, ...extensions.map((extension) => `${command}${extension}`)];
+    return [...extensions.map((extension) => `${command}${extension}`), command];
   }
   return [command];
 }

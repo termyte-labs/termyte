@@ -125,11 +125,12 @@ shell hooks, verifies shim integrity, evaluates intercepted commands, and
 finalizes ledger records after execution. The shim path fails closed when it
 cannot reach the guard.
 
-`termyte run <agent>` supports `codex`, `claude`, `claudecode`, and `aider`.
-The current implementation launches these agents in `limited` mode with
-Termyte session environment variables. It does not currently connect that
-launch to `launchGovernedSession`, so full agent subprocess interception is not
-provided by this command today.
+`termyte codex`, `termyte claude`, `termyte aider`, and `termyte run <agent>`
+launch supported agents through `launchGovernedSession`, which creates command
+shims, prepends the shim directory to `PATH`, starts the guard daemon, installs
+supported shell hooks, records an agent-launch ledger row, and evaluates
+supported subprocess tool calls before execution. The top-level agent commands
+are aliases for the governed `run <agent>` path.
 
 ### Diagnostics and Validation
 
@@ -150,8 +151,8 @@ Two generations of local state and policy coexist:
 
 | Surface | Policy | Logs | Memory |
 | --- | --- | --- | --- |
-| `check`, `policy`, `logs`, `memory`, limited agent preparation | built-in/global/local YAML | `.termyte/logs.jsonl` | `.termyte/memory.jsonl` |
-| `run --`, `allow-once`, `inspect`, `shell`, shims/hooks | SQLite `policy_state` semantic lists | SQLite `ledger` | SQLite `memory_entries` |
+| `check`, `policy`, `logs`, `memory` | built-in/global/local YAML | `.termyte/logs.jsonl` | `.termyte/memory.jsonl` |
+| `run --`, top-level agent commands, `run <agent>`, `allow-once`, `inspect`, `shell`, shims/hooks | SQLite `policy_state` semantic lists | SQLite `ledger` | SQLite `memory_entries` |
 
 These paths share the parser, target resolver, and risk engine, but their policy
 and memory semantics are different. This distinction matters when interpreting

@@ -34,10 +34,13 @@ The most dependable alpha surfaces are:
 
 The execution and interception surfaces are implemented but experimental:
 
+- `termyte codex`, `termyte claude`, `termyte aider`
+- `termyte run <agent>`
 - `termyte run -- <command>`
 - `termyte shell`
 - internal shell hooks and command shims
 
-`termyte run <agent>` currently starts supported agents in `limited` mode. It
-prepares policy, logs, memory, and session context, but does not currently
-launch the agent through the governed shell/shim runtime.
+Top-level agent commands are aliases for the governed `run <agent>` path.
+Agent sessions prepare policy, logs, memory, session context, command shims,
+shell hooks, and a local guard daemon before launching the agent. This is
+governed interception for supported execution paths, not a full sandbox.

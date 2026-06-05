@@ -55,11 +55,13 @@ retaining hard-critical protection.
 Prints the SQLite runtime's parse, targets, risk, policy, memory, and final
 decision without executing. Needed to explain direct-runtime decisions.
 
-### `termyte run <agent>`
+### `termyte codex|claude|aider` and `termyte run <agent>`
 
 Launches supported coding agents after preparing YAML policy, JSONL logs and
-memory, repository context, and session environment variables. It currently
-runs in limited mode and does not guarantee subprocess interception.
+memory, repository context, session environment variables, command shims, shell
+hooks, and a local guard daemon. Top-level agent commands are aliases for the
+governed `run <agent>` path. Agent subprocesses that hit supported shimmed tools
+are evaluated before execution and written to the SQLite ledger.
 
 ### `termyte shell`
 
@@ -115,7 +117,7 @@ validates its own case set, not universal safety coverage.
 | `src/local-logs.ts` | Writes, filters, sorts, and formats `.termyte/logs.jsonl`. |
 | `src/local-memory.ts` | Stores, lists, exactly matches, and formats user safe/unsafe JSONL memory. |
 | `src/agent.ts` | Parses agent run invocation, resolves supported agent binaries and aliases, and defines runtime profiles and metadata. |
-| `src/agent-runner.ts` | Current limited agent launcher. Finds repository root, validates JSONL state/policy readiness, exports session context, and directly spawns the agent. |
+| `src/agent-runner.ts` | Governed agent launcher. Finds repository root, validates JSONL state/policy readiness, prints runtime readiness, and launches the agent through `launchGovernedSession`. |
 | `src/runtime.ts` | SQLite direct-command orchestration: analysis, policy, semantic memory lookup, ledger pending row, approval/block/execute, finalization, and memory observation. |
 | `src/policy.ts` | SQLite semantic policy defaults, evaluation, persistence, mutation, JSON import/export, validation, metadata, and drift analysis. |
 | `src/db.ts` | Creates/opens `.termyte/termyte.db`, enables WAL, creates ledger/memory/policy tables, and performs small schema migrations. |

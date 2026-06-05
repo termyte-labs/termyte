@@ -85,8 +85,9 @@ Doctor includes environment-dependent checks. Optional missing tools can appear
 as warnings. Doctor success does not mean Termyte is a sandbox or can observe
 every execution path.
 
-The agent runner uses `runtime mode: limited`. Full subprocess interception is
-not guaranteed, and this demo does not launch a coding agent.
+The agent runner uses `runtime mode: intercepted` for supported shim and shell
+hook paths. This is not full sandbox containment, and this demo does not launch
+a coding agent.
 
 ## Files Created
 

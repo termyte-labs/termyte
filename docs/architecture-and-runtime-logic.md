@@ -289,9 +289,11 @@ shell-shim entries when correlation metadata is available.
 
 ## Agent Launch Logic
 
-`termyte run <agent>` accepts `codex`, `claude`, `claudecode`, and `aider`.
-It resolves the executable from the original `PATH`; `claudecode` can fall back
-to `claude`.
+`termyte codex`, `termyte claude`, `termyte aider`, and
+`termyte run <agent>` launch supported agents through the same governed path.
+`termyte run <agent>` accepts `codex`, `claude`, `claudecode`, and `aider`; the
+top-level aliases cover the common agent names directly. Termyte resolves the
+executable from the original `PATH`; `claudecode` can fall back to `claude`.
 
 Before launch, it:
 
@@ -299,13 +301,16 @@ Before launch, it:
 - ensures `.termyte` JSONL state is readable and writable;
 - loads YAML policy;
 - creates a session ID;
-- exports Termyte context variables;
-- displays an honest `limited` runtime banner.
+- displays an `intercepted` runtime banner;
+- calls `launchGovernedSession` with the resolved agent executable;
+- enables the selected runtime profile's command shims and shell hooks;
+- records agent launch metadata in the SQLite ledger.
 
-The current `runAgent` implementation calls `spawn` directly. It does not call
-`launchGovernedSession`, despite governed-session profiles existing in
-`agent.ts`. Therefore, agent child commands are not guaranteed to pass through
-Termyte when using `termyte run <agent>` today.
+Agent child commands that hit supported shims or supported shell hooks pass
+through the guard before execution. This is still interception rather than
+containment: absolute executable paths, direct syscalls, unshimmed tools, direct
+API calls, and processes outside the inherited governed environment remain
+outside Termyte's current boundary.
 
 ## Benchmark Logic
 
@@ -343,7 +348,8 @@ persistence but is not a general secret scanner.
 ## Known Gaps
 
 - Two policy systems and two memory/log systems coexist.
-- `run <agent>` is limited rather than intercepted.
+- `run <agent>` is intercepted for supported shim/hook paths but is not a full
+  sandbox.
 - Generic shell fallback allows unknown patterns.
 - Detailed target resolution is primarily for filesystem deletes.
 - YAML parsing supports a constrained subset, not arbitrary YAML.
