@@ -36,6 +36,14 @@ export async function runAgent(plan: AgentRunPlan): Promise<AgentRunResult> {
     return { exitCode: 1, launched: false };
   }
 
+  if (isNativeHookAgent(plan.resolvedAgentName)) {
+    const hookVerification = verifyAgentHooks(plan.resolvedAgentName, detectRepository(plan.workspaceRoot).repoRoot);
+    if (!hookVerification.ok) {
+      process.stderr.write(`${formatAgentHookVerification(hookVerification)}\n`);
+      return { exitCode: 1, launched: false };
+    }
+  }
+
   let readiness: AgentRunReadiness;
   try {
     readiness = prepareAgentRun(plan.workspaceRoot);
@@ -45,13 +53,6 @@ export async function runAgent(plan: AgentRunPlan): Promise<AgentRunResult> {
   }
 
   process.stdout.write(`${formatAgentStartupBanner(plan, readiness)}\n`);
-  if (isNativeHookAgent(plan.resolvedAgentName)) {
-    const hookVerification = verifyAgentHooks(plan.resolvedAgentName, readiness.repoRoot);
-    if (!hookVerification.ok) {
-      process.stderr.write(`${formatAgentHookVerification(hookVerification)}\n`);
-      return { exitCode: 1, launched: false, readiness };
-    }
-  }
   const exitCode = await launchAgentProcess(plan, readiness);
   return { exitCode, launched: true, readiness };
 }

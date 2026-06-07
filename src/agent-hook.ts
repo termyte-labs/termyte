@@ -39,6 +39,13 @@ export interface AgentInstallResult {
   message: string;
 }
 
+export interface AgentUninstallResult {
+  agent: NativeHookAgent;
+  path: string;
+  removed: boolean;
+  message: string;
+}
+
 export interface AgentHookVerification {
   agent: NativeHookAgent;
   ok: boolean;
@@ -88,11 +95,6 @@ function commandQuote(value: string): string {
 }
 
 function currentCliPath(): string {
-  const argvCli = process.argv[1];
-  if (argvCli && /cli\.(js|ts)$/i.test(path.basename(argvCli))) {
-    return path.resolve(argvCli);
-  }
-
   const moduleDir = path.dirname(fileURLToPath(import.meta.url));
   const distCli = path.join(moduleDir, "cli.js");
   if (fs.existsSync(distCli)) {
@@ -108,7 +110,11 @@ function currentCliPath(): string {
 }
 
 function nodeHookCommand(hookId: string): string {
-  return `node ${commandQuote(currentCliPath())} ${hookId}`;
+  const cliPath = currentCliPath();
+  if (!fs.existsSync(cliPath) || path.basename(cliPath) !== "cli.js" || path.basename(path.dirname(cliPath)) !== "dist") {
+    throw new Error(`Built Termyte CLI is missing. Run: npm run build`);
+  }
+  return `${commandQuote(process.execPath)} ${commandQuote(cliPath)} ${hookId}`;
 }
 
 function commandFromHookPayload(payload: Record<string, unknown>): string {
@@ -184,9 +190,9 @@ function shouldFailClosedSensitiveMutation(toolName: string, targets: { sensitiv
     && (targets.sensitiveTargets.length > 0 || targets.protectedTargets.length > 0);
 }
 
-function agentResponse(agent: NativeHookAgent, eventName: string, decision: Decision, reason: string, ledgerId?: number): string {
-  const permissionDecision = responseDecision(decision);
+export function formatAgentHookResponse(agent: NativeHookAgent, eventName: string, decision: Decision, reason: string, ledgerId?: number): string {
   if (agent === "claude") {
+    const permissionDecision = responseDecision(decision);
     return `${JSON.stringify({
       hookSpecificOutput: {
         hookEventName: eventName,
@@ -200,14 +206,18 @@ function agentResponse(agent: NativeHookAgent, eventName: string, decision: Deci
     })}\n`;
   }
 
+  if (decision === "allow") {
+    return "{}\n";
+  }
+  if (decision === "warn") {
+    return `${JSON.stringify({ systemMessage: `Termyte warn: ${reason}` })}\n`;
+  }
   return `${JSON.stringify({
     hookSpecificOutput: {
       hookEventName: eventName,
-      permissionDecision,
-      permissionDecisionReason: `Termyte ${decision}: ${reason}`,
+      permissionDecision: "deny",
+      permissionDecisionReason: `Termyte block: ${reason}`,
     },
-    decision: permissionDecision,
-    reason: `Termyte ${decision}: ${reason}`,
     termyte: {
       decision,
       ledgerId,
@@ -218,7 +228,7 @@ function agentResponse(agent: NativeHookAgent, eventName: string, decision: Deci
 function blockedFailure(agent: NativeHookAgent, phase: NativeHookPhase, reason: string, command = ""): NativeHookResult {
   return {
     exitCode: 0,
-    stdout: agentResponse(agent, phase === "post" ? "PostToolUse" : "PreToolUse", "block", reason),
+    stdout: formatAgentHookResponse(agent, phase === "post" ? "PostToolUse" : "PreToolUse", "block", reason),
     stderr: "",
     decision: "block",
     command,
@@ -303,7 +313,7 @@ export async function handleAgentHookInvocation(options: NativeHookInvocation): 
 
     return {
       exitCode: 0,
-      stdout: agentResponse(options.agent, eventName, finalDecision, finalReason, ledgerId),
+      stdout: formatAgentHookResponse(options.agent, eventName, finalDecision, finalReason, ledgerId),
       stderr: "",
       decision: finalDecision,
       ledgerId,
@@ -343,7 +353,7 @@ function ensureHooksObject(existing: Record<string, unknown>): Record<string, un
   return hooks;
 }
 
-function mergeHookConfig(existing: Record<string, unknown>, event: "PreToolUse" | "PostToolUse", matcher: string, hookId: string, statusMessage: string): void {
+function mergeHookConfig(existing: Record<string, unknown>, event: "PreToolUse" | "PostToolUse", matcher: string, hookId: string): void {
   const hooks = ensureHooksObject(existing);
   const eventEntries = Array.isArray(hooks[event]) ? hooks[event] as unknown[] : [];
   const command = nodeHookCommand(hookId);
@@ -351,16 +361,13 @@ function mergeHookConfig(existing: Record<string, unknown>, event: "PreToolUse" 
     matcher,
     hooks: [
       {
-        type: "command",
         command,
         commandWindows: command,
-        timeout: 30,
-        statusMessage,
       },
     ],
   };
 
-  const withoutExisting = eventEntries.filter((entry) => JSON.stringify(entry).includes(hookId) === false);
+  const withoutExisting = eventEntries.filter((entry) => JSON.stringify(entry).includes("agent hook ") === false);
   hooks[event] = [...withoutExisting, nextEntry];
 }
 
@@ -389,11 +396,11 @@ export function installAgentHooks(agent: NativeHookAgent, cwd = process.cwd()): 
   const config = readJsonFile(configPath);
 
   if (agent === "claude") {
-    mergeHookConfig(config, "PreToolUse", HOOK_MATCHER, CLAUDE_HOOK_ID, "Checking Termyte policy");
-    mergeHookConfig(config, "PostToolUse", HOOK_MATCHER, CLAUDE_POST_HOOK_ID, "Recording Termyte observation");
+    mergeHookConfig(config, "PreToolUse", HOOK_MATCHER, CLAUDE_HOOK_ID);
+    mergeHookConfig(config, "PostToolUse", HOOK_MATCHER, CLAUDE_POST_HOOK_ID);
   } else {
-    mergeHookConfig(config, "PreToolUse", HOOK_MATCHER, CODEX_HOOK_ID, "Checking Termyte policy");
-    mergeHookConfig(config, "PostToolUse", HOOK_MATCHER, CODEX_POST_HOOK_ID, "Recording Termyte observation");
+    mergeHookConfig(config, "PreToolUse", HOOK_MATCHER, CODEX_HOOK_ID);
+    mergeHookConfig(config, "PostToolUse", HOOK_MATCHER, CODEX_POST_HOOK_ID);
   }
 
   writeJsonFile(configPath, config);
@@ -406,11 +413,78 @@ export function installAgentHooks(agent: NativeHookAgent, cwd = process.cwd()): 
   };
 }
 
-function configContainsCommand(configPath: string, command: string): boolean {
-  if (!fs.existsSync(configPath)) {
-    return false;
+function removeTermyteHookConfig(existing: Record<string, unknown>): boolean {
+  const hooks = safeObject(existing.hooks);
+  let changed = false;
+  for (const event of ["PreToolUse", "PostToolUse"]) {
+    const entries = Array.isArray(hooks[event]) ? hooks[event] as unknown[] : [];
+    const nextEntries = entries.filter((entry) => JSON.stringify(entry).includes("agent hook ") === false);
+    if (nextEntries.length !== entries.length) {
+      changed = true;
+      if (nextEntries.length > 0) {
+        hooks[event] = nextEntries;
+      } else {
+        delete hooks[event];
+      }
+    }
   }
-  return fs.readFileSync(configPath, "utf8").includes(command);
+  if (Object.keys(hooks).length === 0 && existing.hooks && typeof existing.hooks === "object") {
+    delete existing.hooks;
+    changed = true;
+  }
+  return changed;
+}
+
+export function uninstallAgentHooks(agent: NativeHookAgent, cwd = process.cwd()): AgentUninstallResult {
+  const workspaceRoot = path.resolve(cwd);
+  const configPath = agent === "claude"
+    ? path.join(workspaceRoot, ".claude", "settings.local.json")
+    : path.join(workspaceRoot, ".codex", "hooks.json");
+
+  if (!fs.existsSync(configPath)) {
+    return {
+      agent,
+      path: configPath,
+      removed: false,
+      message: `No Termyte ${agent} hook config found at ${configPath}`,
+    };
+  }
+
+  const config = readJsonFile(configPath);
+  const changed = removeTermyteHookConfig(config);
+  if (changed && Object.keys(config).length > 0) {
+    writeJsonFile(configPath, config);
+  } else {
+    fs.rmSync(configPath, { force: true });
+  }
+
+  return {
+    agent,
+    path: configPath,
+    removed: true,
+    message: `Removed Termyte ${agent} hooks from ${configPath}`,
+  };
+}
+
+function findHookCommands(config: Record<string, unknown>, hookId: string): string[] {
+  const hooks = safeObject(config.hooks);
+  const commands: string[] = [];
+  for (const event of ["PreToolUse", "PostToolUse"]) {
+    const entries = Array.isArray(hooks[event]) ? hooks[event] as unknown[] : [];
+    for (const entry of entries) {
+      const entryObject = safeObject(entry);
+      const hookEntries = Array.isArray(entryObject.hooks) ? entryObject.hooks as unknown[] : [];
+      for (const hookEntry of hookEntries) {
+        const hookObject = safeObject(hookEntry);
+        const command = safeString(hookObject.command);
+        const commandWindows = safeString(hookObject.commandWindows);
+        if (command?.includes(hookId)) commands.push(command);
+        if (commandWindows?.includes(hookId)) commands.push(commandWindows);
+        if ("command_windows" in hookObject) commands.push("command_windows");
+      }
+    }
+  }
+  return commands;
 }
 
 export function verifyAgentHooks(agent: NativeHookAgent, cwd = process.cwd()): AgentHookVerification {
@@ -430,11 +504,26 @@ export function verifyAgentHooks(agent: NativeHookAgent, cwd = process.cwd()): A
     if (features.hooks === false || features.codex_hooks === false) {
       reasons.push("hook config disables hooks");
     }
-    if (!configContainsCommand(configPath, expectedPre)) {
+    const preCommands = findHookCommands(config, expectedPre);
+    const postCommands = findHookCommands(config, expectedPost);
+    if (preCommands.length === 0) {
       reasons.push(`missing PreToolUse handler: ${expectedPre}`);
     }
-    if (!configContainsCommand(configPath, expectedPost)) {
+    if (postCommands.length === 0) {
       reasons.push(`missing PostToolUse handler: ${expectedPost}`);
+    }
+    const expectedCli = currentCliPath().replace(/\\/g, "/");
+    for (const [label, commands] of [["PreToolUse", preCommands], ["PostToolUse", postCommands]] as const) {
+      for (const command of commands) {
+        const normalized = command.replace(/\\/g, "/");
+        if (command === "command_windows") {
+          reasons.push(`${label} handler contains unsupported command_windows field`);
+        } else if (!normalized.includes(process.execPath.replace(/\\/g, "/")) || !normalized.includes(expectedCli)) {
+          reasons.push(`${label} handler does not point to the current built CLI`);
+        } else if (normalized.includes("termyte agent hook")) {
+          reasons.push(`${label} handler uses a bare Termyte command`);
+        }
+      }
     }
   }
 
@@ -444,6 +533,10 @@ export function verifyAgentHooks(agent: NativeHookAgent, cwd = process.cwd()): A
     path: configPath,
     reasons,
   };
+}
+
+export function formatAgentUninstallResult(result: AgentUninstallResult): string {
+  return result.message;
 }
 
 export function formatAgentInstallResult(result: AgentInstallResult): string {
@@ -464,7 +557,7 @@ export function formatAgentHookVerification(verification: AgentHookVerification)
     `Termyte ${verification.agent} hooks are not ready.`,
     ...verification.reasons.map((reason) => `  - ${reason}`),
     "",
-    `Fix: termyte install ${verification.agent}`,
+    `Run: termyte install ${verification.agent}`,
   ].join(os.EOL);
 }
 

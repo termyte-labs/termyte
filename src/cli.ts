@@ -28,7 +28,7 @@ import { interceptHook, interceptShim, launchGovernedSession } from "./shell.js"
 import { formatDoctorHuman, formatDoctorJson, runDoctor } from "./doctor.js";
 import type { Decision } from "./types.js";
 import { buildAgentRunPlan, formatAgentDryRunReport, isSupportedAgentName, parseRunInvocation } from "./agent.js";
-import { formatAgentInstallResult, installAgentHooks, isNativeHookAgent, runAgentHookCli } from "./agent-hook.js";
+import { formatAgentInstallResult, formatAgentUninstallResult, installAgentHooks, isNativeHookAgent, runAgentHookCli, uninstallAgentHooks } from "./agent-hook.js";
 import { runAgent } from "./agent-runner.js";
 import { checkCommand, formatCheckHuman } from "./check.js";
 import { buildPolicyAddPlan, formatPolicyPresets, formatPolicyShow, runPolicyTest, savePolicyAddPlan, slimCheckResult } from "./policy-cli.js";
@@ -54,6 +54,7 @@ function printUsage(): void {
   termyte run [--dry-run] [--profile <profile>] <agent> [...args]
   termyte run [--dry-run] -- <command>
   termyte install <claude|codex>
+  termyte uninstall <claude|codex>
   termyte agent hook <claude|codex> [--post]
   termyte allow-once -- <command>
   termyte mcp serve
@@ -241,6 +242,21 @@ async function main(): Promise<number> {
       return 0;
     } catch (error) {
       console.error(`Termyte could not install ${agent} hooks: ${error instanceof Error ? error.message : String(error)}`);
+      return 1;
+    }
+  }
+
+  if (command === "uninstall") {
+    const agent = args[1];
+    if (!agent || !isNativeHookAgent(agent)) {
+      console.error("Usage: termyte uninstall <claude|codex>");
+      return 1;
+    }
+    try {
+      console.log(formatAgentUninstallResult(uninstallAgentHooks(agent, cwd)));
+      return 0;
+    } catch (error) {
+      console.error(`Termyte could not uninstall ${agent} hooks: ${error instanceof Error ? error.message : String(error)}`);
       return 1;
     }
   }

@@ -144,17 +144,31 @@ try {
 
   const installCodex = run(installedBin, ["install", "codex"], { cwd: smokeDir, env });
   assertIncludes(installCodex.stdout, "Installed Termyte codex hooks", "codex install output");
-  assertFile(path.join(smokeDir, ".codex", "hooks.json"), "codex hook config");
+  const codexHookConfigPath = path.join(smokeDir, ".codex", "hooks.json");
+  assertFile(codexHookConfigPath, "codex hook config");
+  const codexHookConfig = JSON.parse(fs.readFileSync(codexHookConfigPath, "utf8"));
+  const codexPreHook = codexHookConfig.hooks?.PreToolUse?.[0]?.hooks?.[0];
+  assertEqual(Object.keys(codexPreHook ?? {}).sort().join(","), "command,commandWindows", "codex hook command fields");
+  assertIncludes(codexPreHook.command, "node", "codex hook command");
+  assertIncludes(normalizePath(codexPreHook.command), "dist/cli.js", "codex hook command");
+  assertIncludes(codexPreHook.command, "agent hook codex", "codex hook command");
+  assertEqual(codexPreHook.commandWindows, codexPreHook.command, "codex hook commandWindows");
+  assertExcludes(JSON.stringify(codexHookConfig), "command_windows", "codex hook config");
+  assertExcludes(JSON.stringify(codexHookConfig), "termyte agent hook codex", "codex hook config");
+
+  const installCodexAgain = run(installedBin, ["install", "codex"], { cwd: smokeDir, env });
+  assertIncludes(installCodexAgain.stdout, "Installed Termyte codex hooks", "codex reinstall output");
+  assertEqual(fs.readFileSync(codexHookConfigPath, "utf8"), JSON.stringify(codexHookConfig, null, 2) + "\n", "codex install idempotency");
 
   const hookInput = JSON.stringify({
     hook_event_name: "PreToolUse",
     cwd: smokeDir,
     tool_name: "Bash",
     tool_input: {
-      command: "rm -rf .",
+      command: "git push --force origin main",
     },
   });
-  const hookSmoke = run(installedBin, ["agent", "hook", "claude"], {
+  const hookSmoke = runGeneratedHookCommand(codexPreHook.commandWindows, {
     cwd: smokeDir,
     env: {
       ...env,
@@ -165,6 +179,29 @@ try {
   });
   const hookJson = JSON.parse(hookSmoke.stdout);
   assertEqual(hookJson.hookSpecificOutput?.permissionDecision, "deny", "agent hook deny decision");
+
+  const allowHookInput = JSON.stringify({
+    hook_event_name: "PreToolUse",
+    cwd: smokeDir,
+    tool_name: "Bash",
+    tool_input: {
+      command: "git status --short",
+    },
+  });
+  const allowHookSmoke = runGeneratedHookCommand(codexPreHook.commandWindows, {
+    cwd: smokeDir,
+    env: {
+      ...env,
+      TERMYTE_SESSION_ID: "tm_package_allow",
+      TERMYTE_DB_PATH: path.join(smokeDir, ".termyte", "termyte.db"),
+    },
+    input: allowHookInput,
+  });
+  assertEqual(allowHookSmoke.stdout.trim(), "{}", "agent hook allow output");
+
+  const uninstallCodex = run(installedBin, ["uninstall", "codex"], { cwd: smokeDir, env });
+  assertIncludes(uninstallCodex.stdout, "Removed Termyte codex hooks", "codex uninstall output");
+  assertMissing(codexHookConfigPath, "codex hook config after uninstall");
 
   const bench = run(installedBin, ["bench", "--json"], { cwd: smokeDir, env, timeoutMs: 120_000 });
   const benchJson = JSON.parse(bench.stdout);
@@ -200,6 +237,7 @@ try {
       missingAgent: "pass",
       agentInstall: "pass",
       agentHook: "pass",
+      agentUninstall: "pass",
       demo: "pass",
     },
   }, null, 2));
@@ -263,6 +301,27 @@ function runMcpExchange(installedBin, cwd, env) {
     input: stdin,
     timeoutMs: 30_000,
   });
+}
+
+function runGeneratedHookCommand(commandLine, options = {}) {
+  const result = spawnSync(commandLine, {
+    cwd: options.cwd,
+    env: options.env,
+    input: options.input,
+    encoding: "utf8",
+    timeout: options.timeoutMs ?? 30_000,
+    shell: true,
+  });
+  if (result.status !== 0) {
+    throw new Error([
+      `Generated hook command failed: ${commandLine}`,
+      `exit: ${result.status}`,
+      `stdout: ${result.stdout ?? ""}`.trimEnd(),
+      `stderr: ${result.stderr ?? ""}`.trimEnd(),
+      result.error ? `error: ${result.error.message}` : "",
+    ].filter(Boolean).join("\n"));
+  }
+  return result;
 }
 
 function assertPackageContents(files) {

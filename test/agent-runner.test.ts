@@ -124,6 +124,50 @@ describe("governed agent runner", () => {
     expect(shimMetadata.argv).toEqual(["status"]);
   });
 
+  it("does not launch Codex when native hooks are missing", () => {
+    const workspace = makeWorkspace("termyte-agent-run-hooks-missing-");
+    const binDir = path.join(workspace, "bin");
+    makeFakeAgent(binDir, "codex");
+
+    const result = runCli(workspace, binDir, ["run", "codex"]);
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("Termyte codex hooks are not ready.");
+    expect(result.stderr).toContain("Run: termyte install codex");
+    expect(result.stdout).not.toContain("fake-codex-stdout");
+    expect(result.stdout).not.toContain("Termyte Safe Runtime");
+  });
+
+  it("does not launch Claude when native hooks are stale", () => {
+    const workspace = makeWorkspace("termyte-agent-run-hooks-stale-");
+    const binDir = path.join(workspace, "bin");
+    makeFakeAgent(binDir, "claude");
+    fs.mkdirSync(path.join(workspace, ".claude"), { recursive: true });
+    fs.writeFileSync(path.join(workspace, ".claude", "settings.local.json"), JSON.stringify({
+      hooks: {
+        PreToolUse: [
+          {
+            matcher: "Bash",
+            hooks: [
+              {
+                command: "termyte agent hook claude",
+                commandWindows: "termyte agent hook claude",
+              },
+            ],
+          },
+        ],
+      },
+    }, null, 2), "utf8");
+
+    const result = runCli(workspace, binDir, ["run", "claude"]);
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("Termyte claude hooks are not ready.");
+    expect(result.stderr).toContain("missing PostToolUse handler");
+    expect(result.stderr).toContain("Run: termyte install claude");
+    expect(result.stdout).not.toContain("fake-claude-stdout");
+  });
+
   it("supports top-level agent shortcuts through the same governed runtime", () => {
     const workspace = makeWorkspace("termyte-agent-run-shortcut-");
     const binDir = path.join(workspace, "bin");
