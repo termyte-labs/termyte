@@ -278,22 +278,30 @@ does not mean Termyte is a sandbox or can observe every execution path.
 Termyte can start supported coding agents inside a governed local session:
 
 ```bash
+termyte install codex
+termyte install claude
+
 termyte codex
 termyte claude
-termyte aider
 
 termyte run codex
 termyte run claude
 termyte run claudecode
-termyte run aider
 ```
 
 The top-level agent commands are aliases for the governed `run` path.
 
-The agent runner starts in `runtime mode: intercepted`. Termyte creates the
-same governed session used by `termyte shell`: command shims are prepended to
-`PATH`, supported shell hooks are installed, a local guard evaluates intercepted
-commands before dispatch, and runtime actions are written to the SQLite ledger.
+Run `termyte install <agent>` once per repository before launching Claude Code
+or Codex. The install command writes local hook configuration that routes native
+`PreToolUse` and `PostToolUse` events through Termyte. `termyte run <agent>`
+verifies that hook configuration before launch and fails closed with a fix
+command if the hook layer is missing.
+
+The agent runner starts in `runtime mode: intercepted`. Termyte creates a
+governed session, sets `TERMYTE_RUN`, `TERMYTE_SESSION_ID`,
+`TERMYTE_AGENT`, and `TERMYTE_WORKSPACE`, prepends command shims to `PATH`,
+installs supported shell hooks, and records native agent-hook, shell-hook, and
+shim decisions in the SQLite ledger.
 
 This is interception, not containment. It is not a full sandbox and may not
 observe absolute executable paths, unshimmed tools, direct syscalls, direct API
@@ -332,8 +340,9 @@ Protection is strongest when command text is evaluated through `termyte check`,
 ## Alpha Limitations
 
 - Runtime interception is experimental and is not production-grade isolation.
-- `termyte run <agent>` governs supported subprocess paths through shims and
-  hooks, but it is not full process containment.
+- `termyte run <agent>` governs Claude Code and Codex native tool calls through
+  local hooks and supported subprocess paths through shims and shell hooks, but
+  it is not full process containment.
 - Commands that bypass Termyte are not governed.
 - Direct API calls outside monitored surfaces are not governed.
 - The natural-language compiler supports only deterministic templates.

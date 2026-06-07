@@ -18,6 +18,7 @@ const requiredPackageFiles = [
   "README.md",
   "benchmarks/commands.json",
   "benchmarks/governance.json",
+  "dist/agent-hook.js",
   "dist/agent-runner.js",
   "dist/cli.js",
   "dist/mcp.js",
@@ -76,6 +77,7 @@ try {
   const help = run(installedBin, ["--help"], { cwd: smokeDir, env });
   assertIncludes(help.stdout, "termyte policy presets", "help output");
   assertIncludes(help.stdout, "termyte run", "help output");
+  assertIncludes(help.stdout, "termyte install", "help output");
 
   const presets = run(installedBin, ["policy", "presets"], { cwd: smokeDir, env });
   assertIncludes(presets.stdout, "safe-default", "policy presets output");
@@ -140,6 +142,30 @@ try {
   const agentDryRun = run(installedBin, ["run", "--dry-run", "codex"], { cwd: smokeDir, env });
   assertIncludes(agentDryRun.stdout, "Termyte agent run plan", "codex dry-run output");
 
+  const installCodex = run(installedBin, ["install", "codex"], { cwd: smokeDir, env });
+  assertIncludes(installCodex.stdout, "Installed Termyte codex hooks", "codex install output");
+  assertFile(path.join(smokeDir, ".codex", "hooks.json"), "codex hook config");
+
+  const hookInput = JSON.stringify({
+    hook_event_name: "PreToolUse",
+    cwd: smokeDir,
+    tool_name: "Bash",
+    tool_input: {
+      command: "rm -rf .",
+    },
+  });
+  const hookSmoke = run(installedBin, ["agent", "hook", "claude"], {
+    cwd: smokeDir,
+    env: {
+      ...env,
+      TERMYTE_SESSION_ID: "tm_package",
+      TERMYTE_DB_PATH: path.join(smokeDir, ".termyte", "termyte.db"),
+    },
+    input: hookInput,
+  });
+  const hookJson = JSON.parse(hookSmoke.stdout);
+  assertEqual(hookJson.hookSpecificOutput?.permissionDecision, "deny", "agent hook deny decision");
+
   const bench = run(installedBin, ["bench", "--json"], { cwd: smokeDir, env, timeoutMs: 120_000 });
   const benchJson = JSON.parse(bench.stdout);
   if ((benchJson.summary?.total ?? 0) < 1200 || benchJson.summary?.falseSafe !== 0) {
@@ -172,6 +198,8 @@ try {
       mcpInstall: "pass",
       mcpExchange: "pass",
       missingAgent: "pass",
+      agentInstall: "pass",
+      agentHook: "pass",
       demo: "pass",
     },
   }, null, 2));

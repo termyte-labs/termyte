@@ -137,12 +137,15 @@ shell hooks, verifies shim integrity, evaluates intercepted commands, and
 finalizes ledger records after execution. The shim path fails closed when it
 cannot reach the guard.
 
-`termyte codex`, `termyte claude`, `termyte aider`, and `termyte run <agent>`
-launch supported agents through `launchGovernedSession`, which creates command
-shims, prepends the shim directory to `PATH`, starts the guard daemon, installs
-supported shell hooks, records an agent-launch ledger row, and evaluates
-supported subprocess tool calls before execution. The top-level agent commands
-are aliases for the governed `run <agent>` path.
+`termyte install claude`, `termyte install codex`, `termyte claude`,
+`termyte codex`, and `termyte run <agent>` form the first native agent runtime
+surface. The install commands write local hook configuration for Claude Code or
+Codex. The run path launches supported agents through `launchGovernedSession`,
+which creates command shims, prepends the shim directory to `PATH`, starts the
+guard daemon, installs supported shell hooks, records an agent-launch ledger
+row, and evaluates native hook events and supported subprocess tool calls before
+execution. The top-level agent commands are aliases for the governed
+`run <agent>` path.
 
 `termyte mcp serve` is the launchable governed tool surface for agents that
 support MCP. It is the cleanest path for action governance today because it

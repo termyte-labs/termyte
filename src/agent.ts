@@ -41,7 +41,7 @@ export interface AgentExecutableResolution {
   resolvedExecutable: string | null;
 }
 
-const SUPPORTED_AGENTS = ["codex", "claude", "claudecode", "aider"];
+const SUPPORTED_AGENTS = ["codex", "claude", "claudecode"];
 const HIGH_VALUE_SHIMS = ["git", "npm", "pnpm", "yarn", "npx", "node", "python", "pip", "docker"];
 const SHELL_HOST_SHIMS = ["sh", "bash", "zsh", "pwsh", "powershell", "cmd"];
 const DEFAULT_SHIMS = [...HIGH_VALUE_SHIMS, ...SHELL_HOST_SHIMS];

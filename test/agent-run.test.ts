@@ -26,13 +26,12 @@ function makeAgentExecutable(directory: string, name: string): string {
 }
 
 describe("agent run planning", () => {
-  it("resolves codex, claude, and aider through the agent run plan", () => {
+  it("resolves codex and claude through the agent run plan", () => {
     const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-agent-plan-"));
     const binDir = path.join(workspaceRoot, "bin");
     fs.mkdirSync(binDir);
     const codex = makeAgentExecutable(binDir, "codex");
     const claude = makeAgentExecutable(binDir, "claude");
-    const aider = makeAgentExecutable(binDir, "aider");
     const originalPath = [binDir, process.env.PATH ?? ""].filter(Boolean).join(path.delimiter);
 
     const codexPlan = buildAgentRunPlan({
@@ -51,19 +50,10 @@ describe("agent run planning", () => {
       originalPath,
       platform: process.platform,
     });
-    const aiderPlan = buildAgentRunPlan({
-      workspaceRoot,
-      dbPath: path.join(workspaceRoot, "termyte.db"),
-      agentName: "aider",
-      agentArgs: ["--version"],
-      originalPath,
-      platform: process.platform,
-    });
 
     expect(codexPlan.resolvedExecutable).toBe(codex);
     expect(codexPlan.executableFound).toBe(true);
     expect(claudePlan.resolvedExecutable).toBe(claude);
-    expect(aiderPlan.resolvedExecutable).toBe(aider);
   });
 
   it("prefers runnable Windows launcher extensions over extensionless npm shims", () => {
@@ -99,7 +89,7 @@ describe("agent run planning", () => {
 
   it("fails clearly for unknown agents", () => {
     expect(() => parseRunInvocation(["bogus"])).toThrow(
-      /Unknown agent: bogus\. Supported agents: codex, claude, claudecode, aider\./,
+      /Unknown agent: bogus\. Supported agents: codex, claude, claudecode\./,
     );
     expect(isSupportedAgentName("bogus")).toBe(false);
   });

@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { buildAgentRuntimeMetadata, type AgentRunPlan } from "./agent.js";
+import { formatAgentHookVerification, isNativeHookAgent, verifyAgentHooks } from "./agent-hook.js";
 import { listLocalLogs } from "./local-logs.js";
 import { listLocalMemory } from "./local-memory.js";
 import { ensureLocalStateDir, type LocalStatePaths } from "./local-state.js";
@@ -44,6 +45,13 @@ export async function runAgent(plan: AgentRunPlan): Promise<AgentRunResult> {
   }
 
   process.stdout.write(`${formatAgentStartupBanner(plan, readiness)}\n`);
+  if (isNativeHookAgent(plan.resolvedAgentName)) {
+    const hookVerification = verifyAgentHooks(plan.resolvedAgentName, readiness.repoRoot);
+    if (!hookVerification.ok) {
+      process.stderr.write(`${formatAgentHookVerification(hookVerification)}\n`);
+      return { exitCode: 1, launched: false, readiness };
+    }
+  }
   const exitCode = await launchAgentProcess(plan, readiness);
   return { exitCode, launched: true, readiness };
 }

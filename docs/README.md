@@ -38,7 +38,8 @@ The most dependable alpha surfaces are:
 The execution and interception surfaces are implemented but still
 experimental:
 
-- `termyte codex`, `termyte claude`, `termyte aider`
+- `termyte install <claude|codex>`
+- `termyte codex`, `termyte claude`
 - `termyte run <agent>`
 - `termyte run -- <command>`
 - `termyte shell`

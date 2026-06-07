@@ -293,11 +293,15 @@ shell-shim entries when correlation metadata is available.
 
 ## Agent Launch Logic
 
-`termyte codex`, `termyte claude`, `termyte aider`, and
-`termyte run <agent>` launch supported agents through the same governed path.
-`termyte run <agent>` accepts `codex`, `claude`, `claudecode`, and `aider`; the
+`termyte codex`, `termyte claude`, and `termyte run <agent>` launch supported
+agents through the same governed path.
+`termyte run <agent>` accepts `codex`, `claude`, and `claudecode`; the
 top-level aliases cover the common agent names directly. Termyte resolves the
 executable from the original `PATH`; `claudecode` can fall back to `claude`.
+
+For Claude Code and Codex, `termyte install <agent>` writes local native hook
+configuration before launch. `termyte run <agent>` verifies that hook layer so
+native tool calls can route through `termyte agent hook <agent>`.
 
 Before launch, it:
 

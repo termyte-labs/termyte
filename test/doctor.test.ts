@@ -78,7 +78,6 @@ describe("doctor diagnostics", () => {
     const agentChecks = [
       optionalAgentCheck("codex", "Codex CLI", null),
       optionalAgentCheck("claude", "Claude Code", null),
-      optionalAgentCheck("aider", "Aider", null),
     ];
 
     expect(agentChecks.length).toBeGreaterThan(0);

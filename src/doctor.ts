@@ -122,7 +122,6 @@ export async function runDoctor(cwd = process.cwd()): Promise<DoctorReport> {
   addCheck(checks, checkNpmGlobalBinPath());
   addCheck(checks, optionalAgentCheck("codex", "Codex CLI"));
   addCheck(checks, optionalAgentCheck("claude", "Claude Code"));
-  addCheck(checks, optionalAgentCheck("aider", "Aider"));
   addCheck(checks, checkShellAvailability("bash"));
   addCheck(checks, checkShellAvailability("zsh"));
   addCheck(checks, checkWindowsPowerShell());

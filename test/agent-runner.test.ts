@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { openDatabase } from "../src/db.js";
 import { Ledger } from "../src/ledger.js";
+import { installAgentHooks } from "../src/agent-hook.js";
 
 const cliPath = path.resolve("dist/cli.js");
 
@@ -69,6 +70,7 @@ describe("governed agent runner", () => {
     const workspace = makeWorkspace("termyte-agent-run-alias-");
     const binDir = path.join(workspace, "bin");
     makeFakeAgent(binDir, "claude");
+    installAgentHooks("claude", workspace);
 
     const result = runCli(workspace, binDir, ["run", "claudecode"]);
 
@@ -95,6 +97,7 @@ describe("governed agent runner", () => {
     const binDir = path.join(workspace, "bin");
     makeFakeTool(binDir, "git");
     makeFakeAgent(binDir, "codex", 0, "git status");
+    installAgentHooks("codex", workspace);
 
     const result = runCli(workspace, binDir, ["run", "codex"]);
 
@@ -126,6 +129,7 @@ describe("governed agent runner", () => {
     const binDir = path.join(workspace, "bin");
     makeFakeTool(binDir, "git");
     makeFakeAgent(binDir, "codex", 0, "git status");
+    installAgentHooks("codex", workspace);
 
     const result = runCli(workspace, binDir, ["codex"]);
 
@@ -146,6 +150,7 @@ describe("governed agent runner", () => {
     const workspace = makeWorkspace("termyte-agent-run-exit-");
     const binDir = path.join(workspace, "bin");
     makeFakeAgent(binDir, "codex", 7);
+    installAgentHooks("codex", workspace);
 
     const result = runCli(workspace, binDir, ["run", "codex"]);
 
@@ -159,13 +164,14 @@ describe("governed agent runner", () => {
   it("does not launch when an existing local policy is invalid", () => {
     const workspace = makeWorkspace("termyte-agent-run-policy-");
     const binDir = path.join(workspace, "bin");
-    makeFakeAgent(binDir, "aider");
+    makeFakeAgent(binDir, "codex");
+    installAgentHooks("codex", workspace);
     fs.writeFileSync(path.join(workspace, "termyte.policy.yaml"), "version: 1\nrules:\n  - bad: true\n", "utf8");
 
-    const result = runCli(workspace, binDir, ["run", "aider"]);
+    const result = runCli(workspace, binDir, ["run", "codex"]);
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("Termyte could not prepare the agent runtime.");
-    expect(result.stdout).not.toContain("fake-aider-stdout");
+    expect(result.stdout).not.toContain("fake-codex-stdout");
   });
 });

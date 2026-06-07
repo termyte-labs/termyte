@@ -177,11 +177,14 @@ export function buildSessionEnv(session: GovernedSession): NodeJS.ProcessEnv {
   const shimmedPath = [session.shimDir, session.originalPath].filter(Boolean).join(path.delimiter);
   const env: NodeJS.ProcessEnv = {
     ...process.env,
+    TERMYTE_RUN: "1",
     TERMYTE_SESSION_ID: session.sessionId,
+    TERMYTE_AGENT: session.runtimeMetadata?.agentName,
     TERMYTE_GUARD_SOCKET: session.socketPath,
     TERMYTE_SHIM_DIR: session.shimDir,
     TERMYTE_ORIGINAL_PATH: session.originalPath,
     TERMYTE_DB_PATH: session.dbPath,
+    TERMYTE_WORKSPACE: session.workspaceRoot,
     TERMYTE_WORKSPACE_ROOT: session.workspaceRoot,
     TERMYTE_CLI_PATH: session.cliPath,
     TERMYTE_NODE: session.nodePath,
@@ -1023,7 +1026,7 @@ if (Get-Command Set-PSReadLineOption -ErrorAction SilentlyContinue) {
 
 export function shellLaunchArgs(command: string, explicitArgs: string[] | undefined, session: GovernedSession): string[] {
   const normalized = path.basename(command).toLowerCase().replace(/\.(exe|cmd|bat)$/i, "");
-  if (normalized === "codex" || normalized === "claude" || normalized === "aider") {
+  if (normalized === "codex" || normalized === "claude") {
     return explicitArgs ?? [];
   }
 

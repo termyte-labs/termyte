@@ -69,15 +69,15 @@ snippet with `TERMYTE_WORKSPACE` pinned to the current repository. Needed to
 route coding-agent tool calls through governed Git, filesystem, shell,
 package, policy, replay, and proof tools.
 
-### `termyte codex|claude|aider` and `termyte run <agent>`
+### `termyte install <claude|codex>` and `termyte codex|claude`
 
-Launches supported coding agents after preparing YAML policy, JSONL logs and
+Installs local native hook configuration for Claude Code or Codex, then
+launches supported coding agents after preparing YAML policy, JSONL logs and
 memory, repository context, session environment variables, command shims, shell
 hooks, and a local guard daemon. Top-level agent commands are aliases for the
-governed `run <agent>` path. Agent subprocesses that hit supported shimmed tools
-are evaluated before execution and written to the SQLite ledger. This remains
-interception rather than a full sandbox. For launchable governed tool calls,
-prefer the MCP gateway.
+governed `run <agent>` path. Native hook events and agent subprocesses that hit
+supported shimmed tools are evaluated before execution and written to the
+SQLite ledger. This remains interception rather than a full sandbox.
 
 ### `termyte shell`
 

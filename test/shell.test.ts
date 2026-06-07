@@ -1075,15 +1075,15 @@ describe("governed shell runtime", () => {
     const session = createGovernedSession(workspaceRoot);
     const binDir = path.join(workspaceRoot, "global-bin");
     fs.mkdirSync(binDir);
-    const aiderCmd = path.join(binDir, "aider.cmd");
-    fs.writeFileSync(aiderCmd, "@echo off\r\n", "utf8");
+    const claudeCmd = path.join(binDir, "claude.cmd");
+    fs.writeFileSync(claudeCmd, "@echo off\r\n", "utf8");
 
-    const command = resolveSessionLaunchCommand("aider", { ...session, originalPath: binDir }, ["--version"], {
+    const command = resolveSessionLaunchCommand("claude", { ...session, originalPath: binDir }, ["--version"], {
       platform: "win32",
       pathext: ".CMD;.EXE",
     });
 
-    expect(command).toBe(aiderCmd);
+    expect(command).toBe(claudeCmd);
   });
 
   it("preserves initial launch arguments exactly", () => {
@@ -1094,13 +1094,12 @@ describe("governed shell runtime", () => {
     expect(shellLaunchArgs("codex", args, session)).toEqual(args);
   });
 
-  it("does not inject shell flags for Codex, Claude Code, or Aider", () => {
+  it("does not inject shell flags for Codex or Claude Code", () => {
     const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-launch-agent-"));
     const session = createGovernedSession(workspaceRoot);
 
     expect(shellLaunchArgs("codex", undefined, session)).toEqual([]);
     expect(shellLaunchArgs("claude", undefined, session)).toEqual([]);
-    expect(shellLaunchArgs("aider", undefined, session)).toEqual([]);
   });
 
   it("preserves an explicitly requested non-shell launch with no args", () => {

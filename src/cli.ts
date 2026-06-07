@@ -28,6 +28,7 @@ import { interceptHook, interceptShim, launchGovernedSession } from "./shell.js"
 import { formatDoctorHuman, formatDoctorJson, runDoctor } from "./doctor.js";
 import type { Decision } from "./types.js";
 import { buildAgentRunPlan, formatAgentDryRunReport, isSupportedAgentName, parseRunInvocation } from "./agent.js";
+import { formatAgentInstallResult, installAgentHooks, isNativeHookAgent, runAgentHookCli } from "./agent-hook.js";
 import { runAgent } from "./agent-runner.js";
 import { checkCommand, formatCheckHuman } from "./check.js";
 import { buildPolicyAddPlan, formatPolicyPresets, formatPolicyShow, runPolicyTest, savePolicyAddPlan, slimCheckResult } from "./policy-cli.js";
@@ -49,9 +50,11 @@ function printUsage(): void {
   termyte memory
   termyte mark-safe "<command>"
   termyte mark-unsafe "<command>"
-  termyte <codex|claude|claudecode|aider> [...args]
+  termyte <codex|claude|claudecode> [...args]
   termyte run [--dry-run] [--profile <profile>] <agent> [...args]
   termyte run [--dry-run] -- <command>
+  termyte install <claude|codex>
+  termyte agent hook <claude|codex> [--post]
   termyte allow-once -- <command>
   termyte mcp serve
   termyte mcp install <codex|claude|cursor|generic>
@@ -225,6 +228,38 @@ async function main(): Promise<number> {
     });
 
     return (await runAgent(plan)).exitCode;
+  }
+
+  if (command === "install") {
+    const agent = args[1];
+    if (!agent || !isNativeHookAgent(agent)) {
+      console.error("Usage: termyte install <claude|codex>");
+      return 1;
+    }
+    try {
+      console.log(formatAgentInstallResult(installAgentHooks(agent, cwd)));
+      return 0;
+    } catch (error) {
+      console.error(`Termyte could not install ${agent} hooks: ${error instanceof Error ? error.message : String(error)}`);
+      return 1;
+    }
+  }
+
+  if (command === "agent") {
+    const subcommand = args[1];
+    const agent = args[2];
+    if (subcommand !== "hook" || !agent || !isNativeHookAgent(agent)) {
+      console.error("Usage: termyte agent hook <claude|codex> [--post]");
+      return 1;
+    }
+    const result = await runAgentHookCli(agent, args.slice(3));
+    if (result.stdout) {
+      process.stdout.write(result.stdout);
+    }
+    if (result.stderr) {
+      process.stderr.write(result.stderr);
+    }
+    return result.exitCode;
   }
 
   if (command === "check") {
