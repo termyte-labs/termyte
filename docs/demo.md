@@ -89,6 +89,19 @@ The agent runner uses `runtime mode: intercepted` for supported shim and shell
 hook paths. This is not full sandbox containment, and this demo does not launch
 a coding agent.
 
+Prove the governed runtime path:
+
+```bash
+termyte prove-runtime
+termyte mcp install codex --json
+```
+
+Expected:
+
+- `prove-runtime` reports allowed, blocked, and replay-verified outcomes.
+- `mcp install` prints a config snippet with `TERMYTE_WORKSPACE` pinned to the
+  current checkout.
+
 ## Files Created
 
 The demo may create:

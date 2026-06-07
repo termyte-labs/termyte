@@ -435,7 +435,8 @@ async function checkDaemonIpc(session: GovernedSession): Promise<DoctorCheck> {
 }
 
 async function checkShimSmoke(session: GovernedSession, env: NodeJS.ProcessEnv): Promise<DoctorCheck> {
-  const result = await spawnBuffered(session.nodePath, [session.cliPath, "_shim", "node", "--version"], {
+  const shimPath = process.platform === "win32" ? path.join(session.shimDir, "node.cmd") : path.join(session.shimDir, "node");
+  const result = await spawnBuffered(shimPath, ["--version"], {
     cwd: session.workspaceRoot,
     env,
     timeoutMs: 10_000,
@@ -448,7 +449,7 @@ async function checkShimSmoke(session: GovernedSession, env: NodeJS.ProcessEnv):
     message: result.exitCode === 0
       ? `Shim executed node successfully: ${firstBufferedLine(result)}`
       : `Shim smoke failed; shell runtime cannot govern subprocesses: ${result.errorMessage ?? firstBufferedLine(result)}`,
-    details: { exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr },
+    details: { shimPath, exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr },
   };
 }
 
@@ -920,10 +921,12 @@ function spawnBuffered(
   options: { cwd: string; env: NodeJS.ProcessEnv; timeoutMs: number },
 ): Promise<{ exitCode: number | null; stdout: string; stderr: string; errorMessage?: string }> {
   return new Promise((resolve) => {
-    const child = spawn(executable, args, {
+    const useWindowsBatchShell = process.platform === "win32" && /\.(cmd|bat)$/i.test(executable);
+    const child = spawn(useWindowsBatchShell ? [quoteCmdArg(executable), ...args.map(quoteCmdArg)].join(" ") : executable, useWindowsBatchShell ? [] : args, {
       cwd: options.cwd,
       env: options.env,
       stdio: ["ignore", "pipe", "pipe"],
+      shell: useWindowsBatchShell,
     });
     let stdout = "";
     let stderr = "";

@@ -23,6 +23,10 @@ The shared primitives are implemented in `parser.ts`, `resolver.ts`, and
 `risk.ts`. The check path starts in `check.ts`. The direct execution path starts
 in `runtime.ts`. The governed shell path starts in `shell.ts`.
 
+The launchable agent tool path starts in `mcp.ts`. It exposes Termyte-governed
+tools over stdio MCP and routes them through the same parser, target
+resolution, risk, policy, memory, and ledger logic used elsewhere.
+
 ## Stable Check Flow
 
 `termyte check "<command>"` uses this sequence:
@@ -312,6 +316,38 @@ containment: absolute executable paths, direct syscalls, unshimmed tools, direct
 API calls, and processes outside the inherited governed environment remain
 outside Termyte's current boundary.
 
+## MCP Gateway Logic
+
+`termyte mcp serve` starts a stdio JSON-RPC server for agents that support
+MCP. `termyte mcp install <agent>` prints a config snippet that pins
+`TERMYTE_WORKSPACE` to the current repository before launching the server.
+
+The MCP server exposes governed tools for:
+
+- Git status, diff, commit, push, and reset
+- filesystem read, write, patch, delete, and move
+- shell execution
+- package install, run, and audit
+- policy explanation and approval requests
+- replay queries
+- runtime proof
+
+Each tool call is translated into the same internal analysis pipeline:
+
+1. parse action;
+2. resolve targets where applicable;
+3. analyze blast radius and risk;
+4. check policy;
+5. check memory;
+6. allow, warn, or block;
+7. execute only if safe or approved;
+8. write the ledger;
+9. update memory.
+
+`termyte prove-runtime` exercises a deterministic subset of this pipeline with
+known allowed and blocked outcomes. It is the fastest proof that the governed
+local runtime is functioning on the current machine.
+
 ## Benchmark Logic
 
 `termyte bench` runs the 1,200-case governance fixture through `inspectCommand`
@@ -357,3 +393,5 @@ persistence but is not a general secret scanner.
 - Ledger storage is local but not tamper resistant.
 - `ask` is supported in YAML checks, but the direct runtime approval logic only
   prompts for `warn`; SQLite runtime policy does not emit `ask`.
+- `mcp serve` governs Termyte-controlled tool calls, but it does not by itself
+  sandbox raw agent-native tools or direct syscalls.

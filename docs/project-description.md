@@ -6,6 +6,8 @@ Termyte is a local-first runtime safety and operational memory layer for AI
 coding agents and risky developer commands. It is built as a Node.js and
 TypeScript command-line application backed by local files and SQLite. It does
 not require an account, a hosted service, or an LLM to make safety decisions.
+It also includes a local MCP gateway and a deterministic runtime proof
+command for launchability checks.
 
 The product exists because coding agents can execute commands faster and more
 frequently than a human can review them. A command such as `npm test` is
@@ -61,6 +63,16 @@ parses the command, resolves visible filesystem targets, runs risk analysis,
 loads built-in/global/local YAML policy, applies exact unsafe memory, writes a
 repo-local JSONL event, and returns a decision. This is the safest way to
 inspect current classification behavior.
+
+`termyte mcp serve` exposes Termyte-controlled Git, filesystem, shell,
+package, policy, replay, and proof tools over stdio MCP. `termyte mcp install
+<agent>` prints a repository-pinned config snippet with `TERMYTE_WORKSPACE`
+set to the current checkout so the gateway evaluates against the intended
+workspace.
+
+`termyte prove-runtime` runs a deterministic readiness proof. It exercises a
+known allowed read, known blocked destructive actions, a warning path, and
+ledger replay checks. This is the strongest current launchability check.
 
 ### Local Policy
 
@@ -132,6 +144,11 @@ supported shell hooks, records an agent-launch ledger row, and evaluates
 supported subprocess tool calls before execution. The top-level agent commands
 are aliases for the governed `run <agent>` path.
 
+`termyte mcp serve` is the launchable governed tool surface for agents that
+support MCP. It is the cleanest path for action governance today because it
+executes Termyte-controlled tools directly instead of relying only on inherited
+shell interception.
+
 ### Diagnostics and Validation
 
 `termyte doctor` checks the local environment, workspace, SQLite state, policy
@@ -153,6 +170,7 @@ Two generations of local state and policy coexist:
 | --- | --- | --- | --- |
 | `check`, `policy`, `logs`, `memory` | built-in/global/local YAML | `.termyte/logs.jsonl` | `.termyte/memory.jsonl` |
 | `run --`, top-level agent commands, `run <agent>`, `allow-once`, `inspect`, `shell`, shims/hooks | SQLite `policy_state` semantic lists | SQLite `ledger` | SQLite `memory_entries` |
+| `mcp serve`, `mcp install`, `prove-runtime` | MCP tool dispatch and runtime proof | SQLite `ledger` / proof records | SQLite `memory_entries` |
 
 These paths share the parser, target resolver, and risk engine, but their policy
 and memory semantics are different. This distinction matters when interpreting

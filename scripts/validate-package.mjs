@@ -20,6 +20,8 @@ const requiredPackageFiles = [
   "benchmarks/governance.json",
   "dist/agent-runner.js",
   "dist/cli.js",
+  "dist/mcp.js",
+  "dist/proof.js",
   "docs/benchmark.md",
   "docs/demo.md",
   "package.json",
@@ -105,6 +107,28 @@ try {
   const doctorJson = JSON.parse(doctor.stdout);
   assertEqual(doctorJson.summary?.fail, 0, "packaged doctor failure count");
 
+  const proof = run(installedBin, ["prove-runtime", "--json"], { cwd: smokeDir, env, timeoutMs: 120_000 });
+  const proofJson = JSON.parse(proof.stdout);
+  assertEqual(proofJson.summary?.fail, 0, "packaged runtime proof failure count");
+  assertEqual(proofJson.summary?.warn, 1, "packaged runtime proof boundary warning count");
+
+  const mcpInstall = run(installedBin, ["mcp", "install", "codex"], { cwd: smokeDir, env });
+  assertIncludes(mcpInstall.stdout, '"termyte"', "mcp install output");
+  assertIncludes(mcpInstall.stdout, '"mcp"', "mcp install output");
+  assertIncludes(mcpInstall.stdout, '"serve"', "mcp install output");
+
+  const mcpInstallJson = run(installedBin, ["mcp", "install", "codex", "--json"], { cwd: smokeDir, env });
+  const mcpInstallConfig = JSON.parse(mcpInstallJson.stdout);
+  assertEqual(mcpInstallConfig.mcpServers?.termyte?.env?.TERMYTE_WORKSPACE, smokeDir, "mcp install workspace binding");
+
+  const mcpExchange = runMcpExchange(installedBin, smokeDir, env);
+  assertIncludes(mcpExchange.stdout, '"termyte.git.status"', "mcp tools/list output");
+  const mcpResponses = parseJsonLines(mcpExchange.stdout);
+  const policyExplainText = mcpResponses.find((entry) => entry.id === 3)?.result?.content?.[0]?.text;
+  const policyExplain = JSON.parse(policyExplainText ?? "{}");
+  assertEqual(policyExplain.semanticId, "git.push.force", "mcp policy.explain semantic id");
+  assertEqual(policyExplain.finalDecision, "block", "mcp policy.explain final decision");
+
   const missingAgent = run(installedBin, ["run", "definitely-missing-agent"], {
     cwd: smokeDir,
     env,
@@ -144,6 +168,9 @@ try {
       policyDryRun: "pass",
       memory: "pass",
       logs: "pass",
+      proof: "pass",
+      mcpInstall: "pass",
+      mcpExchange: "pass",
       missingAgent: "pass",
       demo: "pass",
     },
@@ -183,6 +210,31 @@ function verifyDemo(installedBin, workspace, env) {
 
   const memory = run(installedBin, ["memory"], { cwd: workspace, env });
   assertIncludes(memory.stdout, "npm test", "demo memory output");
+}
+
+function runMcpExchange(installedBin, cwd, env) {
+  const stdin = [
+    JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }),
+    JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} }),
+    JSON.stringify({
+      jsonrpc: "2.0",
+      id: 3,
+      method: "tools/call",
+      params: {
+        name: "termyte.policy.explain",
+        arguments: {
+          command: "git push --force origin main",
+        },
+      },
+    }),
+    "",
+  ].join("\n");
+  return run(installedBin, ["mcp", "serve"], {
+    cwd,
+    env,
+    input: stdin,
+    timeoutMs: 30_000,
+  });
 }
 
 function assertPackageContents(files) {
@@ -225,12 +277,14 @@ function run(command, args, options = {}) {
   const result = isWindowsCommandScript ? spawnSync([quoteCmdArg(command), ...args.map(quoteCmdArg)].join(" "), {
     cwd: options.cwd,
     env: options.env,
+    input: options.input,
     encoding: "utf8",
     timeout: options.timeoutMs ?? 30_000,
     shell: true,
   }) : spawnSync(command, args, {
     cwd: options.cwd,
     env: options.env,
+    input: options.input,
     encoding: "utf8",
     timeout: options.timeoutMs ?? 30_000,
   });
@@ -254,6 +308,13 @@ function parsePackEntry(value) {
     throw new Error("npm pack did not return a valid package manifest");
   }
   return entry;
+}
+
+function parseJsonLines(value) {
+  return String(value)
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map((line) => JSON.parse(line));
 }
 
 function installedPackageRoot(prefix) {

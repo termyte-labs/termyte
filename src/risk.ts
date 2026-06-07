@@ -175,6 +175,55 @@ export function analyzeRisk(action: ParsedAction, targets: ResolvedTargets): Ris
     };
   }
 
+  if (action.kind === "filesystem.write") {
+    score += Math.min(targets.targetCount * 5, 25);
+
+    if (!targets.insideWorkspace || targets.outsideWorkspace) {
+      signals.push("outside workspace");
+      return {
+        decision: "block",
+        score: 90,
+        reason: "filesystem write outside the workspace is blocked",
+        signals,
+      };
+    }
+
+    if (targets.protectedTargets.length > 0) {
+      signals.push(`protected targets: ${targets.protectedTargets.join(", ")}`);
+      return {
+        decision: "block",
+        score: 90,
+        reason: "filesystem write to protected targets is blocked",
+        signals,
+      };
+    }
+
+    const writeSensitiveTargets = targets.targetClasses.filter((entry) =>
+      entry.category === "config" ||
+      entry.category === "environment" ||
+      entry.category === "git-metadata" ||
+      entry.category === "home" ||
+      entry.category === "filesystem-root" ||
+      entry.category === "workspace-root"
+    );
+    if (writeSensitiveTargets.length > 0) {
+      signals.push(`sensitive targets: ${writeSensitiveTargets.map((entry) => entry.target).join(", ")}`);
+      return {
+        decision: "warn",
+        score: Math.max(score, 45),
+        reason: "filesystem write to sensitive files requires approval",
+        signals,
+      };
+    }
+
+    return {
+      decision: "allow",
+      score,
+      reason: "workspace file write is allowed",
+      signals,
+    };
+  }
+
   if (action.kind === "git.push" && action.isForce) {
     signals.push("force push");
     score = 65;

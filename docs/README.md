@@ -20,9 +20,9 @@ dashboard, SDK, or enterprise features.
 ## Current Product Boundary
 
 Termyte is a local-first Node.js CLI for deterministic command risk analysis,
-local policy enforcement, operational records, and experimental subprocess
-governance. It has no cloud dependency and no LLM in its critical decision
-path.
+local policy enforcement, operational records, an MCP gateway, and
+experimental subprocess governance. It has no cloud dependency and no LLM in
+its critical decision path.
 
 The most dependable alpha surfaces are:
 
@@ -31,8 +31,12 @@ The most dependable alpha surfaces are:
 - `termyte logs`
 - `termyte memory`
 - `termyte doctor`
+- `termyte prove-runtime`
+- `termyte mcp serve`
+- `termyte mcp install <agent>`
 
-The execution and interception surfaces are implemented but experimental:
+The execution and interception surfaces are implemented but still
+experimental:
 
 - `termyte codex`, `termyte claude`, `termyte aider`
 - `termyte run <agent>`
@@ -40,7 +44,7 @@ The execution and interception surfaces are implemented but experimental:
 - `termyte shell`
 - internal shell hooks and command shims
 
-Top-level agent commands are aliases for the governed `run <agent>` path.
-Agent sessions prepare policy, logs, memory, session context, command shims,
-shell hooks, and a local guard daemon before launching the agent. This is
-governed interception for supported execution paths, not a full sandbox.
+The MCP gateway is the launchable governed path for coding agents that support
+MCP. It exposes Termyte-controlled Git, filesystem, shell, package, policy,
+replay, and proof tools. `termyte run <agent>` remains an interception path
+for supported subprocess hooks and shims, not a full sandbox.

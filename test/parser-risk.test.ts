@@ -286,4 +286,16 @@ describe("runtime parsing and risk", () => {
     expect(inspection.finalDecision).toBe("block");
     expect(inspection.memoryMatches[0]?.confidence).toBeLessThan(0.7);
   });
+
+  it("governs filesystem writes without blocking normal code edits", () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-write-"));
+    const normalWrite = inspectAction("Set-Content src/example.ts -Value ok", workspaceRoot);
+    const configWrite = inspectAction("Set-Content .env -Value SECRET=1", workspaceRoot);
+    const outsideWrite = inspectAction(`Set-Content ${path.join(os.tmpdir(), "outside-termyte.txt")} -Value ok`, workspaceRoot);
+
+    expect(normalWrite.action.semanticId).toBe("filesystem.write");
+    expect(normalWrite.finalDecision).toBe("allow");
+    expect(configWrite.finalDecision).toBe("warn");
+    expect(outsideWrite.finalDecision).toBe("block");
+  });
 });

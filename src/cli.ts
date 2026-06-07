@@ -34,6 +34,8 @@ import { buildPolicyAddPlan, formatPolicyPresets, formatPolicyShow, runPolicyTes
 import { formatLocalLogsHuman, listLocalLogs } from "./local-logs.js";
 import { formatLocalMemoryHuman, listLocalMemory, storeLocalMemory } from "./local-memory.js";
 import { runGovernanceBenchmarks, runLegacyBenchmarks } from "./benchmark.js";
+import { formatMcpInstall, runMcpServer } from "./mcp.js";
+import { formatRuntimeProofHuman, runRuntimeProof } from "./proof.js";
 
 function printUsage(): void {
   console.log(`Usage:
@@ -51,6 +53,9 @@ function printUsage(): void {
   termyte run [--dry-run] [--profile <profile>] <agent> [...args]
   termyte run [--dry-run] -- <command>
   termyte allow-once -- <command>
+  termyte mcp serve
+  termyte mcp install <codex|claude|cursor|generic>
+  termyte prove-runtime [--json]
   termyte bench [--json] [--legacy]
   termyte doctor [--json]
   termyte replay [--json]
@@ -498,6 +503,32 @@ async function main(): Promise<number> {
     }
 
     return result.exitCode;
+  }
+
+  if (command === "mcp") {
+    const subcommand = args[1];
+    if (subcommand === "serve") {
+      const mcpWorkspace = process.env.TERMYTE_WORKSPACE ? path.resolve(process.env.TERMYTE_WORKSPACE) : cwd;
+      await runMcpServer({ cwd: mcpWorkspace, dbPath: defaultDbPath(mcpWorkspace) });
+      return 0;
+    }
+    if (subcommand === "install") {
+      const agent = args[2] ?? "generic";
+      console.log(formatMcpInstall(agent, cwd, hasJsonFlag(args)));
+      return 0;
+    }
+    console.error("Usage: termyte mcp serve | install <codex|claude|cursor|generic>");
+    return 1;
+  }
+
+  if (command === "prove-runtime") {
+    const report = await runRuntimeProof({ cwd, dbPath });
+    if (hasJsonFlag(args)) {
+      console.log(toJson(report));
+    } else {
+      console.log(formatRuntimeProofHuman(report));
+    }
+    return report.summary.fail > 0 ? 1 : 0;
   }
 
   if (command === "_legacy-mark-safe") {

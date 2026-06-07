@@ -55,19 +55,41 @@ retaining hard-critical protection.
 Prints the SQLite runtime's parse, targets, risk, policy, memory, and final
 decision without executing. Needed to explain direct-runtime decisions.
 
+### `termyte prove-runtime [--json]`
+
+Runs the deterministic launch-readiness proof. It exercises allowed reads,
+blocked destructive actions, warning paths, and replay verification against
+the local runtime. Needed as the quickest way to verify governed launch
+surface health on the current machine.
+
+### `termyte mcp serve` and `termyte mcp install <agent>`
+
+Starts Termyte's stdio MCP server or prints an agent-specific MCP config
+snippet with `TERMYTE_WORKSPACE` pinned to the current repository. Needed to
+route coding-agent tool calls through governed Git, filesystem, shell,
+package, policy, replay, and proof tools.
+
 ### `termyte codex|claude|aider` and `termyte run <agent>`
 
 Launches supported coding agents after preparing YAML policy, JSONL logs and
 memory, repository context, session environment variables, command shims, shell
 hooks, and a local guard daemon. Top-level agent commands are aliases for the
 governed `run <agent>` path. Agent subprocesses that hit supported shimmed tools
-are evaluated before execution and written to the SQLite ledger.
+are evaluated before execution and written to the SQLite ledger. This remains
+interception rather than a full sandbox. For launchable governed tool calls,
+prefer the MCP gateway.
 
 ### `termyte shell`
 
 Starts the experimental governed shell/session with shims, hooks, guard daemon,
 SQLite ledger, semantic memory, integrity checks, and fail-closed interception.
 Needed as the lower-level interception primitive.
+
+### Runtime proof surface
+
+`termyte prove-runtime` is the deterministic readiness check for the governed
+local runtime. It is the fastest way to show that allowed reads, blocked
+destructive actions, and replay verification all behave as expected.
 
 ### `termyte policies`
 
@@ -113,6 +135,8 @@ validates its own case set, not universal safety coverage.
 | `src/policy-evaluator.ts` | Matches YAML rules against semantic IDs, command text, and paths, then combines matches with risk. |
 | `src/policy-nl.ts` | Deterministic supported-phrase compiler, YAML formatter, preview generator, duplicate-name handling, and file append logic. |
 | `src/policy-cli.ts` | User-facing YAML policy formatting, policy-only tests, natural-language add planning, and compact check JSON. |
+| `src/mcp.ts` | Stdio MCP server, tool registry, MCP install config generation, and governed tool-call dispatch. |
+| `src/proof.ts` | Deterministic runtime proof command and formatted readiness output. |
 | `src/local-state.ts` | Paths and generic JSONL read/write/append helpers for repo-local stable state. |
 | `src/local-logs.ts` | Writes, filters, sorts, and formats `.termyte/logs.jsonl`. |
 | `src/local-memory.ts` | Stores, lists, exactly matches, and formats user safe/unsafe JSONL memory. |

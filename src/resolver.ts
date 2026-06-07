@@ -34,6 +34,7 @@ function classifyTarget(rawTarget: string, resolvedTarget: string, workspaceRoot
   const resolvedSegments = normalizedSegments(resolvedTarget);
   const rawSegments = normalizedSegments(rawTarget);
   const allSegments = new Set([...resolvedSegments, ...rawSegments]);
+  const insideWorkspace = isInsideWorkspace(workspaceRoot, resolvedTarget);
 
   if (rawTarget === "/" || isFilesystemRoot(rawTarget) || isFilesystemRoot(resolvedTarget)) {
     return {
@@ -48,7 +49,7 @@ function classifyTarget(rawTarget: string, resolvedTarget: string, workspaceRoot
   if (
     normalizedRaw === "~" ||
     normalizedRaw.startsWith("~/") ||
-    (path.isAbsolute(rawTarget) && (normalizedResolved === homeDir || normalizedResolved.startsWith(`${homeDir}/`)))
+    (path.isAbsolute(rawTarget) && !insideWorkspace && (normalizedResolved === homeDir || normalizedResolved.startsWith(`${homeDir}/`)))
   ) {
     return {
       target: resolvedTarget,
@@ -207,7 +208,7 @@ export function resolveTargets(action: ParsedAction, workspaceRoot: string): Res
     };
   }
 
-  if (action.kind !== "filesystem.delete") {
+  if (action.kind !== "filesystem.delete" && action.kind !== "filesystem.write") {
     return {
       targetKind: "unknown",
       workspaceRoot,
@@ -222,7 +223,9 @@ export function resolveTargets(action: ParsedAction, workspaceRoot: string): Res
     };
   }
 
-  const rawTargets = action.tokens.filter((token, index) => index > 0 && !isDeleteFlagToken(token, action.tokens[0] ?? ""));
+  const rawTargets = action.kind === "filesystem.write"
+    ? [action.target]
+    : action.tokens.filter((token, index) => index > 0 && !isDeleteFlagToken(token, action.tokens[0] ?? ""));
   const patterns = rawTargets.length > 0 ? rawTargets : [action.target];
   const expandedTargets = new Set<string>();
 

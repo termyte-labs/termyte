@@ -2,13 +2,15 @@
 
 Termyte is a local-first safety runtime for AI coding agents.
 
-The current alpha focuses on launching coding agents through a governed local
-runtime, checking risky command text, applying local policies, recording
-decisions, and remembering commands that a user marked safe or unsafe.
+The current alpha focuses on a Termyte-controlled tool gateway, risky command
+checks, local policies, replayable decisions, and repo-scoped safety memory.
+The goal is safer autonomous coding-agent work without moving policy or logs to
+a cloud service.
 
-**Alpha:** Runtime interception is experimental and is not sandbox containment.
-Use `termyte codex` or `termyte run codex` for governed agent sessions; use
-`check` and `policy` for non-executing evaluation.
+**Alpha:** MCP/runtime tool calls are governed. Raw agent-native tools, direct
+syscalls, absolute executable paths, and unsupported subprocess paths still
+require hooks or sandboxing. `termyte run <agent>` remains experimental
+interception, not sandbox containment.
 
 ## Install
 
@@ -25,7 +27,8 @@ Run these commands inside a repository:
 
 ```bash
 npm install -g termyte
-termyte codex
+termyte prove-runtime
+termyte mcp install codex
 termyte check "cat .env"
 termyte policy local add "Ask before touching auth or payments" --dry-run
 termyte policy local add "Ask before touching auth or payments" --yes
@@ -37,11 +40,75 @@ termyte doctor
 What happens:
 
 - `check "cat .env"` returns a block decision without executing `cat`.
+- `prove-runtime` runs a local proof: allowed read, blocked force push,
+  blocked recursive delete, sentinel side-effect check, secret-read warning,
+  and replay ledger verification.
+- `mcp install codex` prints a stdio MCP configuration for Termyte's governed
+  tool gateway.
 - The policy dry run prints deterministic generated YAML and writes nothing.
 - The policy command with `--yes` creates or updates `termyte.policy.yaml`.
 - `logs` shows decisions written by `check`.
 - `memory` shows commands explicitly marked safe or unsafe.
 - `doctor` reports local setup and experimental runtime readiness.
+
+## MCP Gateway
+
+Termyte exposes a local stdio MCP server for coding agents that support MCP:
+
+```bash
+termyte mcp serve
+termyte mcp install codex
+termyte mcp install claude
+termyte mcp install cursor
+termyte mcp install codex --json
+```
+
+The MCP server exposes governed tools for Git, filesystem, shell, package
+manager, policy explanation, replay, and runtime proof:
+
+```text
+termyte.git.status
+termyte.git.diff
+termyte.git.commit
+termyte.git.push
+termyte.git.reset
+termyte.fs.read
+termyte.fs.write
+termyte.fs.delete
+termyte.shell.run
+termyte.package.install
+termyte.package.run
+termyte.policy.explain
+termyte.replay.query
+termyte.runtime.prove
+```
+
+Each tool call goes through Termyte's parser, target resolver, blast-radius
+analysis, policy engine, memory engine, execution gate, replay ledger, and
+memory observation. Ordinary workspace file writes are allowed so agents can
+edit code. Sensitive/config writes warn, protected or out-of-workspace writes
+block, and broad destructive deletes block.
+
+`mcp install` prints a config snippet with `TERMYTE_WORKSPACE` pinned to the
+current repository, so the MCP server keeps evaluating actions against the repo
+where setup was run even if the agent launches the server from another working
+directory.
+
+## Runtime Proof
+
+`termyte prove-runtime` is the launch readiness proof. It creates a sentinel
+under `.termyte/runtime-proof`, runs a safe read, attempts a protected force
+push, attempts a recursive force delete, verifies the sentinel still exists,
+checks that a secret-looking read requires approval, and verifies the replay
+ledger contains the proof decisions.
+
+```bash
+termyte prove-runtime
+termyte prove-runtime --json
+```
+
+Expected healthy output has zero failures and an explicit boundary warning for
+raw agent-native tools and unsupported subprocess paths.
 
 ## Safe Demo
 

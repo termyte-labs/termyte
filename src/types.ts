@@ -2,6 +2,7 @@ export type Decision = "allow" | "warn" | "ask" | "block";
 
 export type ActionKind =
   | "filesystem.delete"
+  | "filesystem.write"
   | "git.push"
   | "git.destructive"
   | "package.publish"

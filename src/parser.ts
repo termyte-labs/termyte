@@ -1,7 +1,7 @@
 import { redactCommand } from "./redact.js";
 import type { ParsedAction, ShellFlavor } from "./types.js";
 
-const POWER_SHELL_VERBS = new Set(["remove-item", "get-childitem", "set-location", "copy-item", "move-item"]);
+const POWER_SHELL_VERBS = new Set(["remove-item", "get-childitem", "get-content", "set-location", "copy-item", "move-item", "set-content", "add-content", "out-file", "new-item"]);
 
 function tokenize(command: string): string[] {
   const tokens: string[] = [];
@@ -39,7 +39,7 @@ function tokenize(command: string): string[] {
       continue;
     }
 
-    if (char === "\\" && next) {
+    if (char === "\\" && next && /["'\\\s]/.test(next)) {
       current += next;
       index += 1;
       continue;
@@ -135,6 +135,26 @@ function semanticAction(command: string, tokens: string[], lowered: string[]): {
   const text = command.toLowerCase();
   const first = lowered[0] ?? "";
   const second = lowered[1] ?? "";
+
+  if (
+    first === "set-content" ||
+    first === "add-content" ||
+    first === "out-file" ||
+    first === "new-item" ||
+    first === "copy-item" ||
+    first === "move-item" ||
+    first === "cp" ||
+    first === "mv" ||
+    />{1,2}/.test(command)
+  ) {
+    const redirectIndex = tokens.findIndex((token) => token.includes(">"));
+    const target = first === "set-content" || first === "add-content" || first === "out-file" || first === "new-item"
+      ? tokens.find((token, index) => index > 0 && !token.startsWith("-")) ?? "workspace"
+      : redirectIndex >= 0
+        ? tokens[redirectIndex + 1] ?? tokens.at(-1) ?? "workspace"
+        : tokens.at(-1) ?? "workspace";
+    return { kind: "filesystem.write", semanticId: "filesystem.write", domain: "filesystem", operation: "write", target, confidence: 0.82 };
+  }
 
   if (first === "git") {
     if (second === "reset" && lowered.includes("--hard")) {
