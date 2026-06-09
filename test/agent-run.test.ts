@@ -3,7 +3,6 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { openDatabase } from "../src/db.js";
-import { Ledger } from "../src/ledger.js";
 import {
   buildAgentRunPlan,
   buildAgentRuntimeMetadata,
@@ -13,12 +12,21 @@ import {
   resolveRuntimeProfile,
   resolveAgentExecutable,
 } from "../src/agent.js";
-import { createGovernedSession, handleGuardRequest, SHELL_HOST_SHIMS } from "../src/shell.js";
-import { formatLedger, formatReplay } from "../src/format.js";
+import { runAgent } from "../src/agent-runner.js";
 
-function makeAgentExecutable(directory: string, name: string): string {
+function makeAgentExecutable(directory: string, name: string, sideEffectPath?: string): string {
   const executable = process.platform === "win32" ? path.join(directory, `${name}.cmd`) : path.join(directory, name);
-  fs.writeFileSync(executable, "@echo off\r\necho agent\r\n", "utf8");
+  const script = process.platform === "win32"
+    ? [
+        "@echo off",
+        sideEffectPath ? `echo agent > "%~1"` : "echo agent",
+        "exit /b 0",
+      ].join("\r\n")
+    : [
+        "#!/bin/sh",
+        sideEffectPath ? "printf agent > \"$1\"" : "printf agent",
+      ].join("\n");
+  fs.writeFileSync(executable, `${script}\n`, "utf8");
   if (process.platform !== "win32") {
     fs.chmodSync(executable, 0o755);
   }
@@ -117,23 +125,7 @@ describe("agent run planning", () => {
     expect(formatAgentDryRunReport(plan)).toContain("resolved alias: claudecode -> claude");
   });
 
-  it("prefers a claudecode executable and reports both alias attempts when missing", () => {
-    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-agent-alias-order-"));
-    const binDir = path.join(workspaceRoot, "bin");
-    fs.mkdirSync(binDir);
-    const claudecode = makeAgentExecutable(binDir, "claudecode");
-    makeAgentExecutable(binDir, "claude");
-
-    const found = resolveAgentExecutable("claudecode", binDir, process.platform);
-    const missing = resolveAgentExecutable("claudecode", workspaceRoot, process.platform);
-
-    expect(found.resolvedAgentName).toBe("claudecode");
-    expect(found.resolvedExecutable).toBe(claudecode);
-    expect(missing.attemptedExecutables).toEqual(["claudecode", "claude"]);
-    expect(missing.resolvedExecutable).toBeNull();
-  });
-
-  it("includes profile and shim details in dry-run output", () => {
+  it("describes direct launch mode without shell-shim dependencies", () => {
     const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-agent-dry-"));
     const binDir = path.join(workspaceRoot, "bin");
     fs.mkdirSync(binDir);
@@ -151,63 +143,46 @@ describe("agent run planning", () => {
 
     expect(output).toContain("profile: codex-windows");
     expect(output).toContain(`resolved executable: ${codex}`);
-    expect(output).toContain("enabled shims:");
-    expect(output).toContain("disabled shims:");
-    expect(output).toContain("shell hooks: disabled");
+    expect(output).toContain("launch mode: direct");
+    expect(output).toContain("enforcement now lives in run -- and MCP");
+    expect(output).not.toContain("enabled shims");
+    expect(output).not.toContain("disabled shims");
+    expect(output).not.toContain("shell hooks");
   });
 
-  it("stores agent metadata in ledger rows for run-launched sessions", () => {
-    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-agent-ledger-"));
-    const metadata = buildAgentRuntimeMetadata(
-      buildAgentRunPlan({
-        workspaceRoot,
-        dbPath: path.join(workspaceRoot, "termyte.db"),
-        agentName: "codex",
-        agentArgs: ["--version"],
-        profileName: "codex-windows",
-        platform: process.platform,
-      }),
-    );
-    const session = createGovernedSession(workspaceRoot, {
-      runtimeMetadata: metadata,
-      shimTools: metadata.enabledShims,
+  it("launches the resolved agent executable directly", async () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-agent-run-"));
+    const binDir = path.join(workspaceRoot, "bin");
+    fs.mkdirSync(binDir);
+    const sentinel = path.join(workspaceRoot, "agent-ran.txt");
+    makeAgentExecutable(binDir, "codex", sentinel);
+    const plan = buildAgentRunPlan({
+      workspaceRoot,
+      dbPath: path.join(workspaceRoot, "termyte.db"),
+      agentName: "codex",
+      agentArgs: [sentinel],
+      originalPath: [binDir, process.env.PATH ?? ""].filter(Boolean).join(path.delimiter),
+      platform: process.platform,
     });
 
-    const response = handleGuardRequest(session, {
-      sessionId: session.sessionId,
-      command: "git status",
-      cwd: workspaceRoot,
-      tool: "git",
-      argv: ["status"],
-    });
+    const result = await runAgent(plan);
+    const db = openDatabase(path.join(workspaceRoot, "termyte.db"));
+    const metadata = buildAgentRuntimeMetadata(plan);
 
-    const record = new Ledger(openDatabase(session.dbPath).db).getById(response.ledgerId ?? 0);
-    const ledgerMetadata = JSON.parse(record?.metadataJson ?? "{}") as Record<string, unknown>;
-
-    expect(ledgerMetadata.launchedVia).toBe("termyte-run");
-    expect(ledgerMetadata.agentName).toBe("codex");
-    expect(ledgerMetadata.agentArgs).toEqual(["--version"]);
-    expect(ledgerMetadata.runtimeProfile).toBe("codex-windows");
-    expect(ledgerMetadata.shellHooksEnabled).toBe(false);
-
-    const ledger = new Ledger(openDatabase(session.dbPath).db);
-    expect(formatLedger(ledger.listLatest())).toContain("termyte-run");
-    expect(formatReplay(ledger.replay())).toContain("launched via: termyte-run");
+    expect(result.exitCode).toBe(0);
+    expect(result.launched).toBe(true);
+    expect(result.readiness?.runtimeMode).toBe("direct");
+    expect(fs.existsSync(sentinel)).toBe(true);
+    const ledgerCount = db.db.prepare("SELECT COUNT(*) AS count FROM ledger").get() as { count: number };
+    expect(ledgerCount.count).toBe(0);
+    expect(metadata.runtimeMode).toBe("direct-launch");
+    expect(metadata.runtimeNotes[0]).toContain("shell shims");
   });
 
-  it("keeps high-value shims enabled under the codex Windows profile", () => {
-    const profile = resolveRuntimeProfile("codex", "win32", "codex-windows");
-
-    expect(profile.disabledShims).toEqual(SHELL_HOST_SHIMS);
-    expect(profile.enabledShims).toEqual(expect.arrayContaining(["git", "npm", "node", "python", "pip", "docker"]));
-  });
-
-  it("preserves the generic default profile behavior", () => {
+  it("describes the generic default profile behavior", () => {
     const profile = resolveRuntimeProfile("codex", "win32", "default");
 
     expect(profile.name).toBe("default");
-    expect(profile.disabledShims).toEqual([]);
-    expect(profile.shellHooksEnabled).toBe(true);
-    expect(profile.enabledShims).toEqual(expect.arrayContaining(["git", "bash", "cmd"]));
+    expect(profile.notes[0]).toContain("Native hooks are optional adapters");
   });
 });

@@ -3,134 +3,66 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { openDatabase } from "../src/db.js";
+import { Ledger } from "../src/ledger.js";
+import { MemoryEngine } from "../src/memory.js";
+import { runRuntime } from "../src/runtime.js";
 
-function runCli(args: string[], cwd: string, extraEnv: NodeJS.ProcessEnv = {}) {
+function runCli(args: string[], cwd: string) {
   return spawnSync(process.execPath, [path.resolve("dist/cli.js"), ...args], {
     cwd,
-    env: { ...process.env, TERMYTE_HOME: fs.mkdtempSync(path.join(os.tmpdir(), "termyte-home-")), ...extraEnv },
+    env: { ...process.env, TERMYTE_HOME: fs.mkdtempSync(path.join(os.tmpdir(), "termyte-home-")), INIT_CWD: cwd },
     encoding: "utf8",
   });
 }
 
-describe("Phase 2 logs and memory", () => {
-  it("empty logs output does not crash", () => {
-    const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-logs-empty-"));
-    const result = runCli(["logs"], workspace);
+describe("SQLite logs and memory", () => {
+  it("shows empty ledger and memory views without JSONL state", () => {
+    const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-empty-state-"));
 
-    expect(result.status).toBe(0);
-    expect(result.stdout).toContain("Recent Termyte events");
-    expect(result.stdout).toContain("No events yet.");
+    const logs = runCli(["logs"], workspace);
+    const memory = runCli(["memory"], workspace);
+
+    expect(logs.status).toBe(0);
+    expect(memory.status).toBe(0);
+    expect(logs.stdout).toContain("(empty)");
+    expect(memory.stdout).toContain("(empty)");
+    expect(fs.existsSync(path.join(workspace, ".termyte", "logs.jsonl"))).toBe(false);
+    expect(fs.existsSync(path.join(workspace, ".termyte", "memory.jsonl"))).toBe(false);
   });
 
-  it('check "cat .env" writes a block log event', () => {
-    const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-logs-block-"));
-    const result = runCli(["check", "cat .env", "--json"], workspace);
-    const logsPath = path.join(workspace, ".termyte", "logs.jsonl");
+  it("records check actions in the sqlite ledger", () => {
+    const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-check-ledger-"));
+    const result = runCli(["check", "git push --force origin main"], workspace);
+    const ctx = openDatabase(path.join(workspace, ".termyte", "termyte.db"));
+    const ledger = new Ledger(ctx.db);
 
     expect(result.status).toBe(1);
-    const rows = fs.readFileSync(logsPath, "utf8").trim().split(/\r?\n/).map((line) => JSON.parse(line));
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ decision: "block", command: "cat .env" });
+    const parsed = JSON.parse(result.stdout) as { decision: string; semantic_id: string; executed: boolean };
+    expect(parsed).toMatchObject({ decision: "block", semantic_id: "git.push.force", executed: false });
+    expect(ledger.listLatest(1)[0]?.semanticId).toBe("git.push.force");
   });
 
-  it('check "npm publish" writes a warn log event', () => {
-    const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-logs-warn-"));
-    const result = runCli(["check", "npm publish", "--json"], workspace);
-    const logsPath = path.join(workspace, ".termyte", "logs.jsonl");
+  it("records runtime actions in the sqlite ledger and memory store", async () => {
+    const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-runtime-ledger-"));
+    const dbPath = path.join(workspace, ".termyte", "termyte.db");
 
-    expect(result.status).toBe(0);
-    const rows = fs.readFileSync(logsPath, "utf8").trim().split(/\r?\n/).map((line) => JSON.parse(line));
-    expect(rows[0]).toMatchObject({ decision: "warn", command: "npm publish" });
-  });
+    const result = await runRuntime({
+      command: "echo runtime smoke",
+      cwd: workspace,
+      dbPath,
+      approval: async () => true,
+      env: { ...process.env },
+    });
 
-  it("logs filters blocked and warned events", () => {
-    const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-logs-filters-"));
-    runCli(["check", "cat .env", "--json"], workspace);
-    runCli(["check", "npm publish", "--json"], workspace);
+    const ctx = openDatabase(dbPath);
+    const ledger = new Ledger(ctx.db);
+    const memory = new MemoryEngine(ctx.db);
 
-    const blocked = runCli(["logs", "--blocked"], workspace);
-    const warned = runCli(["logs", "--warned"], workspace);
-
-    expect(blocked.stdout).toContain("[BLOCK] cat .env");
-    expect(blocked.stdout).not.toContain("[WARN] npm publish");
-    expect(warned.stdout).toContain("[WARN] npm publish");
-    expect(warned.stdout).not.toContain("[BLOCK] cat .env");
-  });
-
-  it("logs --json returns valid JSON", () => {
-    const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-logs-json-"));
-    runCli(["check", "npm publish", "--json"], workspace, { TERMYTE_AGENT: "codex" });
-    const result = runCli(["logs", "--json"], workspace);
-    const parsed = JSON.parse(result.stdout) as Array<{ decision: string; agent?: string }>;
-
-    expect(result.status).toBe(0);
-    expect(parsed[0]).toMatchObject({ decision: "warn", agent: "codex" });
-  });
-
-  it("empty memory output does not crash", () => {
-    const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-memory-empty-"));
-    const result = runCli(["memory"], workspace);
-
-    expect(result.status).toBe(0);
-    expect(result.stdout).toContain("Termyte Memory");
-    expect(result.stdout).toContain("Unsafe patterns:");
-    expect(result.stdout).toContain("Safe patterns:");
-  });
-
-  it('mark-safe "npm test" stores safe memory', () => {
-    const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-memory-safe-"));
-    const result = runCli(["mark-safe", "npm test"], workspace);
-    const memoryPath = path.join(workspace, ".termyte", "memory.jsonl");
-    const rows = fs.readFileSync(memoryPath, "utf8").trim().split(/\r?\n/).map((line) => JSON.parse(line));
-
-    expect(result.status).toBe(0);
-    expect(rows[0]).toMatchObject({ type: "safe", pattern: "npm test" });
-  });
-
-  it('mark-unsafe "npm publish" stores unsafe memory', () => {
-    const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-memory-unsafe-"));
-    const result = runCli(["mark-unsafe", "npm publish"], workspace);
-    const memoryPath = path.join(workspace, ".termyte", "memory.jsonl");
-    const rows = fs.readFileSync(memoryPath, "utf8").trim().split(/\r?\n/).map((line) => JSON.parse(line));
-
-    expect(result.status).toBe(0);
-    expect(rows[0]).toMatchObject({ type: "unsafe", pattern: "npm publish" });
-  });
-
-  it("memory lists stored records", () => {
-    const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-memory-list-"));
-    runCli(["mark-safe", "npm test"], workspace);
-    runCli(["mark-unsafe", "npm publish"], workspace);
-    const result = runCli(["memory"], workspace);
-
-    expect(result.stdout).toContain("- npm publish");
-    expect(result.stdout).toContain("- npm test");
-  });
-
-  it("unsafe memory upgrades allow to warn", () => {
-    const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-memory-upgrade-"));
-    runCli(["mark-unsafe", "npm test"], workspace);
-    const result = runCli(["check", "npm test", "--json"], workspace);
-    const parsed = JSON.parse(result.stdout) as { decision: string; reason: string; memory_matches: unknown[] };
-
-    expect(parsed.decision).toBe("warn");
-    expect(parsed.reason).toContain("marked unsafe");
-    expect(parsed.memory_matches.length).toBeGreaterThan(0);
-  });
-
-  it("unsafe memory does not downgrade block", () => {
-    const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-memory-block-unsafe-"));
-    runCli(["mark-unsafe", "cat .env"], workspace);
-    const result = runCli(["check", "cat .env", "--json"], workspace);
-
-    expect(JSON.parse(result.stdout)).toMatchObject({ decision: "block" });
-  });
-
-  it("safe memory does not downgrade block", () => {
-    const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-memory-block-safe-"));
-    runCli(["mark-safe", "cat .env"], workspace);
-    const result = runCli(["check", "cat .env", "--json"], workspace);
-
-    expect(JSON.parse(result.stdout)).toMatchObject({ decision: "block" });
+    expect(result.wasExecuted).toBe(true);
+    expect(ledger.listLatest(1)[0]?.semanticId).toBe("shell.generic");
+    expect(memory.list(1)[0]?.semanticId).toBe("shell.generic");
+    expect(runCli(["logs", "--json"], workspace).stdout).toContain("shell.generic");
+    expect(runCli(["memory", "--json"], workspace).stdout).toContain("shell.generic");
   });
 });

@@ -3,20 +3,18 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
-  checkNestedShimResolution,
   checkPolicyLoadable,
-  checkStaleShimRows,
   evaluateWindowsPathNormalization,
   evaluateWindowsPathext,
   formatDoctorHuman,
   formatDoctorJson,
   optionalAgentCheck,
   resolveBenchmarkFile,
+  runDoctor,
   summarizeChecks,
   type DoctorReport,
 } from "../src/doctor.js";
 import { defaultPolicies, savePolicies } from "../src/policy.js";
-import { createGovernedSession } from "../src/shell.js";
 
 function fakeReport(): DoctorReport {
   const checks = [
@@ -118,22 +116,11 @@ describe("doctor diagnostics", () => {
     expect(check.status).toBe("PASS");
   });
 
-  it("reports nested shim resolution for a governed session", () => {
-    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-doctor-nested-shim-"));
-    const session = createGovernedSession(workspaceRoot);
-    const check = checkNestedShimResolution(session);
+  it("keeps the default doctor report free of shell runtime checks", async () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-doctor-shell-free-"));
+    const report = await runDoctor(workspaceRoot);
 
-    expect(check.id).toBe("shell.nested_shim_resolution");
-    expect(check.status).toBe("PASS");
-  });
-
-  it("reports stale shim rows for a governed session", () => {
-    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-doctor-stale-rows-"));
-    const session = createGovernedSession(workspaceRoot);
-    const check = checkStaleShimRows(session);
-
-    expect(check.id).toBe("shell.stale_shim_rows");
-    expect(check.status).toBe("PASS");
+    expect(report.checks.some((check) => check.section === "Shell Runtime")).toBe(false);
   });
 
   it("warns when default-origin policies are stale and missing current defaults", () => {

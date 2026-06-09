@@ -5,7 +5,6 @@ import { parseAction } from "./parser.js";
 import { resolveTargets } from "./resolver.js";
 import { analyzeRisk } from "./risk.js";
 import { matchLocalMemory } from "./local-memory.js";
-import { writeLocalLog } from "./local-logs.js";
 import { normalizeCommandPattern } from "./local-state.js";
 import type { Decision, LocalMemoryMatch, ParsedAction, ResolvedTargets, RiskResult } from "./types.js";
 
@@ -27,9 +26,7 @@ export interface PhaseOneCheckResult {
 }
 
 export function checkCommand(command: string, cwd = process.cwd()): PhaseOneCheckResult {
-  const result = inspectCommand(command, cwd, { applyMemory: true });
-  writeCheckLog(result, cwd);
-  return result;
+  return inspectCommand(command, cwd, { applyMemory: true });
 }
 
 export function inspectCommand(
@@ -117,24 +114,4 @@ function applyMemoryDecision(decision: Decision, matches: LocalMemoryMatch[]): D
 
 function uniqueSources(values: string[]): string[] {
   return [...new Set(values)];
-}
-
-function writeCheckLog(result: PhaseOneCheckResult, cwd: string): void {
-  writeLocalLog(
-    {
-      repo: result.targets.workspaceRoot.split(/[/\\]/).pop() ?? "unknown",
-      agent: process.env.TERMYTE_AGENT,
-      session_id: process.env.TERMYTE_SESSION_ID,
-      command: result.command,
-      normalized_command: result.normalized_command,
-      decision: result.decision,
-      action: result.decision,
-      risk: result.risk,
-      reason: result.reason,
-      matched_rules: result.matched_rules,
-      policy_sources: result.policy_sources,
-      memory_matches: result.memory_matches,
-    },
-    cwd,
-  );
 }

@@ -1,6 +1,5 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { GovernedRuntimeMetadata } from "./shell.js";
 
 export interface RunInvocation {
   dryRun: boolean;
@@ -13,11 +12,7 @@ export interface RunInvocation {
 
 export interface RuntimeProfile {
   name: string;
-  enabledShims: string[];
-  disabledShims: string[];
-  shellHooksEnabled: boolean;
-  shellHookStrategy: string;
-  knownCompatibilityNotes: string[];
+  notes: string[];
 }
 
 export interface AgentRunPlan {
@@ -41,10 +36,18 @@ export interface AgentExecutableResolution {
   resolvedExecutable: string | null;
 }
 
+export interface AgentRuntimeMetadata {
+  launchedVia: string;
+  runtimeProfile: string;
+  agentName: string;
+  agentCommand: string;
+  agentArgs: string[];
+  runtimeMode: string;
+  runtimeNotes: string[];
+  warnings: string[];
+}
+
 const SUPPORTED_AGENTS = ["codex", "claude", "claudecode"];
-const HIGH_VALUE_SHIMS = ["git", "npm", "pnpm", "yarn", "npx", "node", "python", "pip", "docker"];
-const SHELL_HOST_SHIMS = ["sh", "bash", "zsh", "pwsh", "powershell", "cmd"];
-const DEFAULT_SHIMS = [...HIGH_VALUE_SHIMS, ...SHELL_HOST_SHIMS];
 
 export function parseRunInvocation(args: string[]): RunInvocation {
   const dryRun = args.includes("--dry-run");
@@ -117,18 +120,15 @@ export function buildAgentRunPlan(options: {
   };
 }
 
-export function buildAgentRuntimeMetadata(plan: AgentRunPlan): GovernedRuntimeMetadata {
+export function buildAgentRuntimeMetadata(plan: AgentRunPlan): AgentRuntimeMetadata {
   return {
     launchedVia: "termyte-run",
     runtimeProfile: plan.runtimeProfile.name,
     agentName: plan.agentName,
     agentCommand: plan.resolvedExecutable,
     agentArgs: plan.agentArgs,
-    enabledShims: plan.runtimeProfile.enabledShims,
-    disabledShims: plan.runtimeProfile.disabledShims,
-    shellHooksEnabled: plan.runtimeProfile.shellHooksEnabled,
-    shellHookStrategy: plan.runtimeProfile.shellHookStrategy,
-    knownCompatibilityNotes: plan.runtimeProfile.knownCompatibilityNotes,
+    runtimeMode: "direct-launch",
+    runtimeNotes: plan.runtimeProfile.notes,
     warnings: plan.warnings,
   };
 }
@@ -141,9 +141,8 @@ export function formatAgentDryRunReport(plan: AgentRunPlan): string {
     `  profile: ${plan.runtimeProfile.name}`,
     `  resolved executable: ${plan.executableFound ? plan.resolvedExecutable : `${plan.agentName} (not found on PATH)`}`,
     ...(plan.resolvedAgentName !== plan.agentName ? [`  resolved alias: ${plan.agentName} -> ${plan.resolvedAgentName}`] : []),
-    `  enabled shims: ${plan.runtimeProfile.enabledShims.join(", ") || "none"}`,
-    `  disabled shims: ${plan.runtimeProfile.disabledShims.join(", ") || "none"}`,
-    `  shell hooks: ${plan.runtimeProfile.shellHooksEnabled ? "enabled" : "disabled"}`,
+    `  launch mode: direct`,
+    ...plan.runtimeProfile.notes.map((note) => `  note: ${note}`),
     ...plan.warnings.map((warning) => `  warning: ${warning}`),
   ].join("\n");
 }
@@ -179,24 +178,12 @@ export function resolveAgentExecutable(
 }
 
 export function resolveRuntimeProfile(agentName: string, platform: NodeJS.Platform = process.platform, profileName = "default"): RuntimeProfile {
-  if (profileName === "codex-windows" && agentName === "codex" && platform === "win32") {
-    return {
-      name: "codex-windows",
-      enabledShims: [...HIGH_VALUE_SHIMS],
-      disabledShims: [...SHELL_HOST_SHIMS],
-      shellHooksEnabled: false,
-      shellHookStrategy: "disabled",
-      knownCompatibilityNotes: ["Codex on Windows keeps command shims enabled and shell-host shims disabled."],
-    };
-  }
-
   return {
     name: profileName,
-    enabledShims: [...DEFAULT_SHIMS],
-    disabledShims: [],
-    shellHooksEnabled: true,
-    shellHookStrategy: "default",
-    knownCompatibilityNotes: [],
+    notes:
+      profileName === "codex-windows" && agentName === "codex" && platform === "win32"
+        ? ["Codex Windows profile is preserved as a launch label only; enforcement now lives in run -- and MCP."]
+        : ["Native hooks are optional adapters; Termyte no longer relies on shell shims for the default runtime."],
   };
 }
 

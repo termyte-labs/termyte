@@ -2,7 +2,7 @@
 
 ## System Overview
 
-Termyte has shared analysis primitives and two main decision paths:
+Termyte has shared analysis primitives and two primary governed decision paths:
 
 ```text
                          +--------------------+
@@ -12,40 +12,34 @@ command text ----------> | parser + resolver  |
                                     |
                     +---------------+----------------+
                     |                                |
-          stable check path                 experimental runtime path
-          YAML policy layers                SQLite semantic policy
-          exact JSONL memory                semantic SQLite memory
-          JSONL check event                 pending/finalized ledger
-          never executes                    may execute or intercept
+          direct check/runtime path          governed MCP tool path
+          SQLite policy + memory             same parser/risk/policy/memory
+          SQLite ledger entries              SQLite ledger entries
+          never executes on check            executes only when allowed
 ```
 
 The shared primitives are implemented in `parser.ts`, `resolver.ts`, and
-`risk.ts`. The check path starts in `check.ts`. The direct execution path starts
-in `runtime.ts`. The governed shell path starts in `shell.ts`.
+`risk.ts`. The check path starts in `runtime.ts` and `check.ts`. The direct
+execution gate starts in `runtime.ts`. The MCP gateway starts in `mcp.ts`.
 
-The launchable agent tool path starts in `mcp.ts`. It exposes Termyte-governed
-tools over stdio MCP and routes them through the same parser, target
-resolution, risk, policy, memory, and ledger logic used elsewhere.
+The direct agent launcher in `agent-runner.ts` is a convenience wrapper around
+the resolved agent executable. It does not enforce policy. Native Claude Code
+and Codex hooks remain optional adapters in `agent-hook.ts`.
 
 ## Stable Check Flow
 
 `termyte check "<command>"` uses this sequence:
 
-1. `checkCommand` calls `inspectCommand`.
-2. `parseAction` tokenizes and classifies the command.
-3. `resolveTargets` resolves and classifies visible targets.
-4. `analyzeRisk` creates the baseline decision, score, reason, and signals.
-5. `loadPhaseOnePolicies` loads built-in, global, and local YAML layers.
-6. `mergePhaseOnePolicies` combines every rule without allowing one layer to
-   erase another.
-7. `evaluatePhaseOnePolicy` matches rules and chooses the strongest decision
-   across risk plus matching rules.
-8. `matchLocalMemory` performs an exact normalized-command lookup.
-9. Unsafe memory upgrades `allow` to `warn`; it cannot weaken stronger results.
-10. `writeLocalLog` appends a redacted JSONL event.
-11. The CLI prints human or JSON output and exits nonzero only for `block`.
-
-The check path always returns `executed: false`.
+1. the CLI calls the runtime gate in dry-run mode;
+2. `parseAction` tokenizes and classifies the command;
+3. `resolveTargets` resolves and classifies visible targets;
+4. `analyzeRisk` creates the baseline decision, score, reason, and signals;
+5. the SQLite policy state is loaded and evaluated;
+6. semantic memory is consulted and included in the reason;
+7. a pending ledger row is created;
+8. the result is finalized without execution;
+9. memory is updated from the recorded outcome;
+10. the CLI prints JSON and exits nonzero only for `block`.
 
 ## Parser Logic
 
@@ -175,7 +169,7 @@ unsupported input is rejected without writing a file.
 
 ## SQLite Policy Enforcement
 
-The execution and shell paths use `policy_state` in `.termyte/termyte.db`.
+The direct runtime and MCP paths use `policy_state` in `.termyte/termyte.db`.
 This policy is a simpler pair of semantic-ID pattern lists:
 
 ```json
@@ -202,7 +196,7 @@ explicit.
 ### Non-Executing Check
 
 `termyte check` never executes any command. A block is represented by the
-decision and exit code `1`.
+decision and a non-zero exit code.
 
 ### Direct Runtime
 
@@ -218,45 +212,9 @@ then:
 `allow-once` can override warn or block except when resolved targets include
 protected targets, the home directory, or a filesystem root.
 
-### Governed Shell and Shims
-
-`termyte shell` creates `.termyte/sessions/<uuid>/shims`, writes shim scripts
-and a hash manifest, prepends the shim directory to `PATH`, starts a local
-socket or named-pipe guard, and optionally installs shell hooks.
-
-When a shimmed tool is invoked:
-
-1. the shim calls internal `termyte _shim`;
-2. `_shim` verifies local manifest integrity;
-3. `_shim` requests a guard decision;
-4. the guard rejects the wrong session ID, missing commands, or shim tampering;
-5. the guard analyzes the command and creates a pending ledger row;
-6. `block` returns without running the real executable;
-7. `warn` prompts the user;
-8. approved commands resolve the real executable from the original non-shim
-   `PATH`;
-9. the child runs with heartbeat updates;
-10. the shim sends the outcome for ledger finalization and memory observation.
-
-If the shim cannot contact the guard, it fails closed with exit code `126`.
-Shell hooks also fail closed when the guard is unavailable. Stale pending shim
-rows are recovered as failed records after their heartbeat becomes stale.
-
-This mechanism is interception, not containment. A process can bypass it by
-using an absolute executable path, an unshimmed tool, or another execution
-mechanism.
+There is no PATH shim or shell-hook interception in the default runtime path.
 
 ## Operational Memory
-
-### JSONL User Memory
-
-`mark-safe` and `mark-unsafe` store redacted, normalized exact command patterns
-in `.termyte/memory.jsonl`. New records of the same type and pattern replace
-older equivalent records.
-
-During `check`, exact unsafe matches upgrade only `allow` to `warn`. Exact safe
-matches are displayed but do not weaken any decision. `policy test` explicitly
-disables memory so it tests policy alone.
 
 ### SQLite Semantic Memory
 
@@ -273,14 +231,8 @@ Matching uses:
 
 Runtime memory matches are included in the risk narrative and ledger metadata.
 They currently do not upgrade or downgrade the final runtime decision.
-The legacy `_legacy-mark-safe <memory-id>` command lowers confidence and records
-a false positive.
 
 ## Logging, Ledger, and Replay
-
-The stable check log is append-only JSONL and stores the redacted command,
-decision, risk band, reason, matched rules, policy sources, memory matches, and
-optional agent/session environment context.
 
 The SQLite ledger stores pending and finalized runtime records. A record
 contains the redacted command, semantic ID, decision, risk, target summary,
@@ -288,37 +240,32 @@ execution status, exit code, stdout/stderr, environment variable keys, and
 structured metadata. Both `raw_command` and `redacted_command` receive the
 redacted value, so the original secret-bearing command is not retained.
 
-Replay formats ledger records chronologically and correlates shell-hook and
-shell-shim entries when correlation metadata is available.
+Replay formats ledger records chronologically and correlates records using the
+structured runtime metadata when it is available.
 
 ## Agent Launch Logic
 
 `termyte codex`, `termyte claude`, and `termyte run <agent>` launch supported
-agents through the same governed path.
+agents directly.
 `termyte run <agent>` accepts `codex`, `claude`, and `claudecode`; the
 top-level aliases cover the common agent names directly. Termyte resolves the
 executable from the original `PATH`; `claudecode` can fall back to `claude`.
 
-For Claude Code and Codex, `termyte install <agent>` writes local native hook
-configuration before launch. `termyte run <agent>` verifies that hook layer so
-native tool calls can route through `termyte agent hook <agent>`.
+For Claude Code and Codex, `termyte install <agent>` writes optional native
+hook configuration before launch. `termyte run <agent>` no longer depends on
+those hooks.
 
 Before launch, it:
 
 - finds the repository root;
-- ensures `.termyte` JSONL state is readable and writable;
-- loads YAML policy;
+- opens the local SQLite database;
 - creates a session ID;
-- displays an `intercepted` runtime banner;
-- calls `launchGovernedSession` with the resolved agent executable;
-- enables the selected runtime profile's command shims and shell hooks;
-- records agent launch metadata in the SQLite ledger.
+- displays a direct-launch runtime banner;
+- spawns the resolved agent executable directly;
+- passes through repository, database, and session environment variables.
 
-Agent child commands that hit supported shims or supported shell hooks pass
-through the guard before execution. This is still interception rather than
-containment: absolute executable paths, direct syscalls, unshimmed tools, direct
-API calls, and processes outside the inherited governed environment remain
-outside Termyte's current boundary.
+Agent child commands are not mediated by shell shims in the default runtime
+path. Governed command inspection happens in `run --` and MCP tool calls.
 
 ## MCP Gateway Logic
 
@@ -330,7 +277,7 @@ The MCP server exposes governed tools for:
 
 - Git status, diff, commit, push, and reset
 - filesystem read, write, patch, delete, and move
-- shell execution
+- arbitrary command execution
 - package install, run, and audit
 - policy explanation and approval requests
 - replay queries
@@ -377,23 +324,21 @@ persistence but is not a general secret scanner.
 ## Failure and Safety Behavior
 
 - Dangerous recognized actions fail closed when the decision is `block`.
-- Shim and hook guard-connection failures fail closed.
+- Optional native hook adapter failures fail closed.
 - Invalid present YAML policy files fail agent preparation and checks.
 - Memory-update failures do not undo an already completed runtime result; they
   are written to stderr.
 - Missing optional tools are doctor warnings, not failures.
-- Missing required runtime pieces or failed shim smoke checks are doctor
+- Missing required runtime pieces are doctor
   failures.
 
 ## Known Gaps
 
-- Two policy systems and two memory/log systems coexist.
-- `run <agent>` is intercepted for supported shim/hook paths but is not a full
-  sandbox.
+- Two policy systems remain for runtime policy and authoring/policy testing.
+- `run <agent>` is a direct launcher and not a policy gate.
 - Generic shell fallback allows unknown patterns.
 - Detailed target resolution is primarily for filesystem deletes.
 - YAML parsing supports a constrained subset, not arbitrary YAML.
-- Interception cannot guarantee full process-tree coverage.
 - Ledger storage is local but not tamper resistant.
 - `ask` is supported in YAML checks, but the direct runtime approval logic only
   prompts for `warn`; SQLite runtime policy does not emit `ask`.

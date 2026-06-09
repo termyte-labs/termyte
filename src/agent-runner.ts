@@ -1,26 +1,18 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { buildAgentRuntimeMetadata, type AgentRunPlan } from "./agent.js";
-import { formatAgentHookVerification, isNativeHookAgent, verifyAgentHooks } from "./agent-hook.js";
-import { listLocalLogs } from "./local-logs.js";
-import { listLocalMemory } from "./local-memory.js";
-import { ensureLocalStateDir, type LocalStatePaths } from "./local-state.js";
-import { loadPhaseOnePolicies } from "./policy-loader.js";
-import { mergePhaseOnePolicies, type EffectivePhaseOnePolicy } from "./policy-merge.js";
-import { launchGovernedSession } from "./shell.js";
+import { spawn } from "node:child_process";
+import { defaultDbPath, openDatabase } from "./db.js";
+import type { AgentRunPlan } from "./agent.js";
 
-export type AgentRuntimeMode = "limited" | "intercepted" | "unavailable";
+export type AgentRuntimeMode = "direct" | "unavailable";
 
 export interface AgentRunReadiness {
   repoRoot: string;
   repoName: string;
   insideGitRepo: boolean;
   sessionId: string;
-  state: LocalStatePaths;
-  policy: EffectivePhaseOnePolicy;
-  logs: "enabled";
-  memory: "enabled";
+  dbPath: string;
   runtimeMode: AgentRuntimeMode;
 }
 
@@ -34,14 +26,6 @@ export async function runAgent(plan: AgentRunPlan): Promise<AgentRunResult> {
   if (!plan.executableFound) {
     process.stderr.write(`${formatMissingAgentError(plan)}\n`);
     return { exitCode: 1, launched: false };
-  }
-
-  if (isNativeHookAgent(plan.resolvedAgentName)) {
-    const hookVerification = verifyAgentHooks(plan.resolvedAgentName, detectRepository(plan.workspaceRoot).repoRoot);
-    if (!hookVerification.ok) {
-      process.stderr.write(`${formatAgentHookVerification(hookVerification)}\n`);
-      return { exitCode: 1, launched: false };
-    }
   }
 
   let readiness: AgentRunReadiness;
@@ -59,18 +43,14 @@ export async function runAgent(plan: AgentRunPlan): Promise<AgentRunResult> {
 
 export function prepareAgentRun(cwd: string): AgentRunReadiness {
   const repository = detectRepository(cwd);
-  const state = ensureLocalStateDir(repository.repoRoot);
-  assertStateReady(state);
-  const policy = mergePhaseOnePolicies(loadPhaseOnePolicies(repository.repoRoot));
+  const dbPath = defaultDbPath(repository.repoRoot);
+  openDatabase(dbPath);
 
   return {
     ...repository,
     sessionId: createSessionId(),
-    state,
-    policy,
-    logs: "enabled",
-    memory: "enabled",
-    runtimeMode: "intercepted",
+    dbPath,
+    runtimeMode: "direct",
   };
 }
 
@@ -103,43 +83,24 @@ export function formatMissingAgentError(plan: AgentRunPlan): string {
 }
 
 export function formatAgentStartupBanner(plan: AgentRunPlan, readiness: AgentRunReadiness): string {
-  const layer = (name: "global" | "local"): string =>
-    readiness.policy.layers.find((candidate) => candidate.name === name)?.loaded ? "active" : "none";
-  const builtIn = readiness.policy.layers.find((candidate) => candidate.name === "built-in")?.presets ?? [];
-
   return [
-    "Termyte Safe Runtime",
+    "Termyte Agent Launcher",
     "",
     `Repo: ${readiness.repoName}`,
     `Agent: ${plan.agentName}`,
     `Session: ${readiness.sessionId}`,
     "",
-    "Policy:",
-    `  built-in: ${builtIn.join(", ") || "none"}`,
-    `  global: ${layer("global")}`,
-    `  local: ${layer("local")}`,
+    `Database: ${readiness.dbPath}`,
     "",
-    "State:",
-    `  logs: ${readiness.logs}`,
-    `  memory: ${readiness.memory}`,
-    "",
-    "Runtime mode:",
+    "Launch mode:",
     `  ${readiness.runtimeMode}`,
     "",
     "Note:",
-    "  Termyte is launching the agent inside a governed session.",
-    "  Supported subprocess tools route through local policy, approvals, and ledger.",
-    "  This is interception, not a full OS sandbox.",
+    "  This is a direct launch. Governed command inspection lives in `termyte run -- <command>` and `termyte mcp serve`.",
     "",
     "Running:",
     `  ${plan.resolvedAgentName}`,
   ].join("\n");
-}
-
-function assertStateReady(state: LocalStatePaths): void {
-  fs.accessSync(state.stateDir, fs.constants.R_OK | fs.constants.W_OK);
-  listLocalLogs(state.cwd);
-  listLocalMemory(state.cwd);
 }
 
 function createSessionId(): string {
@@ -147,19 +108,36 @@ function createSessionId(): string {
 }
 
 async function launchAgentProcess(plan: AgentRunPlan, readiness: AgentRunReadiness): Promise<number> {
-  try {
-    return await launchGovernedSession({
-      workspaceRoot: readiness.repoRoot,
-      sessionId: readiness.sessionId,
-      agentArgs: [plan.resolvedExecutable, ...plan.agentArgs],
-      shimTools: plan.runtimeProfile.enabledShims,
-      shellHooksEnabled: plan.runtimeProfile.shellHooksEnabled,
-      runtimeMetadata: buildAgentRuntimeMetadata(plan),
+  const env = {
+    ...process.env,
+    TERMYTE_AGENT: plan.resolvedAgentName,
+    TERMYTE_DB_PATH: readiness.dbPath,
+    TERMYTE_RUN: "1",
+    TERMYTE_SESSION_ID: readiness.sessionId,
+    TERMYTE_WORKSPACE: readiness.repoRoot,
+  };
+
+  return await new Promise<number>((resolve) => {
+    const child = spawn(plan.resolvedExecutable, plan.agentArgs, {
+      cwd: readiness.repoRoot,
+      env,
+      stdio: "inherit",
+      shell: process.platform === "win32",
     });
-  } catch (error) {
-    process.stderr.write(`Termyte could not start the governed agent runtime: ${plan.agentName}\n${errorMessage(error)}\n\nTry:\n  termyte doctor\n`);
-    return 1;
-  }
+
+    child.once("error", (error) => {
+      process.stderr.write(`Termyte could not start the agent launcher: ${plan.agentName}\n${errorMessage(error)}\n`);
+      resolve(1);
+    });
+    child.once("exit", (code, signal) => {
+      if (signal) {
+        process.stderr.write(`Termyte agent launcher exited on signal ${signal}.\n`);
+        resolve(1);
+        return;
+      }
+      resolve(code ?? 1);
+    });
+  });
 }
 
 function errorMessage(error: unknown): string {

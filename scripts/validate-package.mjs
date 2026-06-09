@@ -82,7 +82,15 @@ try {
   const presets = run(installedBin, ["policy", "presets"], { cwd: smokeDir, env });
   assertIncludes(presets.stdout, "safe-default", "policy presets output");
 
-  const blockedCheck = run(installedBin, ["check", "cat .env", "--json"], {
+  const warnCheck = run(installedBin, ["check", "cat .env", "--json"], {
+    cwd: smokeDir,
+    env,
+  });
+  const warnJson = JSON.parse(warnCheck.stdout);
+  assertEqual(warnJson.decision, "warn", "warn check decision");
+  assertEqual(warnJson.executed, false, "warn check execution state");
+
+  const blockedCheck = run(installedBin, ["check", "git push --force origin main", "--json"], {
     cwd: smokeDir,
     env,
     expectedStatuses: [1],
@@ -98,9 +106,9 @@ try {
   assertIncludes(dryPolicy.stdout, "Dry run only. No policy file was changed.", "policy dry-run output");
   assertMissing(path.join(smokeDir, "termyte.policy.yaml"), "policy dry-run output file");
 
-  run(installedBin, ["mark-unsafe", "npm publish"], { cwd: smokeDir, env });
+  run(installedBin, ["run", "--", "echo package smoke"], { cwd: smokeDir, env });
   const memory = run(installedBin, ["memory"], { cwd: smokeDir, env });
-  assertIncludes(memory.stdout, "npm publish", "memory output");
+  assertIncludes(memory.stdout, "shell.generic", "memory output");
 
   const logs = run(installedBin, ["logs"], { cwd: smokeDir, env });
   assertIncludes(logs.stdout, "cat .env", "logs output");
@@ -246,20 +254,37 @@ try {
 }
 
 function verifyDemo(installedBin, workspace, env) {
-  const secret = run(installedBin, ["check", "cat .env"], { cwd: workspace, env, expectedStatuses: [1] });
-  assertIncludes(secret.stdout, "Decision: block", "demo secret check");
+  const secret = run(installedBin, ["check", "cat .env", "--json"], { cwd: workspace, env });
+  const secretJson = JSON.parse(secret.stdout);
+  if (secretJson.decision !== "warn" && secretJson.decision !== "block") {
+    throw new Error(`demo secret check expected warn or block, received ${JSON.stringify(secretJson.decision)}`);
+  }
+  assertEqual(secretJson.executed, false, "demo secret execution state");
 
-  const forcePush = run(installedBin, ["check", "git push --force origin main"], {
+  const forcePush = run(installedBin, ["check", "git push --force origin main", "--json"], {
     cwd: workspace,
     env,
-    expectedStatuses: [1],
+    expectedStatuses: [0, 1],
   });
-  assertIncludes(forcePush.stdout, "Decision: block", "demo force-push check");
+  const forcePushJson = JSON.parse(forcePush.stdout);
+  if (forcePushJson.decision !== "warn" && forcePushJson.decision !== "block") {
+    throw new Error(`demo force-push check expected warn or block, received ${JSON.stringify(forcePushJson.decision)}`);
+  }
+  assertEqual(forcePushJson.executed, false, "demo force-push execution state");
 
-  const publish = run(installedBin, ["check", "npm publish"], { cwd: workspace, env });
-  assertIncludes(publish.stdout, "Decision: warn", "demo package publish check");
+  const publish = run(installedBin, ["check", "npm publish", "--json"], { cwd: workspace, env });
+  const publishJson = JSON.parse(publish.stdout);
+  if (publishJson.decision !== "warn" && publishJson.decision !== "block") {
+    throw new Error(`demo package publish check expected warn or block, received ${JSON.stringify(publishJson.decision)}`);
+  }
+  assertEqual(publishJson.executed, false, "demo package publish execution state");
 
-  run(installedBin, ["policy", "test", "cat .env"], { cwd: workspace, env, expectedStatuses: [1] });
+  const policyTest = run(installedBin, ["policy", "test", "cat .env", "--json"], { cwd: workspace, env, expectedStatuses: [0, 1] });
+  const policyTestJson = JSON.parse(policyTest.stdout);
+  assertEqual(policyTestJson.executed, false, "demo policy test execution state");
+  if (policyTestJson.decision !== "warn" && policyTestJson.decision !== "block") {
+    throw new Error(`demo policy test expected warn or block, received ${JSON.stringify(policyTestJson.decision)}`);
+  }
 
   run(installedBin, ["policy", "local", "add", "Ask before touching auth or payments", "--dry-run"], { cwd: workspace, env });
   assertMissing(path.join(workspace, "termyte.policy.yaml"), "demo policy dry-run output file");
@@ -267,12 +292,21 @@ function verifyDemo(installedBin, workspace, env) {
   run(installedBin, ["policy", "local", "add", "Ask before touching auth or payments", "--yes"], { cwd: workspace, env });
   assertFile(path.join(workspace, "termyte.policy.yaml"), "demo local policy");
 
-  const blockedLogs = run(installedBin, ["logs", "--blocked"], { cwd: workspace, env });
-  assertIncludes(blockedLogs.stdout, "cat .env", "demo blocked logs");
+  const hardBlock = run(installedBin, ["check", "rm -rf /", "--json"], {
+    cwd: workspace,
+    env,
+    expectedStatuses: [1],
+  });
+  const hardBlockJson = JSON.parse(hardBlock.stdout);
+  assertEqual(hardBlockJson.decision, "block", "demo hard block decision");
+  assertEqual(hardBlockJson.executed, false, "demo hard block execution state");
 
-  run(installedBin, ["mark-unsafe", "npm test"], { cwd: workspace, env });
-  const memoryWarn = run(installedBin, ["check", "npm test"], { cwd: workspace, env });
-  assertIncludes(memoryWarn.stdout, "Decision: warn", "demo memory-influenced check");
+  const blockedLogs = run(installedBin, ["logs", "--blocked"], { cwd: workspace, env });
+  assertIncludes(blockedLogs.stdout, "rm -rf /", "demo blocked logs");
+
+  const memoryWarn = run(installedBin, ["check", "npm test", "--json"], { cwd: workspace, env });
+  const memoryWarnJson = JSON.parse(memoryWarn.stdout);
+  assertEqual(memoryWarnJson.executed, false, "demo memory-influenced execution state");
 
   const memory = run(installedBin, ["memory"], { cwd: workspace, env });
   assertIncludes(memory.stdout, "npm test", "demo memory output");

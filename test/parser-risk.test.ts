@@ -215,6 +215,31 @@ describe("runtime parsing and risk", () => {
     expect(memory.list(1)[0]?.totalCount).toBe(1);
   });
 
+  it("blocks dangerous commands before any side effect runs", async () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-blocked-side-effect-"));
+    const dbPath = path.join(workspaceRoot, "termyte.db");
+    const sentinel = path.join(workspaceRoot, "BLOCKED_SIDE_EFFECT.txt");
+    const sideEffect = process.platform === "win32"
+      ? `node -e "require('fs').writeFileSync('${sentinel.replace(/\\/g, "\\\\")}', 'x')"`
+      : `node -e "require('fs').writeFileSync('${sentinel.replace(/'/g, "'\\''")}', 'x')"`; // keep the command shell-safe for both platforms
+
+    const result = await runRuntime({
+      command: `git push --force origin main && ${sideEffect}`,
+      cwd: workspaceRoot,
+      dbPath,
+      approval: async () => true,
+      env: { ...process.env },
+    });
+
+    const ctx = openDatabase(dbPath);
+    const ledger = new Ledger(ctx.db);
+
+    expect(result.decision).toBe("block");
+    expect(result.wasExecuted).toBe(false);
+    expect(fs.existsSync(sentinel)).toBe(false);
+    expect(ledger.listLatest(1)[0]?.decision).toBe("block");
+  });
+
   it("redacts secrets before ledger persistence", async () => {
     const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-redact-"));
     const dbPath = path.join(workspaceRoot, "termyte.db");

@@ -24,16 +24,12 @@ import {
   validatePolicySet,
   type PolicySet,
 } from "./policy.js";
-import { interceptHook, interceptShim, launchGovernedSession } from "./shell.js";
 import { formatDoctorHuman, formatDoctorJson, runDoctor } from "./doctor.js";
 import type { Decision } from "./types.js";
 import { buildAgentRunPlan, formatAgentDryRunReport, isSupportedAgentName, parseRunInvocation } from "./agent.js";
 import { formatAgentInstallResult, formatAgentUninstallResult, installAgentHooks, isNativeHookAgent, runAgentHookCli, uninstallAgentHooks } from "./agent-hook.js";
 import { runAgent } from "./agent-runner.js";
-import { checkCommand, formatCheckHuman } from "./check.js";
-import { buildPolicyAddPlan, formatPolicyPresets, formatPolicyShow, runPolicyTest, savePolicyAddPlan, slimCheckResult } from "./policy-cli.js";
-import { formatLocalLogsHuman, listLocalLogs } from "./local-logs.js";
-import { formatLocalMemoryHuman, listLocalMemory, storeLocalMemory } from "./local-memory.js";
+import { buildPolicyAddPlan, formatPolicyPresets, formatPolicyShow, runPolicyTest, savePolicyAddPlan } from "./policy-cli.js";
 import { runGovernanceBenchmarks, runLegacyBenchmarks } from "./benchmark.js";
 import { formatMcpInstall, runMcpServer } from "./mcp.js";
 import { formatRuntimeProofHuman, runRuntimeProof } from "./proof.js";
@@ -46,10 +42,8 @@ function printUsage(): void {
   termyte policy test [--json] "<command>"
   termyte policy global add "<natural language rule>" [--dry-run|--yes]
   termyte policy local add "<natural language rule>" [--dry-run|--yes]
-  termyte logs [--blocked] [--warned] [--agent <agent>] [--today] [--json]
-  termyte memory
-  termyte mark-safe "<command>"
-  termyte mark-unsafe "<command>"
+  termyte logs [--limit <n>] [--json]
+  termyte memory [--limit <n>] [--json]
   termyte <codex|claude|claudecode> [...args]
   termyte run [--dry-run] [--profile <profile>] <agent> [...args]
   termyte run [--dry-run] -- <command>
@@ -73,7 +67,6 @@ function printUsage(): void {
   termyte policies export [--file <path>]
   termyte policies import <path>
   termyte policies validate <path>
-  termyte shell [-- <agent>]
   termyte inspect [--json] -- <command>`);
 }
 
@@ -82,16 +75,6 @@ function parseLimit(args: string[]): number {
   if (index === -1) return 50;
   const value = Number(args[index + 1]);
   return Number.isFinite(value) && value > 0 ? Math.floor(value) : 50;
-}
-
-function parseLogsFilters(args: string[]): { blocked?: boolean; warned?: boolean; agent?: string; today?: boolean } {
-  const agentIndex = args.indexOf("--agent");
-  return {
-    blocked: args.includes("--blocked"),
-    warned: args.includes("--warned"),
-    agent: agentIndex >= 0 ? args[agentIndex + 1] : undefined,
-    today: args.includes("--today"),
-  };
 }
 
 function hasJsonFlag(args: string[]): boolean {
@@ -199,11 +182,6 @@ function hasYesFlag(args: string[]): boolean {
   return args.includes("--yes") || args.includes("-y");
 }
 
-function argsAfterDoubleDash(args: string[]): string[] {
-  const separatorIndex = args.indexOf("--");
-  return separatorIndex >= 0 ? args.slice(separatorIndex + 1) : args.slice(1);
-}
-
 async function main(): Promise<number> {
   const args = process.argv.slice(2);
   const command = args[0];
@@ -285,12 +263,21 @@ async function main(): Promise<number> {
       return 1;
     }
     try {
-      const result = checkCommand(rawCommand, cwd);
-      if (hasJsonFlag(args)) {
-        console.log(toJson(slimCheckResult(result)));
-      } else {
-        console.log(formatCheckHuman(result));
-      }
+      const result = await runRuntime({
+        command: rawCommand,
+        cwd,
+        dbPath,
+        dryRun: true,
+        env: process.env,
+      });
+      console.log(toJson({
+        command: rawCommand,
+        decision: result.decision,
+        semantic_id: result.semanticId,
+        reason: result.reason,
+        ledger_id: result.ledgerId,
+        executed: false,
+      }));
       return result.decision === "block" ? 1 : 0;
     } catch (error) {
       console.error(error instanceof Error ? error.message : String(error));
@@ -300,11 +287,13 @@ async function main(): Promise<number> {
 
   if (command === "logs") {
     try {
-      const events = listLocalLogs(cwd, parseLogsFilters(args.slice(1)));
+      const dbContext = openDatabase(dbPath);
+      const ledger = new Ledger(dbContext.db);
+      const records = ledger.listLatest(parseLimit(args));
       if (hasJsonFlag(args)) {
-        console.log(toJson(events));
+        console.log(toJson(records));
       } else {
-        console.log(formatLocalLogsHuman(events));
+        console.log(formatLedger(records));
       }
       return 0;
     } catch (error) {
@@ -315,28 +304,14 @@ async function main(): Promise<number> {
 
   if (command === "memory") {
     try {
-      const records = listLocalMemory(cwd);
+      const dbContext = openDatabase(dbPath);
+      const memory = new MemoryEngine(dbContext.db);
+      const records = memory.list(parseLimit(args));
       if (hasJsonFlag(args)) {
         console.log(toJson(records));
       } else {
-        console.log(formatLocalMemoryHuman(records));
+        console.log(formatMemory(records));
       }
-      return 0;
-    } catch (error) {
-      console.error(error instanceof Error ? error.message : String(error));
-      return 1;
-    }
-  }
-
-  if (command === "mark-safe" || command === "mark-unsafe") {
-    const rawCommand = commandArgument(args, 1);
-    if (!rawCommand) {
-      console.error(`Usage: termyte ${command} "<command>"`);
-      return 1;
-    }
-    try {
-      const stored = storeLocalMemory(command === "mark-safe" ? "safe" : "unsafe", rawCommand, cwd);
-      console.log(`${command === "mark-safe" ? "Marked safe" : "Marked unsafe"}:\n  ${stored.pattern}`);
       return 0;
     } catch (error) {
       console.error(error instanceof Error ? error.message : String(error));
@@ -505,27 +480,6 @@ async function main(): Promise<number> {
     return (await runAgent(plan)).exitCode;
   }
 
-  if (command === "shell") {
-    if (args.includes("-h") || args.includes("--help")) {
-      console.log(`Usage:
-  termyte shell
-  termyte shell -- <command>`);
-      return 0;
-    }
-
-    const agentArgs = argsAfterDoubleDash(args);
-    if (agentArgs.length === 0 && (!process.stdin.isTTY || !process.stdout.isTTY)) {
-      console.error("termyte shell requires an interactive terminal.");
-      return 1;
-    }
-
-    const exitCode = await launchGovernedSession({
-      workspaceRoot: cwd,
-      agentArgs: agentArgs.length > 0 ? agentArgs : undefined,
-    });
-    return exitCode;
-  }
-
   if (command === "allow-once") {
     const rawCommand = commandAfterDoubleDash(args);
     if (!rawCommand) {
@@ -580,28 +534,6 @@ async function main(): Promise<number> {
       console.log(formatRuntimeProofHuman(report));
     }
     return report.summary.fail > 0 ? 1 : 0;
-  }
-
-  if (command === "_legacy-mark-safe") {
-    const memoryIdValue = Number(args[1]);
-    if (!Number.isInteger(memoryIdValue) || memoryIdValue <= 0) {
-      console.error("Usage: termyte mark-safe <memory-id>");
-      return 1;
-    }
-
-    const dbContext = openDatabase(dbPath);
-    const memory = new MemoryEngine(dbContext.db);
-
-    const updated = memory.markSafe(memoryIdValue);
-    if (!updated) {
-      console.error(`No memory entry found for id ${memoryIdValue}.`);
-      return 1;
-    }
-
-    console.log(
-      `Marked memory ${updated.memoryId} as safe. confidence=${updated.confidence.toFixed(2)} false_positive_count=${updated.falsePositiveCount}`,
-    );
-    return 0;
   }
 
   if (command === "bench") {
@@ -815,26 +747,6 @@ async function main(): Promise<number> {
 
     console.error("Usage: termyte policies [--json] | status | defaults | reset | set | add | remove | export | import | validate");
     return 0;
-  }
-
-  if (command === "_shim") {
-    const tool = args[1];
-    if (!tool) {
-      console.error("Missing shim tool name.");
-      return 1;
-    }
-    const toolArgs = args.slice(2);
-    return interceptShim(tool, toolArgs);
-  }
-
-  if (command === "_hook") {
-    const shell = args[1];
-    const commandLine = args.slice(2).join(" ");
-    if (!shell || !commandLine) {
-      console.error("Missing hook shell or command line.");
-      return 126;
-    }
-    return await interceptHook(shell, commandLine);
   }
 
   printUsage();
