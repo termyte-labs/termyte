@@ -258,6 +258,8 @@ async function callTool(name: string, args: Record<string, unknown>, cwd: string
       finalDecision: inspection.finalDecision,
       semanticId: inspection.action.semanticId,
       reason: inspection.finalReason,
+      safeAlternative: inspection.safeAlternative,
+      matchedPolicies: inspection.matchedPolicies ?? inspection.policy.matchedPolicies ?? [inspection.policy.matchedRule].filter(Boolean),
       targets: inspection.targets,
       risk: inspection.risk,
       policy: inspection.policy,

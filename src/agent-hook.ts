@@ -3,15 +3,17 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
 import { defaultDbPath, openDatabase } from "./db.js";
 import { Ledger } from "./ledger.js";
 import { MemoryEngine } from "./memory.js";
-import { inspectAction } from "./runtime.js";
-import { redactCommand, redactEnvKeys } from "./redact.js";
+import { redactEnvKeys } from "./redact.js";
 import type { Decision, ExecutionOutcome } from "./types.js";
+import { normalizeHookAction, type HookAgent, type HookPhase } from "./action-model.js";
+import { evaluateAction, evaluationDecisionForHook, shouldBlockMcpTool } from "./evaluator.js";
 
-export type NativeHookAgent = "claude" | "codex";
-export type NativeHookPhase = "pre" | "post";
+export type NativeHookAgent = HookAgent;
+export type NativeHookPhase = HookPhase;
 
 export interface NativeHookInvocation {
   agent: NativeHookAgent;
@@ -36,6 +38,7 @@ export interface AgentInstallResult {
   agent: NativeHookAgent;
   path: string;
   installed: boolean;
+  active: boolean;
   message: string;
 }
 
@@ -53,7 +56,7 @@ export interface AgentHookVerification {
   reasons: string[];
 }
 
-const HOOK_MATCHER = "Bash|Edit|Write|Read|Glob|Grep|Agent|WebFetch|WebSearch|apply_patch|mcp__.*";
+const HOOK_MATCHER = "Bash|Read|Write|Edit|MultiEdit|WebFetch|WebSearch|mcp__.*";
 const CLAUDE_HOOK_ID = "agent hook claude";
 const CLAUDE_POST_HOOK_ID = "agent hook claude --post";
 const CODEX_HOOK_ID = "agent hook codex";
@@ -67,10 +70,6 @@ function safeString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value : undefined;
 }
 
-function hookPayloadHash(input: string): string {
-  return crypto.createHash("sha256").update(input).digest("hex");
-}
-
 function readJson(input: string): Record<string, unknown> {
   const parsed = JSON.parse(input) as unknown;
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
@@ -79,125 +78,68 @@ function readJson(input: string): Record<string, unknown> {
   return parsed as Record<string, unknown>;
 }
 
-function shellQuote(value: string): string {
-  if (process.platform === "win32") {
-    return `'${value.replace(/'/g, "''")}'`;
-  }
-  return `'${value.replace(/'/g, `'\\''`)}'`;
-}
-
-function commandQuote(value: string): string {
-  const normalized = process.platform === "win32" ? value.replace(/\\/g, "/") : value;
-  if (process.platform === "win32") {
-    return `"${normalized.replace(/"/g, '\\"')}"`;
-  }
-  return `"${normalized.replace(/(["\\$`])/g, "\\$1")}"`;
-}
-
 function currentCliPath(): string {
   const moduleDir = path.dirname(fileURLToPath(import.meta.url));
-  const distCli = path.join(moduleDir, "cli.js");
-  if (fs.existsSync(distCli)) {
-    return distCli;
+  const candidates = [
+    path.join(moduleDir, "cli.js"),
+    path.resolve(moduleDir, "..", "dist", "cli.js"),
+    path.resolve(process.cwd(), "dist", "cli.js"),
+  ];
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
   }
 
-  const repoDistCli = path.resolve(moduleDir, "..", "dist", "cli.js");
-  if (fs.existsSync(repoDistCli)) {
-    return repoDistCli;
-  }
-
-  return path.resolve(moduleDir, "cli.js");
+  return candidates[0];
 }
 
 function nodeHookCommand(hookId: string): string {
   const cliPath = currentCliPath();
-  if (!fs.existsSync(cliPath) || path.basename(cliPath) !== "cli.js" || path.basename(path.dirname(cliPath)) !== "dist") {
-    throw new Error(`Built Termyte CLI is missing. Run: npm run build`);
+  if (!fs.existsSync(cliPath)) {
+    throw new Error("Built Termyte CLI is missing. Run: npm run build");
   }
-  return `${commandQuote(process.execPath)} ${commandQuote(cliPath)} ${hookId}`;
+  return `${quote(process.execPath)} ${quote(cliPath)} ${hookId}`;
 }
 
-function commandFromHookPayload(payload: Record<string, unknown>): string {
-  const toolName = safeString(payload.tool_name) ?? safeString(payload.toolName) ?? "unknown";
-  const toolInput = safeObject(payload.tool_input ?? payload.toolInput ?? payload.input);
-
-  if (toolName === "Bash") {
-    return safeString(toolInput.command) ?? "";
+function quote(value: string): string {
+  if (process.platform === "win32") {
+    return `"${value.replace(/"/g, '\\"')}"`;
   }
-
-  if (toolName === "Read") {
-    const filePath = safeString(toolInput.file_path ?? toolInput.path);
-    return filePath ? `Get-Content -LiteralPath ${shellQuote(filePath)}` : "Get-Content";
-  }
-
-  if (toolName === "Write") {
-    const filePath = safeString(toolInput.file_path ?? toolInput.path);
-    return filePath ? `Set-Content -LiteralPath ${shellQuote(filePath)} -Value [REDACTED]` : "Set-Content";
-  }
-
-  if (toolName === "Edit" || toolName === "MultiEdit" || toolName === "apply_patch") {
-    const filePath = safeString(toolInput.file_path ?? toolInput.path);
-    return filePath ? `Set-Content -LiteralPath ${shellQuote(filePath)} -Value [REDACTED]` : "apply_patch";
-  }
-
-  if (toolName === "Glob" || toolName === "Grep") {
-    const pattern = safeString(toolInput.pattern) ?? safeString(toolInput.glob) ?? "";
-    const targetPath = safeString(toolInput.path ?? toolInput.cwd) ?? ".";
-    return `${toolName.toLowerCase()} ${shellQuote(pattern || targetPath)}`;
-  }
-
-  if (toolName.startsWith("mcp__")) {
-    return `mcp ${toolName}`;
-  }
-
-  return `${toolName} ${JSON.stringify(redactHookMetadata(toolInput))}`;
+  return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
-function redactHookMetadata(value: unknown): unknown {
-  if (typeof value === "string") {
-    return redactCommand(value);
-  }
-  if (Array.isArray(value)) {
-    return value.map((entry) => redactHookMetadata(entry));
-  }
-  if (!value || typeof value !== "object") {
-    return value;
-  }
-  const redacted: Record<string, unknown> = {};
-  for (const [key, rawValue] of Object.entries(value)) {
-    if (/(token|secret|password|authorization|bearer|api[_-]?key|credential)/i.test(key)) {
-      redacted[key] = "[REDACTED]";
-    } else {
-      redacted[key] = redactHookMetadata(rawValue);
-    }
-  }
-  return redacted;
+function payloadHash(input: string): string {
+  return crypto.createHash("sha256").update(input).digest("hex");
 }
 
-function responseDecision(decision: Decision): "allow" | "deny" | "ask" {
-  if (decision === "block") return "deny";
-  if (decision === "warn" || decision === "ask") return "ask";
-  return "allow";
+function toolCallId(payload: Record<string, unknown>): string | undefined {
+  return safeString(payload.tool_call_id)
+    ?? safeString(payload.toolCallId)
+    ?? safeString(payload.tool_use_id)
+    ?? safeString(payload.toolUseId)
+    ?? safeString(payload.commandCorrelationId)
+    ?? safeString(payload.id);
 }
 
 function hookEventName(payload: Record<string, unknown>, phase: NativeHookPhase): string {
-  return safeString(payload.hook_event_name ?? payload.hookEventName)
-    ?? (phase === "post" ? "PostToolUse" : "PreToolUse");
+  return safeString(payload.hook_event_name ?? payload.hookEventName) ?? (phase === "post" ? "PostToolUse" : "PreToolUse");
 }
 
-function shouldFailClosedSensitiveMutation(toolName: string, targets: { sensitiveTargets: string[]; protectedTargets: string[] }): boolean {
-  return ["Write", "Edit", "MultiEdit", "apply_patch"].includes(toolName)
-    && (targets.sensitiveTargets.length > 0 || targets.protectedTargets.length > 0);
-}
+function hookResponse(agent: NativeHookAgent, eventName: string, decision: Decision, reason: string, ledgerId?: number, safeAlternative?: string): string {
+  if (decision === "allow") {
+    return "";
+  }
 
-export function formatAgentHookResponse(agent: NativeHookAgent, eventName: string, decision: Decision, reason: string, ledgerId?: number): string {
   if (agent === "claude") {
-    const permissionDecision = responseDecision(decision);
+    const permissionDecision = evaluationDecisionForHook(decision);
     return `${JSON.stringify({
       hookSpecificOutput: {
         hookEventName: eventName,
         permissionDecision,
         permissionDecisionReason: `Termyte ${decision}: ${reason}`,
+        ...(safeAlternative ? { safeAlternative } : {}),
       },
       termyte: {
         decision,
@@ -206,17 +148,18 @@ export function formatAgentHookResponse(agent: NativeHookAgent, eventName: strin
     })}\n`;
   }
 
-  if (decision === "allow") {
-    return "{}\n";
+  if (decision === "warn" || decision === "ask") {
+    return `${JSON.stringify({
+      systemMessage: `Termyte ${decision}: ${reason}${safeAlternative ? ` Safe alternative: ${safeAlternative}` : ""}`,
+    })}\n`;
   }
-  if (decision === "warn") {
-    return `${JSON.stringify({ systemMessage: `Termyte warn: ${reason}` })}\n`;
-  }
+
   return `${JSON.stringify({
     hookSpecificOutput: {
       hookEventName: eventName,
       permissionDecision: "deny",
       permissionDecisionReason: `Termyte block: ${reason}`,
+      ...(safeAlternative ? { safeAlternative } : {}),
     },
     termyte: {
       decision,
@@ -228,11 +171,186 @@ export function formatAgentHookResponse(agent: NativeHookAgent, eventName: strin
 function blockedFailure(agent: NativeHookAgent, phase: NativeHookPhase, reason: string, command = ""): NativeHookResult {
   return {
     exitCode: 0,
-    stdout: formatAgentHookResponse(agent, phase === "post" ? "PostToolUse" : "PreToolUse", "block", reason),
+    stdout: hookResponse(agent, phase === "post" ? "PostToolUse" : "PreToolUse", "block", reason),
     stderr: "",
     decision: "block",
     command,
     reason,
+  };
+}
+
+function outcomeFromPayload(payload: Record<string, unknown>, decision: Decision): ExecutionOutcome {
+  const exitCode = typeof payload.exit_code === "number"
+    ? payload.exit_code
+    : typeof payload.exitCode === "number"
+      ? payload.exitCode
+      : typeof payload.status_code === "number"
+        ? payload.status_code
+        : decision === "block"
+          ? 1
+          : 0;
+
+  const stderr = safeString(payload.stderr) ?? safeString(payload.error) ?? "";
+  const stdout = safeString(payload.stdout) ?? safeString(payload.output) ?? safeString(payload.resultText) ?? "";
+  const status = stderr || safeString(payload.errorMessage) || safeString(payload.failureReason)
+    ? "failed"
+    : exitCode === 0
+      ? "executed"
+      : "failed";
+
+  return {
+    status,
+    exitCode,
+    stdout: stdout ? `${stdout}\n` : "",
+    stderr: stderr ? `${stderr}\n` : "",
+    durationMs: typeof payload.duration_ms === "number" ? payload.duration_ms : typeof payload.durationMs === "number" ? payload.durationMs : 0,
+    errorMessage: safeString(payload.errorMessage) ?? safeString(payload.failureReason),
+  };
+}
+
+function correlationFromAction(sessionId: string | undefined, actionHash: string, toolCallIdValue?: string): string {
+  return toolCallIdValue ? `tool:${toolCallIdValue}` : `session:${sessionId ?? "unknown"}:${actionHash}`;
+}
+
+function hookFailClosedOverride(
+  action: ReturnType<typeof normalizeHookAction>,
+  evaluation: ReturnType<typeof evaluateAction>,
+): { reason: string; safeAlternative: string } | null {
+  const parsed = evaluation.parsedAction;
+  const sensitiveHookTarget = (action.kind === "file.write" || action.kind === "file.edit")
+    && evaluation.targets.targetClasses.some((entry) => {
+      return entry.category === "config"
+        || entry.category === "environment"
+        || entry.category === "home"
+        || entry.category === "git-metadata"
+        || entry.category === "filesystem-root"
+        || entry.category === "workspace-root";
+    });
+
+  if (action.kind === "mcp.tool_call" && shouldBlockMcpTool(action.toolName ?? "")) {
+    return {
+      reason: `MCP tool call is blocked: ${action.toolName ?? "unknown"}.`,
+      safeAlternative: "Use the Termyte MCP wrapper for the same workflow, or narrow the tool call first.",
+    };
+  }
+
+  if (parsed.semanticId === "git.push.force") {
+    return {
+      reason: "Force-pushes are blocked in native hooks.",
+      safeAlternative: "Use a normal git push, or move the work onto a feature branch.",
+    };
+  }
+
+  if (parsed.semanticId.startsWith("filesystem.delete")) {
+    return {
+      reason: "Destructive delete is blocked in native hooks.",
+      safeAlternative: "Target a narrower path and preview the change before deleting anything.",
+    };
+  }
+
+  if (parsed.semanticId === "secret.access" || sensitiveHookTarget) {
+    return {
+      reason: "Sensitive file access is blocked in native hooks.",
+      safeAlternative: "Use the approved secret manager or edit a non-sensitive file first.",
+    };
+  }
+
+  return null;
+}
+
+function createPlannedHookRecord(
+  ledger: Ledger,
+  action: ReturnType<typeof normalizeHookAction>,
+  evaluation: ReturnType<typeof evaluateAction>,
+  env: NodeJS.ProcessEnv,
+  metadata: Record<string, unknown>,
+): number {
+  const decision = evaluation.decision;
+  const status = decision === "block" ? "blocked" : "planned";
+  return ledger.createHookRecord(
+    evaluation.parsedAction,
+    evaluation.targets,
+    redactEnvKeys(env),
+    {
+      ...metadata,
+      correlationKey: correlationFromAction(metadata.sessionId as string | undefined, action.inputHash, action.toolCallId),
+      runtime: "agent-hook",
+      hookRuntime: true,
+      finalDecision: decision,
+      preHookPhase: action.phase,
+      source: "agent-hook",
+      safeAlternative: evaluation.safeAlternative,
+      risk: evaluation.risk,
+      policy: evaluation.policy,
+      memoryMatches: evaluation.memoryMatches,
+      status,
+    },
+    decision,
+    status,
+  );
+}
+
+function updateHookRecord(
+  ledger: Ledger,
+  action: ReturnType<typeof normalizeHookAction>,
+  evaluation: ReturnType<typeof evaluateAction>,
+  payload: Record<string, unknown>,
+  env: NodeJS.ProcessEnv,
+  metadata: Record<string, unknown>,
+): { ledgerId: number; outcome: ExecutionOutcome; finalDecision: Decision; reason: string } {
+  const correlation = correlationFromAction(metadata.sessionId as string | undefined, action.inputHash, action.toolCallId);
+  const existing = ledger.findLatestByMetadataKey("correlationKey", correlation) ?? ledger.findLatestByMetadataKey("commandCorrelationId", action.toolCallId ?? "");
+  const finalDecision = evaluation.decision;
+  const reason = evaluation.reason;
+  const outcome = outcomeFromPayload(payload, finalDecision);
+  const ledgerId = existing?.id ?? ledger.createHookRecord(
+    evaluation.parsedAction,
+    evaluation.targets,
+    redactEnvKeys(env),
+    {
+      ...metadata,
+      correlationKey: correlation,
+      runtime: "agent-hook",
+      hookRuntime: true,
+      finalDecision,
+      postHookPhase: action.phase,
+      source: "agent-hook",
+      safeAlternative: evaluation.safeAlternative,
+      risk: evaluation.risk,
+      policy: evaluation.policy,
+      memoryMatches: evaluation.memoryMatches,
+    },
+    finalDecision,
+    outcome.status,
+  );
+
+  ledger.finalize(ledgerId, finalDecision, outcome, evaluation.risk.score, reason, {
+    endedAt: new Date().toISOString(),
+    durationMs: outcome.durationMs,
+    runtime: "agent-hook",
+    hookRuntime: true,
+    agentName: action.agent,
+    postHookPhase: action.phase,
+    toolName: action.toolName,
+    sessionId: action.sessionId,
+    correlationKey: correlation,
+  });
+  return { ledgerId, outcome, finalDecision, reason };
+}
+
+function runGeneratedHookCommand(commandLine: string, cwd: string, input: string): { status: number | null; stdout: string; stderr: string; error?: Error } {
+  const result = spawnSync(commandLine, {
+    cwd,
+    input,
+    encoding: "utf8",
+    timeout: 30_000,
+    shell: true,
+  });
+  return {
+    status: result.status,
+    stdout: result.stdout ?? "",
+    stderr: result.stderr ?? "",
+    error: result.error instanceof Error ? result.error : undefined,
   };
 }
 
@@ -244,11 +362,6 @@ export async function handleAgentHookInvocation(options: NativeHookInvocation): 
     return blockedFailure(options.agent, options.phase, `Invalid hook JSON: ${error instanceof Error ? error.message : String(error)}`);
   }
 
-  const command = commandFromHookPayload(payload);
-  if (!command.trim()) {
-    return blockedFailure(options.agent, options.phase, "Hook payload did not include an actionable command.", command);
-  }
-
   const cwd = path.resolve(
     safeString(payload.cwd)
       ?? options.env?.TERMYTE_WORKSPACE
@@ -258,70 +371,99 @@ export async function handleAgentHookInvocation(options: NativeHookInvocation): 
   );
   const dbPath = options.dbPath ?? options.env?.TERMYTE_DB_PATH ?? defaultDbPath(cwd);
   const sessionId = options.env?.TERMYTE_SESSION_ID ?? safeString(payload.session_id ?? payload.sessionId);
+  const toolCall = toolCallId(payload);
   const eventName = hookEventName(payload, options.phase);
-  const toolName = safeString(payload.tool_name ?? payload.toolName) ?? "unknown";
+  const hookAction = normalizeHookAction({
+    agent: options.agent,
+    phase: options.phase,
+    payload,
+    cwd,
+    sessionId,
+    toolCallId: toolCall,
+  });
+  const evaluation = evaluateAction(hookAction, {
+    cwd,
+    dbPath,
+    applyMemory: true,
+    preferAskForWarnings: options.phase === "pre",
+  });
+
+  const override = options.phase === "pre" ? hookFailClosedOverride(hookAction, evaluation) : null;
+  if (override) {
+    evaluation.decision = "block";
+    evaluation.reason = override.reason;
+    evaluation.safeAlternative = override.safeAlternative;
+  }
 
   try {
-    const report = inspectAction(command, cwd, dbPath);
     const dbContext = openDatabase(dbPath);
     const ledger = new Ledger(dbContext.db);
     const memory = new MemoryEngine(dbContext.db);
-    const now = new Date().toISOString();
-    const finalDecision = shouldFailClosedSensitiveMutation(toolName, report.targets) ? "block" : report.finalDecision;
-    const finalReason = finalDecision !== report.finalDecision
-      ? `Native hook fail-closed: ${toolName} targets sensitive or protected paths. ${report.finalReason}`
-      : report.finalReason;
-    const ledgerId = ledger.createPending(report.action, report.targets, redactEnvKeys(options.env ?? process.env), {
+    const metadata = {
       cwd,
       agentName: options.agent,
       eventName,
-      toolName,
-      hookPhase: options.phase,
-      hookRuntime: true,
-      runtime: "agent-hook",
+      toolName: hookAction.toolName,
       sessionId,
-      payloadHash: hookPayloadHash(options.input),
-      payload: redactHookMetadata(payload),
-      policy: report.policy,
-      memoryMatches: report.memoryMatches,
-      risk: report.risk,
-      targets: report.targets,
-      finalDecision,
-      startedAt: now,
-    });
-
-    const outcome: ExecutionOutcome = {
-      status: finalDecision === "block" ? "blocked" : "executed",
-      exitCode: finalDecision === "block" ? 1 : 0,
-      stdout: "",
-      stderr: finalDecision === "block" ? `${finalReason}\n` : "",
-      durationMs: 0,
+      toolCallId: toolCall,
+      correlationKey: correlationFromAction(sessionId, hookAction.inputHash, toolCall),
+      payloadHash: payloadHash(options.input),
+      payload: payload,
     };
-    ledger.finalize(ledgerId, finalDecision, outcome, report.risk.score, finalReason, {
-      endedAt: new Date().toISOString(),
-      durationMs: 0,
-      executedVia: "agent-hook",
-      runtime: "agent-hook",
-      hookRuntime: true,
-      agentName: options.agent,
-      eventName,
-      toolName,
-      sessionId,
-      delegatedExecution: finalDecision !== "block",
-    });
-    memory.observe(report.action, finalDecision, outcome, cwd);
 
+    if (options.phase === "pre") {
+      const plannedId = createPlannedHookRecord(ledger, hookAction, evaluation, options.env ?? process.env, metadata);
+      if (evaluation.decision === "block") {
+        const outcome = {
+          status: "blocked" as const,
+          exitCode: 1,
+          stdout: "",
+          stderr: `${evaluation.reason}\n`,
+          durationMs: 0,
+        };
+        ledger.finalize(plannedId, "block", outcome, evaluation.risk.score, evaluation.reason, {
+          ...metadata,
+          endedAt: new Date().toISOString(),
+          runtime: "agent-hook",
+          hookRuntime: true,
+          safeAlternative: evaluation.safeAlternative,
+        });
+        memory.observe(evaluation.parsedAction, "block", outcome, cwd);
+        return {
+          exitCode: 0,
+          stdout: hookResponse(options.agent, eventName, "block", evaluation.reason, plannedId, evaluation.safeAlternative),
+          stderr: "",
+          decision: "block",
+          ledgerId: plannedId,
+          command: hookAction.command,
+          reason: evaluation.reason,
+        };
+      }
+
+      return {
+        exitCode: 0,
+        stdout: hookResponse(options.agent, eventName, evaluation.decision, evaluation.reason, plannedId, evaluation.safeAlternative),
+        stderr: "",
+        decision: evaluation.decision,
+        ledgerId: plannedId,
+        command: hookAction.command,
+        reason: evaluation.reason,
+      };
+    }
+
+    const finalized = updateHookRecord(ledger, hookAction, evaluation, payload, options.env ?? process.env, metadata);
+    memory.observe(evaluation.parsedAction, finalized.finalDecision, finalized.outcome, cwd);
     return {
       exitCode: 0,
-      stdout: formatAgentHookResponse(options.agent, eventName, finalDecision, finalReason, ledgerId),
+      stdout: "",
       stderr: "",
-      decision: finalDecision,
-      ledgerId,
-      command,
-      reason: finalReason,
+      decision: finalized.finalDecision,
+      ledgerId: finalized.ledgerId,
+      command: hookAction.command,
+      reason: finalized.reason,
     };
   } catch (error) {
-    return blockedFailure(options.agent, options.phase, `Termyte hook evaluation failed: ${error instanceof Error ? error.message : String(error)}`, command);
+    return blockedFailure(options.agent, options.phase, `Termyte hook evaluation failed: ${error instanceof Error ? error.message : String(error)}`, hookAction.command);
   }
 }
 
@@ -347,30 +489,6 @@ export async function runAgentHookCli(agent: NativeHookAgent, args: string[], st
   });
 }
 
-function ensureHooksObject(existing: Record<string, unknown>): Record<string, unknown> {
-  const hooks = safeObject(existing.hooks);
-  existing.hooks = hooks;
-  return hooks;
-}
-
-function mergeHookConfig(existing: Record<string, unknown>, event: "PreToolUse" | "PostToolUse", matcher: string, hookId: string): void {
-  const hooks = ensureHooksObject(existing);
-  const eventEntries = Array.isArray(hooks[event]) ? hooks[event] as unknown[] : [];
-  const command = nodeHookCommand(hookId);
-  const nextEntry = {
-    matcher,
-    hooks: [
-      {
-        command,
-        commandWindows: command,
-      },
-    ],
-  };
-
-  const withoutExisting = eventEntries.filter((entry) => JSON.stringify(entry).includes("agent hook ") === false);
-  hooks[event] = [...withoutExisting, nextEntry];
-}
-
 function readJsonFile(filePath: string): Record<string, unknown> {
   if (!fs.existsSync(filePath)) {
     return {};
@@ -386,6 +504,85 @@ function readJsonFile(filePath: string): Record<string, unknown> {
 function writeJsonFile(filePath: string, value: Record<string, unknown>): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+}
+
+function mergeHookConfig(existing: Record<string, unknown>, event: "PreToolUse" | "PostToolUse", matcher: string, hookId: string): void {
+  const hooks = safeObject(existing.hooks);
+  existing.hooks = hooks;
+  const entries = Array.isArray(hooks[event]) ? hooks[event] as unknown[] : [];
+  const command = nodeHookCommand(hookId);
+  const nextEntry = {
+    matcher,
+    hooks: [
+      {
+        command,
+        commandWindows: command,
+      },
+    ],
+  };
+  const filtered = entries.filter((entry) => JSON.stringify(entry).includes("agent hook ") === false);
+  hooks[event] = [...filtered, nextEntry];
+}
+
+function removeTermyteHookConfig(existing: Record<string, unknown>): boolean {
+  const hooks = safeObject(existing.hooks);
+  let changed = false;
+  for (const event of ["PreToolUse", "PostToolUse"] as const) {
+    const entries = Array.isArray(hooks[event]) ? hooks[event] as unknown[] : [];
+    const nextEntries = entries.filter((entry) => JSON.stringify(entry).includes("agent hook ") === false);
+    if (nextEntries.length !== entries.length) {
+      changed = true;
+      if (nextEntries.length > 0) {
+        hooks[event] = nextEntries;
+      } else {
+        delete hooks[event];
+      }
+    }
+  }
+  if (Object.keys(hooks).length === 0 && existing.hooks && typeof existing.hooks === "object") {
+    delete existing.hooks;
+    changed = true;
+  }
+  return changed;
+}
+
+function smokeTest(agent: NativeHookAgent, cwd: string): { ok: boolean; reasons: string[] } {
+  const allowPayload = JSON.stringify({
+    hook_event_name: "PreToolUse",
+    cwd,
+    session_id: "tm_smoke",
+    tool_name: "Bash",
+    tool_input: { command: "git status --short" },
+  });
+  const blockPayload = JSON.stringify({
+    hook_event_name: "PreToolUse",
+    cwd,
+    session_id: "tm_smoke",
+    tool_name: "Bash",
+    tool_input: { command: "git push --force origin main" },
+  });
+  const command = nodeHookCommand(agent === "claude" ? CLAUDE_HOOK_ID : CODEX_HOOK_ID);
+  const allow = runGeneratedHookCommand(command, cwd, allowPayload);
+  const block = runGeneratedHookCommand(command, cwd, blockPayload);
+  const reasons: string[] = [];
+  if (allow.status !== 0) {
+    reasons.push(`allow smoke failed: ${allow.stderr || allow.stdout || allow.error?.message || "unknown"}`);
+  }
+  if (allow.stdout.trim().length > 0) {
+    reasons.push("allow smoke should be silent");
+  }
+  if (block.status !== 0) {
+    reasons.push(`block smoke failed: ${block.stderr || block.stdout || block.error?.message || "unknown"}`);
+  }
+  try {
+    const parsed = JSON.parse(block.stdout || "{}") as { hookSpecificOutput?: { permissionDecision?: string } };
+    if (parsed.hookSpecificOutput?.permissionDecision !== "deny") {
+      reasons.push("block smoke did not emit deny JSON");
+    }
+  } catch {
+    reasons.push("block smoke emitted invalid JSON");
+  }
+  return { ok: reasons.length === 0, reasons };
 }
 
 export function installAgentHooks(agent: NativeHookAgent, cwd = process.cwd()): AgentInstallResult {
@@ -404,35 +601,17 @@ export function installAgentHooks(agent: NativeHookAgent, cwd = process.cwd()): 
   }
 
   writeJsonFile(configPath, config);
+  const smoke = smokeTest(agent, workspaceRoot);
 
   return {
     agent,
     path: configPath,
     installed: true,
-    message: `Installed Termyte ${agent} hooks at ${configPath}`,
+    active: smoke.ok,
+    message: smoke.ok
+      ? `Installed Termyte ${agent} hooks at ${configPath} and verified them with a live smoke test.`
+      : `Installed Termyte ${agent} hook config at ${configPath}, but live smoke failed. Use Termyte MCP for the fallback path. ${smoke.reasons.join("; ")}`,
   };
-}
-
-function removeTermyteHookConfig(existing: Record<string, unknown>): boolean {
-  const hooks = safeObject(existing.hooks);
-  let changed = false;
-  for (const event of ["PreToolUse", "PostToolUse"]) {
-    const entries = Array.isArray(hooks[event]) ? hooks[event] as unknown[] : [];
-    const nextEntries = entries.filter((entry) => JSON.stringify(entry).includes("agent hook ") === false);
-    if (nextEntries.length !== entries.length) {
-      changed = true;
-      if (nextEntries.length > 0) {
-        hooks[event] = nextEntries;
-      } else {
-        delete hooks[event];
-      }
-    }
-  }
-  if (Object.keys(hooks).length === 0 && existing.hooks && typeof existing.hooks === "object") {
-    delete existing.hooks;
-    changed = true;
-  }
-  return changed;
 }
 
 export function uninstallAgentHooks(agent: NativeHookAgent, cwd = process.cwd()): AgentUninstallResult {
@@ -466,64 +645,27 @@ export function uninstallAgentHooks(agent: NativeHookAgent, cwd = process.cwd())
   };
 }
 
-function findHookCommands(config: Record<string, unknown>, hookId: string): string[] {
-  const hooks = safeObject(config.hooks);
-  const commands: string[] = [];
-  for (const event of ["PreToolUse", "PostToolUse"]) {
-    const entries = Array.isArray(hooks[event]) ? hooks[event] as unknown[] : [];
-    for (const entry of entries) {
-      const entryObject = safeObject(entry);
-      const hookEntries = Array.isArray(entryObject.hooks) ? entryObject.hooks as unknown[] : [];
-      for (const hookEntry of hookEntries) {
-        const hookObject = safeObject(hookEntry);
-        const command = safeString(hookObject.command);
-        const commandWindows = safeString(hookObject.commandWindows);
-        if (command?.includes(hookId)) commands.push(command);
-        if (commandWindows?.includes(hookId)) commands.push(commandWindows);
-        if ("command_windows" in hookObject) commands.push("command_windows");
-      }
-    }
-  }
-  return commands;
-}
-
 export function verifyAgentHooks(agent: NativeHookAgent, cwd = process.cwd()): AgentHookVerification {
   const workspaceRoot = path.resolve(cwd);
   const configPath = agent === "claude"
     ? path.join(workspaceRoot, ".claude", "settings.local.json")
     : path.join(workspaceRoot, ".codex", "hooks.json");
-  const expectedPre = agent === "claude" ? CLAUDE_HOOK_ID : CODEX_HOOK_ID;
-  const expectedPost = agent === "claude" ? CLAUDE_POST_HOOK_ID : CODEX_POST_HOOK_ID;
   const reasons: string[] = [];
-
   if (!fs.existsSync(configPath)) {
     reasons.push(`hook config missing: ${configPath}`);
   } else {
     const config = readJsonFile(configPath);
-    const features = safeObject(config.features);
-    if (features.hooks === false || features.codex_hooks === false) {
-      reasons.push("hook config disables hooks");
-    }
-    const preCommands = findHookCommands(config, expectedPre);
-    const postCommands = findHookCommands(config, expectedPost);
+    const preCommands = hookCommands(config, agent === "claude" ? CLAUDE_HOOK_ID : CODEX_HOOK_ID);
+    const postCommands = hookCommands(config, agent === "claude" ? CLAUDE_POST_HOOK_ID : CODEX_POST_HOOK_ID);
     if (preCommands.length === 0) {
-      reasons.push(`missing PreToolUse handler: ${expectedPre}`);
+      reasons.push("missing PreToolUse handler");
     }
     if (postCommands.length === 0) {
-      reasons.push(`missing PostToolUse handler: ${expectedPost}`);
+      reasons.push("missing PostToolUse handler");
     }
-    const expectedCli = currentCliPath().replace(/\\/g, "/");
-    for (const [label, commands] of [["PreToolUse", preCommands], ["PostToolUse", postCommands]] as const) {
-      for (const command of commands) {
-        const normalized = command.replace(/\\/g, "/");
-        if (command === "command_windows") {
-          reasons.push(`${label} handler contains unsupported command_windows field`);
-        } else if (!normalized.includes(process.execPath.replace(/\\/g, "/")) || !normalized.includes(expectedCli)) {
-          reasons.push(`${label} handler does not point to the current built CLI`);
-        } else if (normalized.includes("termyte agent hook")) {
-          reasons.push(`${label} handler uses a bare Termyte command`);
-        }
-      }
+    const smoke = smokeTest(agent, workspaceRoot);
+    if (!smoke.ok) {
+      reasons.push(...smoke.reasons);
     }
   }
 
@@ -535,6 +677,26 @@ export function verifyAgentHooks(agent: NativeHookAgent, cwd = process.cwd()): A
   };
 }
 
+function hookCommands(config: Record<string, unknown>, hookId: string): string[] {
+  const hooks = safeObject(config.hooks);
+  const commands: string[] = [];
+  for (const event of ["PreToolUse", "PostToolUse"] as const) {
+    const entries = Array.isArray(hooks[event]) ? hooks[event] as unknown[] : [];
+    for (const entry of entries) {
+      const entryObject = safeObject(entry);
+      const hookEntries = Array.isArray(entryObject.hooks) ? entryObject.hooks as unknown[] : [];
+      for (const hookEntry of hookEntries) {
+        const hookObject = safeObject(hookEntry);
+        const command = safeString(hookObject.command);
+        const commandWindows = safeString(hookObject.commandWindows);
+        if (command?.includes(hookId)) commands.push(command);
+        if (commandWindows?.includes(hookId)) commands.push(commandWindows);
+      }
+    }
+  }
+  return commands;
+}
+
 export function formatAgentUninstallResult(result: AgentUninstallResult): string {
   return result.message;
 }
@@ -542,10 +704,12 @@ export function formatAgentUninstallResult(result: AgentUninstallResult): string
 export function formatAgentInstallResult(result: AgentInstallResult): string {
   return [
     result.message,
+    `Active: ${result.active ? "yes" : "no"}`,
     "",
     "Next steps:",
     `  termyte doctor`,
     `  termyte run ${result.agent}`,
+    `  termyte mcp install ${result.agent}`,
   ].join(os.EOL);
 }
 
@@ -557,10 +721,14 @@ export function formatAgentHookVerification(verification: AgentHookVerification)
     `Termyte ${verification.agent} hooks are not ready.`,
     ...verification.reasons.map((reason) => `  - ${reason}`),
     "",
-    `Run: termyte install ${verification.agent}`,
+    `Use Termyte MCP if native hook smoke fails: termyte mcp install ${verification.agent}`,
   ].join(os.EOL);
 }
 
 export function isNativeHookAgent(agentName: string): agentName is NativeHookAgent {
   return agentName === "claude" || agentName === "codex";
+}
+
+export function formatAgentHookResponse(agent: NativeHookAgent, eventName: string, decision: Decision, reason: string, ledgerId?: number): string {
+  return hookResponse(agent, eventName, decision, reason, ledgerId);
 }

@@ -205,7 +205,7 @@ try {
     },
     input: allowHookInput,
   });
-  assertEqual(allowHookSmoke.stdout.trim(), "{}", "agent hook allow output");
+  assertEqual(allowHookSmoke.stdout.trim(), "", "agent hook allow output");
 
   const uninstallCodex = run(installedBin, ["uninstall", "codex"], { cwd: smokeDir, env });
   assertIncludes(uninstallCodex.stdout, "Removed Termyte codex hooks", "codex uninstall output");

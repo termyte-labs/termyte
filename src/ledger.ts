@@ -7,34 +7,18 @@ export class Ledger {
   constructor(private readonly db: Database.Database) {}
 
   createPending(action: ParsedAction, targets: ResolvedTargets, envKeys: string[], metadata: Record<string, unknown>): number {
-    const redactedCommand = redactCommand(action.rawCommand);
-    const stmt = this.db.prepare(`
-      INSERT INTO ledger (
-        created_at, workspace_root, raw_command, redacted_command, semantic_id, kind, operation,
-        decision, risk_score, risk_reason, target_summary, target_count, executed, exit_code,
-        stdout, stderr, status, env_keys_json, metadata_json
-      ) VALUES (
-        @created_at, @workspace_root, @raw_command, @redacted_command, @semantic_id, @kind, @operation,
-        'pending', NULL, NULL, @target_summary, @target_count, 0, NULL,
-        NULL, NULL, 'planned', @env_keys_json, @metadata_json
-      )
-    `);
+    return this.insertLedgerRow(action, targets, envKeys, metadata, "pending", "planned");
+  }
 
-    const result = stmt.run({
-      created_at: new Date().toISOString(),
-      workspace_root: targets.workspaceRoot,
-      raw_command: redactedCommand,
-      redacted_command: redactedCommand,
-      semantic_id: action.semanticId,
-      kind: action.kind,
-      operation: action.operation,
-      target_summary: describeTargets(targets),
-      target_count: targets.targetCount,
-      env_keys_json: JSON.stringify(envKeys),
-      metadata_json: JSON.stringify(metadata),
-    });
-
-    return Number(result.lastInsertRowid);
+  createHookRecord(
+    action: ParsedAction,
+    targets: ResolvedTargets,
+    envKeys: string[],
+    metadata: Record<string, unknown>,
+    decision: Decision | "pending",
+    status: "planned" | "blocked" | "executed" | "failed" = "planned",
+  ): number {
+    return this.insertLedgerRow(action, targets, envKeys, metadata, decision, status);
   }
 
   finalize(
@@ -211,6 +195,13 @@ export class Ledger {
       .get(id) as RuntimeRecord | undefined;
   }
 
+  findLatestByMetadataKey(key: string, value: string): RuntimeRecord | undefined {
+    return this.listLatest(200).find((row) => {
+      const metadata = safeParseJson(row.metadataJson);
+      return typeof metadata[key] === "string" && metadata[key] === value;
+    });
+  }
+
   recoverStaleShellShimPending(options: {
     workspaceRoot: string;
     activeSessionId: string;
@@ -312,6 +303,47 @@ export class Ledger {
     }
 
     return recovered;
+  }
+
+  private insertLedgerRow(
+    action: ParsedAction,
+    targets: ResolvedTargets,
+    envKeys: string[],
+    metadata: Record<string, unknown>,
+    decision: Decision | "pending",
+    status: "planned" | "blocked" | "executed" | "failed",
+  ): number {
+    const redactedCommand = redactCommand(action.rawCommand);
+    const stmt = this.db.prepare(`
+      INSERT INTO ledger (
+        created_at, workspace_root, raw_command, redacted_command, semantic_id, kind, operation,
+        decision, risk_score, risk_reason, target_summary, target_count, executed, exit_code,
+        stdout, stderr, status, env_keys_json, metadata_json
+      ) VALUES (
+        @created_at, @workspace_root, @raw_command, @redacted_command, @semantic_id, @kind, @operation,
+        @decision, NULL, NULL, @target_summary, @target_count, @executed, NULL,
+        NULL, NULL, @status, @env_keys_json, @metadata_json
+      )
+    `);
+
+    const result = stmt.run({
+      created_at: new Date().toISOString(),
+      workspace_root: targets.workspaceRoot,
+      raw_command: redactedCommand,
+      redacted_command: redactedCommand,
+      semantic_id: action.semanticId,
+      kind: action.kind,
+      operation: action.operation,
+      decision,
+      target_summary: describeTargets(targets),
+      target_count: targets.targetCount,
+      executed: status === "executed" ? 1 : 0,
+      status,
+      env_keys_json: JSON.stringify(envKeys),
+      metadata_json: JSON.stringify(metadata),
+    });
+
+    return Number(result.lastInsertRowid);
   }
 }
 

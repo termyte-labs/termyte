@@ -260,7 +260,7 @@ export function formatInspection(report: InspectionReport): string {
     ),
     formatInspectionSection(
       "Final Decision",
-      `  - policy decision: ${report.policy.decision}\n  - final decision: ${report.finalDecision}\n  - reasoning: ${report.finalReason}`,
+      `  - policy decision: ${report.policy.decision}\n  - final decision: ${report.finalDecision}\n  - reasoning: ${report.finalReason}\n  - matched policies: ${report.matchedPolicies && report.matchedPolicies.length > 0 ? report.matchedPolicies.join(", ") : (report.policy.matchedPolicy ?? "none")}\n  - safe alternative: ${report.safeAlternative ?? "none"}`,
     ),
   ];
 

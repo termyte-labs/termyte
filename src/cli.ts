@@ -216,8 +216,9 @@ async function main(): Promise<number> {
       return 1;
     }
     try {
-      console.log(formatAgentInstallResult(installAgentHooks(agent, cwd)));
-      return 0;
+      const result = installAgentHooks(agent, cwd);
+      console.log(formatAgentInstallResult(result));
+      return result.active ? 0 : 1;
     } catch (error) {
       console.error(`Termyte could not install ${agent} hooks: ${error instanceof Error ? error.message : String(error)}`);
       return 1;

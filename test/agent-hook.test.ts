@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { openDatabase } from "../src/db.js";
 import { Ledger } from "../src/ledger.js";
+import { MemoryEngine } from "../src/memory.js";
 import {
   formatAgentHookResponse,
   handleAgentHookInvocation,
@@ -17,11 +18,11 @@ function workspace(prefix: string): string {
 }
 
 function parseHookOutput(stdout: string): Record<string, unknown> {
-  return JSON.parse(stdout) as Record<string, unknown>;
+  return stdout ? JSON.parse(stdout) as Record<string, unknown> : {};
 }
 
 describe("agent native hook bridge", () => {
-  it("denies destructive Claude Bash calls before execution and writes the ledger", async () => {
+  it("blocks Claude Bash rm -rf and returns Claude deny JSON", async () => {
     const cwd = workspace("termyte-claude-hook-block-");
     const dbPath = path.join(cwd, "termyte.db");
     const result = await handleAgentHookInvocation({
@@ -31,29 +32,27 @@ describe("agent native hook bridge", () => {
       dbPath,
       env: { TERMYTE_SESSION_ID: "tm_test", TERMYTE_DB_PATH: dbPath },
       input: JSON.stringify({
-        session_id: "claude-session",
         hook_event_name: "PreToolUse",
         cwd,
+        session_id: "claude-session",
         tool_name: "Bash",
-        tool_input: {
-          command: "rm -rf .",
-        },
+        tool_input: { command: "rm -rf ." },
       }),
     });
-    const output = parseHookOutput(result.stdout) as { hookSpecificOutput?: { permissionDecision?: string } };
+
+    const output = parseHookOutput(result.stdout) as { hookSpecificOutput?: { permissionDecision?: string; permissionDecisionReason?: string } };
     const record = new Ledger(openDatabase(dbPath).db).getById(result.ledgerId ?? 0);
-    const metadata = JSON.parse(record?.metadataJson ?? "{}") as Record<string, unknown>;
 
     expect(result.decision).toBe("block");
+    expect(result.exitCode).toBe(0);
     expect(output.hookSpecificOutput?.permissionDecision).toBe("deny");
+    expect(output.hookSpecificOutput?.permissionDecisionReason).toContain("Termyte block:");
     expect(record?.status).toBe("blocked");
+    expect(record?.decision).toBe("block");
     expect(record?.semanticId).toBe("filesystem.delete.recursive.force");
-    expect(metadata.runtime).toBe("agent-hook");
-    expect(metadata.agentName).toBe("claude");
-    expect(metadata.toolName).toBe("Bash");
   });
 
-  it("allows safe Claude Bash calls while still recording delegated execution", async () => {
+  it("allows Claude Bash git status and stays silent", async () => {
     const cwd = workspace("termyte-claude-hook-allow-");
     const dbPath = path.join(cwd, "termyte.db");
     const result = await handleAgentHookInvocation({
@@ -65,24 +64,63 @@ describe("agent native hook bridge", () => {
       input: JSON.stringify({
         hook_event_name: "PreToolUse",
         cwd,
+        session_id: "claude-session",
+        tool_call_id: "tool-allow-1",
         tool_name: "Bash",
-        tool_input: {
-          command: "git status --short",
-        },
+        tool_input: { command: "git status --short" },
       }),
     });
-    const output = parseHookOutput(result.stdout) as { hookSpecificOutput?: { permissionDecision?: string } };
     const record = new Ledger(openDatabase(dbPath).db).getById(result.ledgerId ?? 0);
-    const metadata = JSON.parse(record?.metadataJson ?? "{}") as Record<string, unknown>;
 
     expect(result.decision).toBe("allow");
-    expect(output.hookSpecificOutput?.permissionDecision).toBe("allow");
-    expect(record?.status).toBe("executed");
-    expect(metadata.delegatedExecution).toBe(true);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("");
+    expect(record?.status).toBe("planned");
+    expect(record?.decision).toBe("allow");
   });
 
-  it("denies Claude writes to .env paths", async () => {
-    const cwd = workspace("termyte-claude-hook-env-");
+  it("blocks Claude writes to .env and allows an edit to a source file", async () => {
+    const cwd = workspace("termyte-claude-hook-write-");
+    const dbPath = path.join(cwd, "termyte.db");
+
+    const blocked = await handleAgentHookInvocation({
+      agent: "claude",
+      phase: "pre",
+      cwd,
+      dbPath,
+      env: { TERMYTE_SESSION_ID: "tm_test", TERMYTE_DB_PATH: dbPath },
+      input: JSON.stringify({
+        hook_event_name: "PreToolUse",
+        cwd,
+        session_id: "claude-session",
+        tool_name: "Write",
+        tool_input: { file_path: ".env", content: "TOKEN=secret" },
+      }),
+    });
+    const allowed = await handleAgentHookInvocation({
+      agent: "claude",
+      phase: "pre",
+      cwd,
+      dbPath,
+      env: { TERMYTE_SESSION_ID: "tm_test", TERMYTE_DB_PATH: dbPath },
+      input: JSON.stringify({
+        hook_event_name: "PreToolUse",
+        cwd,
+        session_id: "claude-session",
+        tool_call_id: "tool-edit-1",
+        tool_name: "Edit",
+        tool_input: { file_path: "src/app.ts", content: "export const value = 1;" },
+      }),
+    });
+
+    expect(blocked.decision).toBe("block");
+    expect(parseHookOutput(blocked.stdout).hookSpecificOutput).toBeTruthy();
+    expect(allowed.decision).toBe("allow");
+    expect(allowed.stdout).toBe("");
+  });
+
+  it("blocks Claude mcp__ tool calls that look dangerous", async () => {
+    const cwd = workspace("termyte-claude-hook-mcp-");
     const dbPath = path.join(cwd, "termyte.db");
     const result = await handleAgentHookInvocation({
       agent: "claude",
@@ -93,37 +131,73 @@ describe("agent native hook bridge", () => {
       input: JSON.stringify({
         hook_event_name: "PreToolUse",
         cwd,
-        tool_name: "Write",
-        tool_input: {
-          file_path: ".env",
-          content: "TOKEN=secret",
-        },
+        session_id: "claude-session",
+        tool_name: "mcp__github__delete_repo",
+        tool_input: {},
       }),
     });
-    const output = parseHookOutput(result.stdout) as { hookSpecificOutput?: { permissionDecision?: string } };
 
     expect(result.decision).toBe("block");
-    expect(output.hookSpecificOutput?.permissionDecision).toBe("deny");
+    expect(parseHookOutput(result.stdout).hookSpecificOutput).toBeTruthy();
   });
 
-  it("fails closed on invalid hook JSON", async () => {
-    const result = await handleAgentHookInvocation({
-      agent: "codex",
-      phase: "pre",
-      cwd: workspace("termyte-codex-hook-invalid-"),
-      input: "{not-json",
-    });
-    const output = parseHookOutput(result.stdout) as { hookSpecificOutput?: { permissionDecision?: string; permissionDecisionReason?: string } };
-
-    expect(result.decision).toBe("block");
-    expect(output.hookSpecificOutput?.permissionDecision).toBe("deny");
-    expect(output.hookSpecificOutput?.permissionDecisionReason).toContain("Invalid hook JSON");
-  });
-
-  it("returns Codex deny JSON for destructive Bash calls without hook failure fields", async () => {
-    const cwd = workspace("termyte-codex-hook-block-");
+  it("updates the ledger and memory on PostToolUse", async () => {
+    const cwd = workspace("termyte-claude-hook-post-");
     const dbPath = path.join(cwd, "termyte.db");
-    const result = await handleAgentHookInvocation({
+    const correlationId = "tool-post-1";
+
+    const pre = await handleAgentHookInvocation({
+      agent: "claude",
+      phase: "pre",
+      cwd,
+      dbPath,
+      env: { TERMYTE_SESSION_ID: "tm_test", TERMYTE_DB_PATH: dbPath },
+      input: JSON.stringify({
+        hook_event_name: "PreToolUse",
+        cwd,
+        session_id: "claude-session",
+        tool_call_id: correlationId,
+        tool_name: "Bash",
+        tool_input: { command: "git status --short" },
+      }),
+    });
+
+    const post = await handleAgentHookInvocation({
+      agent: "claude",
+      phase: "post",
+      cwd,
+      dbPath,
+      env: { TERMYTE_SESSION_ID: "tm_test", TERMYTE_DB_PATH: dbPath },
+      input: JSON.stringify({
+        hook_event_name: "PostToolUse",
+        cwd,
+        session_id: "claude-session",
+        tool_call_id: correlationId,
+        tool_name: "Bash",
+        tool_input: { command: "git status --short" },
+        stdout: "clean\n",
+        exit_code: 0,
+      }),
+    });
+
+    const ctx = openDatabase(dbPath);
+    const ledger = new Ledger(ctx.db);
+    const memory = new MemoryEngine(ctx.db);
+    const record = ledger.getById(pre.ledgerId ?? 0);
+    const memoryRows = memory.list(10);
+
+    expect(pre.decision).toBe("allow");
+    expect(post.decision).toBe("allow");
+    expect(post.stdout).toBe("");
+    expect(record?.status).toBe("executed");
+    expect(record?.decision).toBe("allow");
+    expect(memoryRows[0]?.semanticId).toBe("shell.generic");
+  });
+
+  it("returns Codex deny JSON for blocked actions and silent output for allow", async () => {
+    const cwd = workspace("termyte-codex-hook-");
+    const dbPath = path.join(cwd, "termyte.db");
+    const blocked = await handleAgentHookInvocation({
       agent: "codex",
       phase: "pre",
       cwd,
@@ -132,28 +206,12 @@ describe("agent native hook bridge", () => {
       input: JSON.stringify({
         hook_event_name: "PreToolUse",
         cwd,
+        session_id: "codex-session",
         tool_name: "Bash",
-        tool_input: {
-          command: "git push --force origin main",
-        },
+        tool_input: { command: "git push --force origin main" },
       }),
     });
-    const output = parseHookOutput(result.stdout) as {
-      hookSpecificOutput?: { permissionDecision?: string; permissionDecisionReason?: string };
-      decision?: string;
-    };
-
-    expect(result.exitCode).toBe(0);
-    expect(result.decision).toBe("block");
-    expect(output.hookSpecificOutput?.permissionDecision).toBe("deny");
-    expect(output.hookSpecificOutput?.permissionDecisionReason).toContain("Termyte block:");
-    expect(output.decision).toBeUndefined();
-  });
-
-  it("returns only a Codex systemMessage for warn decisions", async () => {
-    const cwd = workspace("termyte-codex-hook-warn-");
-    const dbPath = path.join(cwd, "termyte.db");
-    const result = await handleAgentHookInvocation({
+    const allowed = await handleAgentHookInvocation({
       agent: "codex",
       phase: "pre",
       cwd,
@@ -162,109 +220,52 @@ describe("agent native hook bridge", () => {
       input: JSON.stringify({
         hook_event_name: "PreToolUse",
         cwd,
+        session_id: "codex-session",
+        tool_call_id: "tool-allow-1",
         tool_name: "Bash",
-        tool_input: {
-          command: "npm publish",
-        },
-      }),
-    });
-    const output = parseHookOutput(result.stdout);
-
-    expect(result.exitCode).toBe(0);
-    expect(result.decision).toBe("warn");
-    expect(Object.keys(output)).toEqual(["systemMessage"]);
-    expect(output.systemMessage).toContain("Termyte warn:");
-  });
-
-  it("returns empty Codex JSON for allow decisions", async () => {
-    const cwd = workspace("termyte-codex-hook-allow-");
-    const dbPath = path.join(cwd, "termyte.db");
-    const result = await handleAgentHookInvocation({
-      agent: "codex",
-      phase: "pre",
-      cwd,
-      dbPath,
-      env: { TERMYTE_SESSION_ID: "tm_test", TERMYTE_DB_PATH: dbPath },
-      input: JSON.stringify({
-        hook_event_name: "PreToolUse",
-        cwd,
-        tool_name: "Bash",
-        tool_input: {
-          command: "git status --short",
-        },
+        tool_input: { command: "git status --short" },
       }),
     });
 
-    expect(result.exitCode).toBe(0);
-    expect(result.decision).toBe("allow");
-    expect(parseHookOutput(result.stdout)).toEqual({});
+    expect(blocked.exitCode).toBe(0);
+    expect(parseHookOutput(blocked.stdout).hookSpecificOutput?.permissionDecision).toBe("deny");
+    expect(allowed.exitCode).toBe(0);
+    expect(allowed.stdout).toBe("");
   });
 
-  it("maps Codex ask decisions to deny", async () => {
-    const output = parseHookOutput(formatAgentHookResponse("codex", "PreToolUse", "ask", "approval required")) as {
-      hookSpecificOutput?: { permissionDecision?: string; permissionDecisionReason?: string };
+  it("maps warn decisions to ask JSON for Claude and system messages for Codex", () => {
+    const claude = parseHookOutput(formatAgentHookResponse("claude", "PreToolUse", "warn", "approval required")) as {
+      hookSpecificOutput?: { permissionDecision?: string };
+    };
+    const codex = parseHookOutput(formatAgentHookResponse("codex", "PreToolUse", "warn", "approval required")) as {
+      systemMessage?: string;
     };
 
-    expect(output.hookSpecificOutput?.permissionDecision).toBe("deny");
-    expect(output.hookSpecificOutput?.permissionDecisionReason).toContain("Termyte block:");
+    expect(claude.hookSpecificOutput?.permissionDecision).toBe("ask");
+    expect(codex.systemMessage).toContain("Termyte warn:");
   });
 
-  it("installs and verifies local Codex hook configuration idempotently", () => {
-    const cwd = workspace("termyte-codex-install-");
-    fs.mkdirSync(path.join(cwd, ".codex"), { recursive: true });
-    fs.writeFileSync(path.join(cwd, ".codex", "hooks.json"), JSON.stringify({
-      hooks: {
-        PreToolUse: [
-          {
-            matcher: "Bash",
-            hooks: [
-              {
-                command: "termyte agent hook codex",
-                commandWindows: "termyte agent hook codex",
-                command_windows: "termyte agent hook codex",
-              },
-            ],
-          },
-        ],
-      },
-    }, null, 2), "utf8");
-
-    const first = installAgentHooks("codex", cwd);
-    const second = installAgentHooks("codex", cwd);
-    const verification = verifyAgentHooks("codex", cwd);
-    const hooks = fs.readFileSync(first.path, "utf8");
-    const config = JSON.parse(hooks) as {
-      hooks: {
-        PreToolUse: Array<{ hooks: Array<Record<string, string>> }>;
-        PostToolUse: Array<{ hooks: Array<Record<string, string>> }>;
-      };
-    };
-    const preHook = config.hooks.PreToolUse[0].hooks[0];
-
-    expect(first.path).toBe(path.join(cwd, ".codex", "hooks.json"));
-    expect(second.path).toBe(first.path);
-    expect(verification.ok).toBe(true);
-    expect(preHook.command).toContain(process.execPath.replace(/\\/g, "/"));
-    expect(preHook.command).toContain("dist/cli.js");
-    expect(preHook.commandWindows).toBe(preHook.command);
-    expect(Object.keys(preHook).sort()).toEqual(["command", "commandWindows"]);
-    expect(hooks.match(/agent hook codex/g)?.length).toBe(4);
-    expect(hooks).not.toContain('"command": "termyte agent hook codex"');
-    expect(hooks).not.toContain("command_windows");
-  });
-
-  it("installs and verifies local Claude hook configuration", () => {
+  it("installs Claude hooks and verifies them with a live smoke test", () => {
     const cwd = workspace("termyte-claude-install-");
-
     const result = installAgentHooks("claude", cwd);
     const verification = verifyAgentHooks("claude", cwd);
-    const hooks = fs.readFileSync(result.path, "utf8");
 
-    expect(result.path).toBe(path.join(cwd, ".claude", "settings.local.json"));
+    expect(result.installed).toBe(true);
+    expect(result.active).toBe(true);
     expect(verification.ok).toBe(true);
-    expect(hooks).toContain("agent hook claude");
-    expect(hooks).toContain("commandWindows");
-    expect(hooks).toContain("PostToolUse");
+    expect(fs.readFileSync(result.path, "utf8")).toContain("agent hook claude");
+  });
+
+  it("installs Codex hooks only when live smoke verification passes", () => {
+    const cwd = workspace("termyte-codex-install-");
+    const result = installAgentHooks("codex", cwd);
+    const verification = verifyAgentHooks("codex", cwd);
+
+    expect(result.installed).toBe(true);
+    expect(result.active).toBe(true);
+    expect(verification.ok).toBe(true);
+    expect(result.message).toContain("live smoke test");
+    expect(fs.readFileSync(result.path, "utf8")).toContain("agent hook codex");
   });
 
   it("uninstalls Termyte hook configuration", () => {

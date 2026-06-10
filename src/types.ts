@@ -95,10 +95,14 @@ export interface InspectionReport {
     decision: Decision;
     reason: string;
     matchedRule?: string;
+    matchedPolicy?: string;
+    matchedPolicies?: string[];
   };
   memoryMatches: MemoryMatch[];
   finalDecision: Decision;
   finalReason: string;
+  safeAlternative?: string;
+  matchedPolicies?: string[];
 }
 
 export interface ReplayEntry {
