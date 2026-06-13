@@ -1,6 +1,6 @@
 {
   "name": "termyte",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "A local-first safety runtime for checking risky agent commands, applying policies, and recording local operational memory.",
   "type": "module",
   "license": "MIT",
