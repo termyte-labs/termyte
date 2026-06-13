@@ -41,7 +41,8 @@
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1",
-    "fast-glob": "^3.3.3"
+    "fast-glob": "^3.3.3",
+    "termyte": "^0.3.1"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.12",

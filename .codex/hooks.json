@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Read|Write|Edit|MultiEdit|WebFetch|WebSearch|mcp__.*",
+        "hooks": [
+          {
+            "command": "\"C:\\nvm4w\\nodejs\\node.exe\" \"C:\\Users\\Palguna\\Desktop\\termyte\\dist\\cli.js\" agent hook codex",
+            "commandWindows": "\"C:\\nvm4w\\nodejs\\node.exe\" \"C:\\Users\\Palguna\\Desktop\\termyte\\dist\\cli.js\" agent hook codex"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash|Read|Write|Edit|MultiEdit|WebFetch|WebSearch|mcp__.*",
+        "hooks": [
+          {
+            "command": "\"C:\\nvm4w\\nodejs\\node.exe\" \"C:\\Users\\Palguna\\Desktop\\termyte\\dist\\cli.js\" agent hook codex --post",
+            "commandWindows": "\"C:\\nvm4w\\nodejs\\node.exe\" \"C:\\Users\\Palguna\\Desktop\\termyte\\dist\\cli.js\" agent hook codex --post"
+          }
+        ]
+      }
+    ]
+  }
+}
