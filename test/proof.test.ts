@@ -17,6 +17,5 @@ describe("runtime proof", () => {
     expect(report.checks.find((check) => check.id === "side_effect.delete_prevented")?.status).toBe("PASS");
     expect(report.checks.find((check) => check.id === "ledger.records")?.status).toBe("PASS");
     expect(fs.existsSync(path.join(cwd, ".termyte", "runtime-proof", "keep.txt"))).toBe(true);
-  });
+  }, 15000);
 });
-

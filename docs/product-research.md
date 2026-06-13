@@ -1,6 +1,6 @@
 # Product Research
 
-Termyte's strongest market position is:
+Termyte’s strongest positioning is:
 
 > Termyte is a local-first policy runtime for AI coding agents. It prevents
 > dangerous agent actions, keeps an audit trail, and builds operational memory
@@ -8,45 +8,48 @@ Termyte's strongest market position is:
 
 ## What Developers Fear
 
-Developers are not only worried about model quality. They are worried about
-runtime agency: file deletion, Git history rewrite, secret exposure, package
-publishing, infra mutations, production config changes, and long sessions with
-weak auditability.
+The trust problem is no longer just code quality. The fear is runtime agency:
+file deletion, Git history rewrite, secret exposure, package publishing, infra
+mutation, production config changes, and long-lived sessions with weak
+auditability.
 
-Modern coding agents already edit files and run commands. That shifts the trust
-question from "can it write code?" to "what can it touch, what can it execute,
-and what record remains afterward?"
+Once agents can run tools, the question becomes:
 
-## Existing Tooling
+- what can they touch?
+- what can they execute?
+- what gets recorded?
+- what happens after the same mistake repeats?
 
-- Codex hooks provide lifecycle extensibility, including `PreToolUse`,
-  `PermissionRequest`, and `PostToolUse`, but coverage is bounded by supported
-  tool paths and hook trust/configuration.
+## What Exists Already
+
+- Codex hooks provide lifecycle extensibility and a pre-tool control surface, but
+  the coverage is still bounded by supported tool paths and hook trust/config.
 - Claude Code hooks expose richer lifecycle events and pre-tool deny behavior,
-  but hooks still run as local commands with the user's permissions.
-- GitHub Copilot enterprise guidance emphasizes governance floors, audit logs,
-  model restrictions, and organization-level policy.
-- Cursor emphasizes privacy and client/agent security controls, but the core
-  IDE agent still needs project-level operational guardrails.
-- Enterprise AI governance tools tend to focus on usage, data, compliance, and
-  network controls more than local command blast radius.
+  but the hooks still execute as local commands with the user’s permissions.
+- GitHub’s agent and Copilot governance story emphasizes policy, auditability,
+  and enterprise controls, but not a small local runtime firewall.
+- Cursor emphasizes privacy and security features in the editor, but the core
+  agent still needs project-level operational guardrails.
+- Enterprise AI governance tools tend to focus on usage, compliance, and data
+  controls more than local command blast radius.
 
 Sources reviewed:
 
 - [OpenAI Codex hooks](https://developers.openai.com/codex/hooks)
+- [Claude Code hooks reference](https://code.claude.com/docs/en/hooks)
+- [GitHub Copilot responsible use for agents](https://docs.github.com/en/copilot/responsible-use/agents)
 - [GitHub governing agents](https://wellarchitected.github.com/library/governance/recommendations/governing-agents/)
-- [GitHub Copilot agents responsible use](https://docs.github.com/en/copilot/responsible-use/agents)
 - [Cursor security](https://cursor.com/security)
 
 ## Gap Termyte Should Own
 
-Termyte should own the local runtime gap: deterministic command/action policy,
-approvals, audit logs, and memory in the developer environment before actions
-hit sensitive files, Git history, deploy tools, or package registries.
+Termyte should own the local runtime gap: deterministic command and action
+policy, approvals, audit logs, and operational memory in the developer
+environment before actions hit sensitive files, Git history, deploy tools, or
+package registries.
 
-The product should not lead with generic governance. It should lead with safer
-agent autonomy for engineers who want agents to move faster without giving them
-unbounded local power.
+The product should lead with safer agent autonomy for engineers who want agents
+to move faster without giving them unbounded local power.
 
 ## MVP
 
@@ -72,4 +75,3 @@ Avoid for MVP:
 Later paid/team features can include shared policy packs, centralized audit
 export, approval workflows, GitHub org integration, role-based controls, and
 agent behavior analytics.
-

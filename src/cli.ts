@@ -245,6 +245,11 @@ async function main(): Promise<number> {
   }
 
   if (isSupportedAgentName(command)) {
+    if (!process.stdin.isTTY) {
+      console.error(`Termyte cannot directly launch ${command} without an interactive terminal.\n\nTry:\n  termyte run --dry-run ${command}\n  or run the command from a real TTY session.`);
+      return 1;
+    }
+
     const plan = buildAgentRunPlan({
       workspaceRoot: cwd,
       dbPath,
@@ -539,6 +544,11 @@ async function main(): Promise<number> {
     const agentArgs = invocation.agentArgs;
     if (!agentName) {
       console.error("Missing agent name.");
+      return 1;
+    }
+
+    if (!process.stdin.isTTY && !invocation.dryRun) {
+      console.error(`Termyte cannot directly launch ${agentName} without an interactive terminal.\n\nTry:\n  termyte run --dry-run ${agentName}\n  or run the command from a real TTY session.`);
       return 1;
     }
 

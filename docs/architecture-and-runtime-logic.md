@@ -252,7 +252,7 @@ structured runtime metadata when it is available.
 ## Agent Launch Logic
 
 `termyte codex`, `termyte claude`, and `termyte run <agent>` launch supported
-agents directly.
+agents directly from an interactive terminal.
 `termyte run <agent>` accepts `codex`, `claude`, and `claudecode`; the
 top-level aliases cover the common agent names directly. Termyte resolves the
 executable from the original `PATH`; `claudecode` can fall back to `claude`.
@@ -346,7 +346,7 @@ persistence but is not a general secret scanner.
 ## Known Gaps
 
 - Two policy systems remain for runtime policy and authoring/policy testing.
-- `run <agent>` is a direct launcher and not a policy gate.
+- `run <agent>` is an interactive direct launcher and not a policy gate.
 - Generic shell fallback allows unknown patterns.
 - Detailed target resolution is primarily for filesystem deletes.
 - YAML parsing supports a constrained subset, not arbitrary YAML.

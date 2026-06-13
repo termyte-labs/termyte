@@ -315,10 +315,12 @@ termyte run claude
 termyte run claudecode
 ```
 
-`termyte run <agent>` resolves and launches the agent executable directly. It
-does not depend on PATH interception or hook injection. Use `termyte install`
-and `termyte uninstall` only if you want the optional native Claude Code/Codex
-hook adapters. Those adapters are not required for the default runtime path.
+`termyte run <agent>` resolves and launches the agent executable directly when
+you are in an interactive terminal. It does not depend on PATH interception or
+hook injection. Noninteractive shells should use `termyte run --dry-run <agent>`
+or start the command from a real TTY session. Use `termyte install` and
+`termyte uninstall` only if you want the optional native Claude Code/Codex hook
+adapters. Those adapters are not required for the default runtime path.
 
 `termyte run -- <command>` is the enforced command gate. It evaluates policy,
 writes the ledger, updates memory, and either executes or blocks the command.
@@ -354,7 +356,7 @@ Protection is strongest when command text is evaluated through `termyte check`,
 
 ## Alpha Limitations
 
-- `termyte run <agent>` is a direct launcher, not a policy gate.
+- `termyte run <agent>` is an interactive direct launcher, not a policy gate.
 - Commands that bypass Termyte are not governed.
 - Direct API calls outside monitored surfaces are not governed.
 - The natural-language compiler supports only deterministic templates and is

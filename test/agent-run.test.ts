@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 import { openDatabase } from "../src/db.js";
 import {
   buildAgentRunPlan,
@@ -183,5 +184,19 @@ describe("agent run planning", () => {
 
     expect(profile.name).toBe("default");
     expect(profile.notes[0]).toContain("Native hooks are optional adapters");
+  });
+
+  it("fails gracefully for direct agent launches in non-interactive shells", () => {
+    for (const agent of ["codex", "claude"]) {
+      const result = spawnSync(process.execPath, [path.resolve("dist/cli.js"), "run", agent], {
+        cwd: fs.mkdtempSync(path.join(os.tmpdir(), "termyte-non-tty-launch-")),
+        env: { ...process.env, TERMYTE_HOME: fs.mkdtempSync(path.join(os.tmpdir(), "termyte-non-tty-home-")) },
+        encoding: "utf8",
+      });
+
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain(`cannot directly launch ${agent} without an interactive terminal`);
+      expect(result.stderr).toContain(`termyte run --dry-run ${agent}`);
+    }
   });
 });
