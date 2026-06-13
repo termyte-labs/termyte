@@ -26,8 +26,7 @@
     "benchmarks/commands.json",
     "benchmarks/governance.json",
     "README.md",
-    "docs/benchmark.md",
-    "docs/demo.md",
+    "docs",
     "CHANGELOG.md",
     "LICENSE"
   ],

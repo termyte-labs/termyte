@@ -3,13 +3,13 @@
 Termyte is a local-first safety runtime for AI coding agents.
 
 The current alpha focuses on a direct command gate, a governed MCP gateway,
-SQLite policy/ledger/memory, and repo-scoped auditability for autonomous
-coding-agent work. The goal is safer autonomous execution without moving
-policy, logs, or memory to a cloud service.
+native Claude Code/Codex hook adapters, SQLite policy/ledger/memory, and
+repo-scoped auditability for autonomous coding-agent work. The goal is safer
+autonomous execution without moving policy, logs, or memory to a cloud service.
 
 **Alpha:** `termyte run -- <command>` and `termyte mcp serve` are the primary
-governed surfaces. Native Claude Code/Codex hooks are optional adapters, not
-part of the default runtime path.
+governed surfaces. Native Claude Code/Codex hooks are public verification
+surfaces that validate native agent actions. MCP validates Termyte-owned tools.
 
 ## Install
 
@@ -28,8 +28,14 @@ Run these commands inside a repository:
 npm install -g termyte
 termyte prove-runtime
 termyte mcp install codex
+termyte hooks doctor
+termyte hooks smoke claude
+termyte hooks smoke codex
 termyte run -- "git status --short --branch"
 termyte check "cat .env"
+termyte inspect "git push --force origin main"
+termyte allow-once "npm install zod"
+termyte mark-safe "npm run build"
 termyte policy local add "Ask before touching auth or payments" --dry-run
 termyte policy local add "Ask before touching auth or payments" --yes
 termyte logs
@@ -45,9 +51,16 @@ What happens:
   blocked recursive delete, sentinel side-effect check, secret-read warning,
   and replay ledger verification.
 - `mcp install codex` prints a stdio MCP configuration for Termyte's governed
-  tool gateway.
+  tool gateway for Termyte-owned tools.
+- `hooks doctor` and `hooks smoke <agent>` verify native Claude Code/Codex hook
+  readiness and live behavior.
 - `run -- "<command>"` evaluates policy, logs the pending action, executes
   only if allowed, finalizes the ledger, and updates memory.
+- `inspect "<command>"` explains the decision without executing anything.
+- `allow-once "<command>"` stores a repo-scoped one-time approval in
+  `.termyte/approvals.json`.
+- `mark-safe "<command>"` stores a repo-scoped safe memory that can reduce
+  repeated warnings without weakening hard blocks.
 - The policy dry run prints deterministic generated YAML and writes nothing.
 - The policy command with `--yes` creates or updates `termyte.policy.yaml`.
 - `logs` shows the SQLite replay ledger.
@@ -92,10 +105,33 @@ memory observation. Ordinary workspace file writes are allowed so agents can
 edit code. Sensitive/config writes warn, protected or out-of-workspace writes
 block, and broad destructive deletes block.
 
+Allowed actions are not a containment boundary. Termyte does not guarantee
+that subprocesses spawned inside an allowed command are fully contained unless
+future sandbox mode is enabled.
+
 `mcp install` prints a config snippet with `TERMYTE_WORKSPACE` pinned to the
 current repository, so the MCP server keeps evaluating actions against the repo
 where setup was run even if the agent launches the server from another working
 directory.
+
+## Native Hook Verification
+
+Claude Code and Codex native hooks are installed as thin adapters over the
+shared runtime evaluator. They validate native agent actions before tool
+execution, log pre- and post-tool outcomes, and update memory. They do not go
+through MCP.
+
+```bash
+termyte hooks doctor
+termyte hooks smoke claude
+termyte hooks smoke codex
+termyte install claude
+termyte install codex
+```
+
+Codex native hooks are only considered active after a live smoke verification
+passes. If native Codex hooks are unavailable, Termyte MCP and Codex
+sandbox/approval mode remain available.
 
 ## Runtime Proof
 
@@ -111,7 +147,8 @@ termyte prove-runtime --json
 ```
 
 Expected healthy output has zero failures and an explicit boundary warning for
-raw agent-native tools and unsupported subprocess paths.
+raw agent-native tools and unsupported subprocess paths. Allowed commands may
+still spawn subprocesses; Termyte does not claim full containment yet.
 
 ## Safe Demo
 
@@ -153,7 +190,7 @@ non-zero.
 
 Built-in defaults currently block known secret access, destructive filesystem
 operations, protected-branch force pushes, and destructive SQL. Package
-publishing and other risky operations may warn.
+installs, package publishing, and other risky operations may warn.
 
 The runtime memory store is semantic and SQLite-backed. It never downgrades a
 policy block.
@@ -279,7 +316,7 @@ termyte run claudecode
 ```
 
 `termyte run <agent>` resolves and launches the agent executable directly. It
-does not depend on PATH shims or shell-hook injection. Use `termyte install`
+does not depend on PATH interception or hook injection. Use `termyte install`
 and `termyte uninstall` only if you want the optional native Claude Code/Codex
 hook adapters. Those adapters are not required for the default runtime path.
 

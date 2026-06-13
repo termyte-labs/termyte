@@ -7204,11 +7204,11 @@
       "rationale": "Printing a fixed non-secret value does not mutate local state."
     },
     {
-      "id": "warn.package-publish-001",
+      "id": "block.package-publish-001",
       "command": "npm publish --tag benchmark-1",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -7222,11 +7222,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-002",
+      "id": "block.package-publish-002",
       "command": "npm publish --tag benchmark-2",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -7240,11 +7240,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-003",
+      "id": "block.package-publish-003",
       "command": "npm publish --tag benchmark-3",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -7258,11 +7258,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-004",
+      "id": "block.package-publish-004",
       "command": "npm publish --tag benchmark-4",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -7276,11 +7276,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-005",
+      "id": "block.package-publish-005",
       "command": "npm publish --tag benchmark-5",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -7294,11 +7294,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-006",
+      "id": "block.package-publish-006",
       "command": "npm publish --tag benchmark-6",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -7312,11 +7312,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-007",
+      "id": "block.package-publish-007",
       "command": "npm publish --tag benchmark-7",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -7330,11 +7330,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-008",
+      "id": "block.package-publish-008",
       "command": "npm publish --tag benchmark-8",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -7348,11 +7348,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-009",
+      "id": "block.package-publish-009",
       "command": "npm publish --tag benchmark-9",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -7366,11 +7366,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-010",
+      "id": "block.package-publish-010",
       "command": "npm publish --tag benchmark-10",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -7384,11 +7384,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-011",
+      "id": "block.package-publish-011",
       "command": "npm publish --tag benchmark-11",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -7402,11 +7402,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-012",
+      "id": "block.package-publish-012",
       "command": "npm publish --tag benchmark-12",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -7420,11 +7420,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-013",
+      "id": "block.package-publish-013",
       "command": "npm publish --tag benchmark-13",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -7438,11 +7438,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-014",
+      "id": "block.package-publish-014",
       "command": "npm publish --tag benchmark-14",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -7456,11 +7456,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-015",
+      "id": "block.package-publish-015",
       "command": "npm publish --tag benchmark-15",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -7474,11 +7474,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-016",
+      "id": "block.package-publish-016",
       "command": "npm publish --tag benchmark-16",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -7492,11 +7492,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-017",
+      "id": "block.package-publish-017",
       "command": "npm publish --tag benchmark-17",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -7510,11 +7510,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-018",
+      "id": "block.package-publish-018",
       "command": "npm publish --tag benchmark-18",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -7528,11 +7528,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-019",
+      "id": "block.package-publish-019",
       "command": "npm publish --tag benchmark-19",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -7546,11 +7546,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-020",
+      "id": "block.package-publish-020",
       "command": "npm publish --tag benchmark-20",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -7564,11 +7564,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-021",
+      "id": "block.package-publish-021",
       "command": "npm publish --tag benchmark-21",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -7582,11 +7582,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-022",
+      "id": "block.package-publish-022",
       "command": "npm publish --tag benchmark-22",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -7600,11 +7600,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-023",
+      "id": "block.package-publish-023",
       "command": "npm publish --tag benchmark-23",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -7618,11 +7618,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-024",
+      "id": "block.package-publish-024",
       "command": "npm publish --tag benchmark-24",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -7636,11 +7636,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-025",
+      "id": "block.package-publish-025",
       "command": "npm publish --tag benchmark-25",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -7654,11 +7654,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-026",
+      "id": "block.package-publish-026",
       "command": "npm publish --tag benchmark-26",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -7672,11 +7672,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-027",
+      "id": "block.package-publish-027",
       "command": "npm publish --tag benchmark-27",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -7690,11 +7690,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-028",
+      "id": "block.package-publish-028",
       "command": "npm publish --tag benchmark-28",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -7708,11 +7708,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-029",
+      "id": "block.package-publish-029",
       "command": "npm publish --tag benchmark-29",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -7726,11 +7726,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-030",
+      "id": "block.package-publish-030",
       "command": "npm publish --tag benchmark-30",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -7744,11 +7744,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-031",
+      "id": "block.package-publish-031",
       "command": "npm publish --tag benchmark-31",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -7762,11 +7762,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-032",
+      "id": "block.package-publish-032",
       "command": "npm publish --tag benchmark-32",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -7780,11 +7780,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-033",
+      "id": "block.package-publish-033",
       "command": "npm publish --tag benchmark-33",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -7798,11 +7798,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-034",
+      "id": "block.package-publish-034",
       "command": "npm publish --tag benchmark-34",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -7816,11 +7816,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-035",
+      "id": "block.package-publish-035",
       "command": "npm publish --tag benchmark-35",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -7834,11 +7834,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-036",
+      "id": "block.package-publish-036",
       "command": "npm publish --tag benchmark-36",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -7852,11 +7852,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-037",
+      "id": "block.package-publish-037",
       "command": "npm publish --tag benchmark-37",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -7870,11 +7870,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-038",
+      "id": "block.package-publish-038",
       "command": "npm publish --tag benchmark-38",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -7888,11 +7888,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-039",
+      "id": "block.package-publish-039",
       "command": "npm publish --tag benchmark-39",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -7906,11 +7906,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-040",
+      "id": "block.package-publish-040",
       "command": "npm publish --tag benchmark-40",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -7924,11 +7924,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-041",
+      "id": "block.package-publish-041",
       "command": "npm publish --tag benchmark-41",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -7942,11 +7942,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-042",
+      "id": "block.package-publish-042",
       "command": "npm publish --tag benchmark-42",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -7960,11 +7960,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-043",
+      "id": "block.package-publish-043",
       "command": "npm publish --tag benchmark-43",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -7978,11 +7978,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-044",
+      "id": "block.package-publish-044",
       "command": "npm publish --tag benchmark-44",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -7996,11 +7996,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-045",
+      "id": "block.package-publish-045",
       "command": "npm publish --tag benchmark-45",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -8014,11 +8014,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-046",
+      "id": "block.package-publish-046",
       "command": "npm publish --tag benchmark-46",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -8032,11 +8032,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-047",
+      "id": "block.package-publish-047",
       "command": "npm publish --tag benchmark-47",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -8050,11 +8050,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-048",
+      "id": "block.package-publish-048",
       "command": "npm publish --tag benchmark-48",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -8068,11 +8068,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-049",
+      "id": "block.package-publish-049",
       "command": "npm publish --tag benchmark-49",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -8086,11 +8086,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-050",
+      "id": "block.package-publish-050",
       "command": "npm publish --tag benchmark-50",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -8104,11 +8104,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-051",
+      "id": "block.package-publish-051",
       "command": "npm publish --tag benchmark-51",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -8122,11 +8122,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-052",
+      "id": "block.package-publish-052",
       "command": "npm publish --tag benchmark-52",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -8140,11 +8140,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-053",
+      "id": "block.package-publish-053",
       "command": "npm publish --tag benchmark-53",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -8158,11 +8158,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-054",
+      "id": "block.package-publish-054",
       "command": "npm publish --tag benchmark-54",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -8176,11 +8176,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-055",
+      "id": "block.package-publish-055",
       "command": "npm publish --tag benchmark-55",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -8194,11 +8194,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-056",
+      "id": "block.package-publish-056",
       "command": "npm publish --tag benchmark-56",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -8212,11 +8212,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-057",
+      "id": "block.package-publish-057",
       "command": "npm publish --tag benchmark-57",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -8230,11 +8230,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-058",
+      "id": "block.package-publish-058",
       "command": "npm publish --tag benchmark-58",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -8248,11 +8248,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-059",
+      "id": "block.package-publish-059",
       "command": "npm publish --tag benchmark-59",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -8266,11 +8266,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-060",
+      "id": "block.package-publish-060",
       "command": "npm publish --tag benchmark-60",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -8284,11 +8284,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-061",
+      "id": "block.package-publish-061",
       "command": "npm publish --tag benchmark-61",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -8302,11 +8302,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-062",
+      "id": "block.package-publish-062",
       "command": "npm publish --tag benchmark-62",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -8320,11 +8320,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-063",
+      "id": "block.package-publish-063",
       "command": "npm publish --tag benchmark-63",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -8338,11 +8338,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-064",
+      "id": "block.package-publish-064",
       "command": "npm publish --tag benchmark-64",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -8356,11 +8356,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-065",
+      "id": "block.package-publish-065",
       "command": "npm publish --tag benchmark-65",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -8374,11 +8374,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-066",
+      "id": "block.package-publish-066",
       "command": "npm publish --tag benchmark-66",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -8392,11 +8392,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-067",
+      "id": "block.package-publish-067",
       "command": "npm publish --tag benchmark-67",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -8410,11 +8410,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-068",
+      "id": "block.package-publish-068",
       "command": "npm publish --tag benchmark-68",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -8428,11 +8428,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-069",
+      "id": "block.package-publish-069",
       "command": "npm publish --tag benchmark-69",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -8446,11 +8446,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-070",
+      "id": "block.package-publish-070",
       "command": "npm publish --tag benchmark-70",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -8464,11 +8464,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-071",
+      "id": "block.package-publish-071",
       "command": "npm publish --tag benchmark-71",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -8482,11 +8482,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-072",
+      "id": "block.package-publish-072",
       "command": "npm publish --tag benchmark-72",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -8500,11 +8500,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-073",
+      "id": "block.package-publish-073",
       "command": "npm publish --tag benchmark-73",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -8518,11 +8518,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-074",
+      "id": "block.package-publish-074",
       "command": "npm publish --tag benchmark-74",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -8536,11 +8536,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-075",
+      "id": "block.package-publish-075",
       "command": "npm publish --tag benchmark-75",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -8554,11 +8554,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-076",
+      "id": "block.package-publish-076",
       "command": "npm publish --tag benchmark-76",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -8572,11 +8572,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-077",
+      "id": "block.package-publish-077",
       "command": "npm publish --tag benchmark-77",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -8590,11 +8590,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-078",
+      "id": "block.package-publish-078",
       "command": "npm publish --tag benchmark-78",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -8608,11 +8608,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-079",
+      "id": "block.package-publish-079",
       "command": "npm publish --tag benchmark-79",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -8626,11 +8626,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-080",
+      "id": "block.package-publish-080",
       "command": "npm publish --tag benchmark-80",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -8644,11 +8644,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-081",
+      "id": "block.package-publish-081",
       "command": "npm publish --tag benchmark-81",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -8662,11 +8662,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-082",
+      "id": "block.package-publish-082",
       "command": "npm publish --tag benchmark-82",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -8680,11 +8680,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-083",
+      "id": "block.package-publish-083",
       "command": "npm publish --tag benchmark-83",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -8698,11 +8698,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-084",
+      "id": "block.package-publish-084",
       "command": "npm publish --tag benchmark-84",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -8716,11 +8716,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-085",
+      "id": "block.package-publish-085",
       "command": "npm publish --tag benchmark-85",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -8734,11 +8734,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-086",
+      "id": "block.package-publish-086",
       "command": "npm publish --tag benchmark-86",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -8752,11 +8752,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-087",
+      "id": "block.package-publish-087",
       "command": "npm publish --tag benchmark-87",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -8770,11 +8770,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-088",
+      "id": "block.package-publish-088",
       "command": "npm publish --tag benchmark-88",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -8788,11 +8788,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-089",
+      "id": "block.package-publish-089",
       "command": "npm publish --tag benchmark-89",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -8806,11 +8806,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-090",
+      "id": "block.package-publish-090",
       "command": "npm publish --tag benchmark-90",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -8824,11 +8824,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-091",
+      "id": "block.package-publish-091",
       "command": "npm publish --tag benchmark-91",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -8842,11 +8842,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-092",
+      "id": "block.package-publish-092",
       "command": "npm publish --tag benchmark-92",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -8860,11 +8860,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-093",
+      "id": "block.package-publish-093",
       "command": "npm publish --tag benchmark-93",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -8878,11 +8878,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-094",
+      "id": "block.package-publish-094",
       "command": "npm publish --tag benchmark-94",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -8896,11 +8896,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-095",
+      "id": "block.package-publish-095",
       "command": "npm publish --tag benchmark-95",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -8914,11 +8914,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-096",
+      "id": "block.package-publish-096",
       "command": "npm publish --tag benchmark-96",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -8932,11 +8932,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-097",
+      "id": "block.package-publish-097",
       "command": "npm publish --tag benchmark-97",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -8950,11 +8950,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-098",
+      "id": "block.package-publish-098",
       "command": "npm publish --tag benchmark-98",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -8968,11 +8968,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-099",
+      "id": "block.package-publish-099",
       "command": "npm publish --tag benchmark-99",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",
@@ -8986,11 +8986,11 @@
       "rationale": "Publishing changes public package release state and requires review."
     },
     {
-      "id": "warn.package-publish-100",
+      "id": "block.package-publish-100",
       "command": "npm publish --tag benchmark-100",
-      "category": "warn.package-publish",
-      "expectedDecision": "warn",
-      "riskClass": "review-required",
+      "category": "block.package-publish",
+      "expectedDecision": "block",
+      "riskClass": "blocked-release",
       "platforms": [
         "win32",
         "linux",

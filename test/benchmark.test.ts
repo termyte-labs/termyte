@@ -12,7 +12,7 @@ import {
 } from "../src/benchmark.js";
 
 describe("governance benchmark", () => {
-  it("contains 1200 unique, balanced, strictly labeled cases", () => {
+  it("contains 1200 unique, strictly labeled cases", () => {
     const fixture = loadGovernanceFixture(process.cwd());
     const counts = fixture.cases.reduce<Record<string, number>>((result, entry) => {
       result[entry.expectedDecision] = (result[entry.expectedDecision] ?? 0) + 1;
@@ -23,7 +23,7 @@ describe("governance benchmark", () => {
     expect(fixture.cases).toHaveLength(1200);
     expect(new Set(fixture.cases.map((entry) => entry.id)).size).toBe(1200);
     expect(new Set(fixture.cases.map((entry) => entry.command)).size).toBe(1200);
-    expect(counts).toEqual({ allow: 400, warn: 400, block: 400 });
+    expect(counts).toEqual({ allow: 400, block: 500, warn: 300 });
     expect(fixture.cases.every((entry) => entry.rationale && entry.tags.length > 0 && entry.platforms.length > 0)).toBe(true);
   });
 

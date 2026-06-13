@@ -65,4 +65,21 @@ describe("SQLite logs and memory", () => {
     expect(runCli(["logs", "--json"], workspace).stdout).toContain("shell.generic");
     expect(runCli(["memory", "--json"], workspace).stdout).toContain("shell.generic");
   });
+
+  it("stores repo-safe memory overrides and one-time approvals without executing them", () => {
+    const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-approvals-"));
+
+    const safeResult = runCli(["mark-safe", "npm install zod"], workspace);
+    const approvalResult = runCli(["allow-once", "git status"], workspace);
+    const approvalsPath = path.join(workspace, ".termyte", "approvals.json");
+    const approvals = JSON.parse(fs.readFileSync(approvalsPath, "utf8")) as { approvals: Array<{ command: string; used_at: string | null }> };
+
+    expect(safeResult.status).toBe(0);
+    expect(safeResult.stdout).toContain("Stored safe command memory.");
+    expect(approvalResult.status).toBe(0);
+    expect(approvalResult.stdout).toContain("Stored one-time approval.");
+    expect(fs.existsSync(approvalsPath)).toBe(true);
+    expect(approvals.approvals[0]?.command).toContain("git status");
+    expect(runCli(["approvals"], workspace).stdout).toContain("git status");
+  });
 });

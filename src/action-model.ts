@@ -10,6 +10,7 @@ export type RuntimeActionKind =
   | "file.edit"
   | "git.push"
   | "git.destructive"
+  | "package.install"
   | "package.publish"
   | "mcp.tool_call"
   | "network.request"
@@ -75,16 +76,32 @@ export function normalizeHookAction(input: {
   sessionId?: string;
   toolCallId?: string;
 }): RuntimeAction {
-  const toolName = safeString(input.payload.tool_name) ?? safeString(input.payload.toolName) ?? "unknown";
-  const toolInput = safeObject(input.payload.tool_input ?? input.payload.toolInput ?? input.payload.input);
+  const toolName = safeString(
+    input.payload.tool_name ??
+    input.payload.toolName ??
+    input.payload.name ??
+    input.payload.tool ??
+    input.payload.tool_name
+  ) ?? "unknown";
+  const toolInput = safeToolInput(
+    input.payload.tool_input ??
+    input.payload.toolInput ??
+    input.payload.input ??
+    input.payload.arguments ??
+    input.payload.args ??
+    input.payload.parameters
+  );
   const command = commandFromTool(toolName, toolInput);
-  return normalizeAction(command, {
+  const hasMeaningfulCommand = command.trim().length > 0;
+  const normalizedToolName = !isSupportedHookTool(toolName) || !hasMeaningfulCommand ? "unknown" : toolName;
+  const normalizedCommand = hasMeaningfulCommand ? command : `unknown ${stableJson(toolInput)}`;
+  return normalizeAction(normalizedCommand, {
     source: "hook",
     cwd: input.cwd,
     agent: input.agent,
     phase: input.phase,
     sessionId: input.sessionId,
-    toolName,
+    toolName: normalizedToolName,
     toolCallId: input.toolCallId,
     payload: input.payload,
   });
@@ -133,6 +150,8 @@ function inferRuntimeKind(parsed: ParsedAction, toolName?: string): RuntimeActio
       return "git.destructive";
     case "package.publish":
       return "package.publish";
+    case "package.install":
+      return "shell.command";
     case "remote-script.execution":
       return "network.request";
     case "privilege.escalation":
@@ -147,29 +166,41 @@ function inferRuntimeKind(parsed: ParsedAction, toolName?: string): RuntimeActio
 }
 
 function commandFromTool(toolName: string, toolInput: Record<string, unknown>): string {
-  const path = safeString(toolInput.file_path ?? toolInput.path ?? toolInput.target) ?? "";
-  const content = safeString(toolInput.content ?? toolInput.text) ?? "";
-  const command = safeString(toolInput.command) ?? safeString(toolInput.query) ?? safeString(toolInput.url) ?? "";
+  const path = safeString(toolInput.file_path ?? toolInput.path ?? toolInput.target ?? toolInput.filename) ?? "";
+  const content = safeString(toolInput.content ?? toolInput.text ?? toolInput.patch ?? toolInput.diff) ?? "";
+  const command = safeString(toolInput.command) ?? safeString(toolInput.query) ?? safeString(toolInput.url) ?? safeString(toolInput.prompt) ?? "";
 
   if (toolName === "Bash") {
     return command;
   }
   if (toolName === "Read") {
-    return path ? commandOrRead(path) : "Get-Content";
+    return path ? commandOrRead(path) : "";
   }
   if (toolName === "Write") {
-    return path ? commandOrWrite(path, content) : "Set-Content";
+    return path ? commandOrWrite(path, content) : "";
   }
   if (toolName === "Edit" || toolName === "MultiEdit") {
-    return path ? commandOrWrite(path, content) : "Set-Content";
+    return path ? commandOrWrite(path, content) : "";
   }
   if (toolName === "WebFetch" || toolName === "WebSearch") {
-    return command ? `curl ${quote(command)}` : toolName;
+    return command ? `curl ${quote(command)}` : "";
   }
   if (toolName.startsWith("mcp__")) {
     return `${toolName} ${stableJson(toolInput)}`;
   }
   return `${toolName} ${stableJson(toolInput)}`.trim();
+}
+
+function isSupportedHookTool(toolName: string): boolean {
+  return toolName === "Bash"
+    || toolName === "Read"
+    || toolName === "Write"
+    || toolName === "Edit"
+    || toolName === "MultiEdit"
+    || toolName === "WebFetch"
+    || toolName === "WebSearch"
+    || toolName.startsWith("mcp__")
+    || toolName === "unknown";
 }
 
 function commandOrRead(filePath: string): string {
@@ -186,6 +217,16 @@ function commandOrWrite(filePath: string, content: string): string {
 
 function safeObject(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function safeToolInput(value: unknown): Record<string, unknown> {
+  if (typeof value === "string") {
+    return { command: value };
+  }
+  if (Array.isArray(value)) {
+    return { items: value };
+  }
+  return safeObject(value);
 }
 
 function safeString(value: unknown): string | undefined {

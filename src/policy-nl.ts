@@ -151,13 +151,14 @@ export function compileNaturalLanguagePolicy(input: string): CompileNaturalLangu
 export function appendPolicyRule(filePath: string, rule: PhaseOnePolicyRule): PhaseOnePolicyDocument {
   const document = fs.existsSync(filePath)
     ? loadPolicyFile(filePath)
-    : { version: 1 as const, presets: [], rules: [] };
+    : { version: 1 as const, mode: "standard" as const, presets: [], rules: [] };
   const nextRule = {
     ...stripRuntimeRuleMetadata(rule),
     name: uniqueRuleName(rule.name, document.rules.map((entry) => entry.name)),
   };
   const nextDocument = normalizePhaseOnePolicyDocument({
     version: 1,
+    mode: document.mode,
     presets: document.presets,
     rules: [...document.rules.map(stripRuntimeRuleMetadata), nextRule],
   }, presetNames());
@@ -170,6 +171,7 @@ export function appendPolicyRule(filePath: string, rule: PhaseOnePolicyRule): Ph
 export function formatGeneratedPolicyRuleYaml(rule: PhaseOnePolicyRule): string {
   return formatPolicyDocumentYaml({
     version: 1,
+    mode: "standard",
     presets: [],
     rules: [stripRuntimeRuleMetadata(rule)],
   });
@@ -177,6 +179,7 @@ export function formatGeneratedPolicyRuleYaml(rule: PhaseOnePolicyRule): string 
 
 export function formatPolicyDocumentYaml(document: PhaseOnePolicyDocument): string {
   const lines = ["version: 1"];
+  lines.push(`mode: ${document.mode}`);
   if (document.presets.length === 0) {
     lines.push("presets: []");
   } else {

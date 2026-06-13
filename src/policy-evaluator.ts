@@ -1,6 +1,7 @@
 import path from "node:path";
 import { strongestDecision } from "./policy-merge.js";
 import type { EffectivePhaseOnePolicy } from "./policy-merge.js";
+import { applyPolicyMode } from "./policy-modes.js";
 import type { PhaseOnePolicyRule, PolicyMatcher } from "./policy-schema.js";
 import type { Decision, ParsedAction, ResolvedTargets, RiskResult } from "./types.js";
 
@@ -31,13 +32,15 @@ export function evaluatePhaseOnePolicy(
   }));
 
   const decision = strongestDecision([risk.decision, ...matchedRules.map((rule) => rule.action)]);
+  const modeResult = applyPolicyMode(decision, risk, policy.mode);
   const strongestMatches = matchedRules.filter((rule) => rule.action === decision);
-  const reason = strongestMatches[0]
+  const baseReason = strongestMatches[0]
     ? `policy ${decision} matched ${strongestMatches[0].name}`
     : risk.reason;
+  const reason = modeResult.reasonSuffix ? `${baseReason}. ${modeResult.reasonSuffix}` : baseReason;
 
   return {
-    decision,
+    decision: modeResult.decision,
     reason,
     matchedRules,
   };

@@ -12,7 +12,7 @@ This design targets Claude Code and Codex only. Aider is intentionally out of sc
 
 Termyte makes autonomous Claude Code and Codex sessions safer by enforcing local policy, operational memory, and replay logging at supported tool boundaries before actions execute.
 
-Termyte is not an OS sandbox in this slice. It governs supported agent sessions through native hooks, plus existing shell/session shims as defense in depth. Unmanaged agent launches remain outside Termyte's local shell enforcement boundary unless teams add endpoint, managed settings, CI, or policy controls.
+Termyte is not an OS sandbox in this slice. It governs supported agent sessions through native hooks and direct runtime enforcement. Unmanaged agent launches remain outside Termyte's local enforcement boundary unless teams add endpoint, managed settings, CI, or policy controls.
 
 ## Goals
 
@@ -179,7 +179,6 @@ Use the current modules where possible:
 - `policy-loader.ts`, `policy-merge.ts`, and `policy-evaluator.ts` for local policy
 - `memory.ts` and `local-memory.ts` for operational memory
 - `ledger.ts` for replay
-- `shell.ts` and existing shims as fallback session coverage
 - `mcp.ts` for governed MCP tools
 
 Avoid duplicating policy engines for hooks. Hooks should be another front door into the same runtime decision pipeline.
@@ -217,7 +216,7 @@ Avoid duplicating policy engines for hooks. Hooks should be another front door i
 
 ### Stage 5: Runtime Proof Expansion
 
-- Extend `termyte prove-runtime --json` to report native hook readiness separately from MCP and shim readiness.
+- Extend `termyte prove-runtime --json` to report native hook readiness separately from MCP readiness.
 - Add proof cases for blocked shell commands through hook payload simulation.
 - Keep bypassability explicit in the proof report.
 
@@ -263,4 +262,3 @@ If something is missing, the CLI must name the exact missing layer:
 - ledger database unavailable
 
 The output should never imply full OS containment. It should say native tool calls are governed when the hook layer is active.
-

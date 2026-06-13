@@ -23,14 +23,24 @@ only if allowed or approved, finalizes the ledger, and updates memory.
 
 Starts Termyte's stdio MCP server or prints an agent-specific MCP config
 snippet with `TERMYTE_WORKSPACE` pinned to the current repository. This is the
-primary agent tool surface and uses the same parser/risk/policy/memory/ledger
-pipeline as `run --`.
+surface for Termyte-owned tools and uses the same parser/risk/policy/memory
+and ledger pipeline as `run --`.
 
 ### `termyte run <agent>`
 
 Launches a supported agent executable directly. It is a convenience launcher,
-not a policy gate. Claude Code and Codex hook adapters remain optional and are
-managed by `termyte install`, `termyte uninstall`, and `termyte agent hook`.
+not a policy gate. Claude Code and Codex hook adapters remain optional
+verification surfaces and are managed by `termyte install`,
+`termyte uninstall`, `termyte agent hook`, `termyte hooks doctor`, and
+`termyte hooks smoke`.
+
+### `termyte hooks doctor|smoke`
+
+Verifies native Claude Code/Codex hook readiness and live behavior. `doctor`
+summarizes hook-command availability, database writeability, and per-agent
+smoke readiness. `smoke <agent>` exercises the built CLI hook command with
+stdin JSON, verifies allow/block decisions, and checks pre/post ledger
+finalization.
 
 ### `termyte policy presets|show|test`
 
@@ -109,18 +119,17 @@ compatibility fixture.
 | `src/mcp.ts` | Stdio MCP server, tool registry, MCP install config generation, and governed tool-call dispatch. |
 | `src/proof.ts` | Deterministic runtime proof command and formatted readiness output. |
 | `src/agent.ts` | Parses agent run invocation, resolves supported agent binaries and aliases, and defines direct-launch profiles. |
-| `src/agent-runner.ts` | Direct agent launcher. Resolves the executable, prepares local runtime state, and spawns the agent without shell shims. |
-| `src/agent-hook.ts` | Optional Claude Code/Codex hook adapter install, uninstall, verification, and hook CLI bridge. |
+| `src/agent-runner.ts` | Direct agent launcher. Resolves the executable, prepares local runtime state, and spawns the agent without extra interception layers. |
+| `src/agent-hook.ts` | Native Claude Code/Codex hook adapter install, uninstall, live smoke verification, doctor/smoke reporting, and hook CLI bridge. |
 | `src/runtime.ts` | Direct-command orchestration: analysis, policy, semantic memory lookup, ledger pending row, approval/block/execute, finalization, and memory observation. |
 | `src/policy.ts` | SQLite semantic policy defaults, evaluation, persistence, mutation, JSON import/export, validation, metadata, and drift analysis. |
 | `src/db.ts` | Creates/opens `.termyte/termyte.db`, enables WAL, creates ledger/memory/policy tables, and performs small schema migrations. |
-| `src/ledger.ts` | Creates pending runtime rows, finalizes outcomes, updates heartbeats, lists/replays records, and recovers stale shim executions for legacy compatibility. |
+| `src/ledger.ts` | Creates pending runtime rows, finalizes outcomes, and lists/replays records. |
 | `src/memory.ts` | SQLite semantic operational memory: aggregate observation, fuzzy semantic matching, confidence, lessons, and false-positive feedback. |
 | `src/execute.ts` | Synchronous direct command execution through PowerShell, cmd, or sh after runtime approval. |
 | `src/format.ts` | Human tables and formatting for SQLite logs, replay, inspections, and semantic memory. |
 | `src/doctor.ts` | Comprehensive readiness diagnostics with human and JSON reports and PASS/WARN/FAIL classification. |
 | `src/benchmark.ts` | Loads and validates governance/legacy fixtures, runs the appropriate decision engine, and calculates accuracy, confusion, precision/recall, false-safe, overblock, and category metrics. |
-| `src/shell.ts` | Isolated experimental governed-session implementation kept out of the default runtime path. |
 | `src/local-state.ts` | Legacy JSONL state helpers retained for compatibility surfaces, not the default runtime path. |
 | `src/local-logs.ts` | Legacy JSONL log writer retained for compatibility surfaces, not the default runtime path. |
 | `src/local-memory.ts` | Legacy exact-feedback helper retained for compatibility surfaces, not the default runtime path. |
@@ -139,6 +148,7 @@ compatibility fixture.
 | `test/parser-risk.test.ts` | Parser, resolver, risk, SQLite runtime ledger, redaction, semantic memory matching, and false-positive behavior. |
 | `test/policy-update.test.ts` | SQLite policy persistence, runtime application, import/export, validation, and drift. |
 | `test/mcp.test.ts` | MCP tool dispatch, inspection, and direct runtime-backed command execution. |
+| `test/agent-hook-hardening.test.ts` | Realistic native hook payload compatibility, fail-closed behavior, pre/post correlation, smoke commands, and Codex fallback honesty. |
 | `test/doctor.test.ts` | Doctor output, optional-tool warnings, packaged asset resolution, Windows environment checks, policy state, and drift warnings. |
 | `test/benchmark.test.ts` | Governance fixture size/balance/uniqueness, invalid-fixture rejection, metric calculation, and stable check-path evaluation without log writes. |
 

@@ -131,21 +131,13 @@ The command is analyzed before execution, warnings require interactive
 approval, blocks do not execute, and every runtime action is written to the
 ledger and observed by runtime memory.
 
-`termyte shell` creates an experimental governed session. It generates command
-shims, prepends them to `PATH`, starts a local guard daemon, injects supported
-shell hooks, verifies shim integrity, evaluates intercepted commands, and
-finalizes ledger records after execution. The shim path fails closed when it
-cannot reach the guard.
-
 `termyte install claude`, `termyte install codex`, `termyte claude`,
-`termyte codex`, and `termyte run <agent>` form the first native agent runtime
+`termyte codex`, and `termyte run <agent>` form the native agent runtime
 surface. The install commands write local hook configuration for Claude Code or
-Codex. The run path launches supported agents through `launchGovernedSession`,
-which creates command shims, prepends the shim directory to `PATH`, starts the
-guard daemon, installs supported shell hooks, records an agent-launch ledger
-row, and evaluates native hook events and supported subprocess tool calls before
-execution. The top-level agent commands are aliases for the governed
-`run <agent>` path.
+Codex. The run path launches supported agents directly. Native hook adapters
+are optional and call the same runtime evaluator as `run --`; they do not use
+MCP as an intermediate enforcement step. The top-level agent commands are
+aliases for the direct `run <agent>` path.
 
 `termyte mcp serve` is the launchable governed tool surface for agents that
 support MCP. It is the cleanest path for action governance today because it
@@ -155,8 +147,7 @@ shell interception.
 ### Diagnostics and Validation
 
 `termyte doctor` checks the local environment, workspace, SQLite state, policy
-state, shell runtime setup, shim integrity, guard IPC, shim smoke execution,
-nested shim resolution, optional tools, and packaged assets.
+state, native hook readiness, optional tools, and packaged assets.
 
 The primary governance benchmark contains 1,200 strictly labeled cases and
 evaluates the stable non-executing check path. A separate 230-case legacy suite
@@ -172,7 +163,7 @@ Two generations of local state and policy coexist:
 | Surface | Policy | Logs | Memory |
 | --- | --- | --- | --- |
 | `check`, `policy`, `logs`, `memory` | built-in/global/local YAML | `.termyte/logs.jsonl` | `.termyte/memory.jsonl` |
-| `run --`, top-level agent commands, `run <agent>`, `allow-once`, `inspect`, `shell`, shims/hooks | SQLite `policy_state` semantic lists | SQLite `ledger` | SQLite `memory_entries` |
+| `run --`, top-level agent commands, `run <agent>`, `allow-once`, `inspect`, hooks | SQLite `policy_state` semantic lists | SQLite `ledger` | SQLite `memory_entries` |
 | `mcp serve`, `mcp install`, `prove-runtime` | MCP tool dispatch and runtime proof | SQLite `ledger` / proof records | SQLite `memory_entries` |
 
 These paths share the parser, target resolver, and risk engine, but their policy
@@ -184,8 +175,8 @@ commands and output.
 Termyte governs only actions that enter a Termyte evaluation or interception
 surface. It is not a sandbox, an operating-system security boundary, or a
 complete process monitor. Absolute executable paths, direct system calls,
-unshimmed tools, unsupported shells, or processes that do not inherit the
-governed environment can bypass interception.
+unsupported tools, or processes that do not inherit the governed environment
+can bypass interception.
 
 Termyte redacts recognized secret values before persistence and stores
 environment variable keys rather than values. Redaction is pattern-based and
@@ -202,7 +193,7 @@ cannot guarantee that every possible secret representation is removed.
 | Approval layer | Adds a human gate for actions that are risky but not always wrong. |
 | Logs and ledger | Provide inspectable evidence and execution outcomes. |
 | Operational memory | Retains user feedback and repeated-action context locally. |
-| Governed shell | Attempts to intercept subprocess commands before they execute. |
+| Native hook adapters | Optional direct adapters for Claude Code and Codex tool events. |
 | Doctor | Proves whether the local runtime pieces actually work on the current machine. |
 | Benchmarks and package validation | Detect classification regressions and packaging failures. |
 

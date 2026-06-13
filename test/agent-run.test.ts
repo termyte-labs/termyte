@@ -125,7 +125,7 @@ describe("agent run planning", () => {
     expect(formatAgentDryRunReport(plan)).toContain("resolved alias: claudecode -> claude");
   });
 
-  it("describes direct launch mode without shell-shim dependencies", () => {
+  it("describes direct launch mode without interception dependencies", () => {
     const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-agent-dry-"));
     const binDir = path.join(workspaceRoot, "bin");
     fs.mkdirSync(binDir);
@@ -145,9 +145,8 @@ describe("agent run planning", () => {
     expect(output).toContain(`resolved executable: ${codex}`);
     expect(output).toContain("launch mode: direct");
     expect(output).toContain("enforcement now lives in run -- and MCP");
-    expect(output).not.toContain("enabled shims");
-    expect(output).not.toContain("disabled shims");
-    expect(output).not.toContain("shell hooks");
+    expect(output).not.toContain("interception layers");
+    expect(output).not.toContain("hook injection");
   });
 
   it("launches the resolved agent executable directly", async () => {
@@ -176,7 +175,7 @@ describe("agent run planning", () => {
     const ledgerCount = db.db.prepare("SELECT COUNT(*) AS count FROM ledger").get() as { count: number };
     expect(ledgerCount.count).toBe(0);
     expect(metadata.runtimeMode).toBe("direct-launch");
-    expect(metadata.runtimeNotes[0]).toContain("shell shims");
+    expect(metadata.runtimeNotes[0]).toContain("direct execution plus MCP");
   });
 
   it("describes the generic default profile behavior", () => {

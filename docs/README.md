@@ -8,8 +8,19 @@ dashboard, SDK, or enterprise features.
 
 - [Project description](project-description.md): what Termyte is, why it
   exists, what it currently does, and its limits.
+- [Architecture](architecture.md): the compact MVP architecture and runtime
+  boundaries.
 - [Architecture and runtime logic](architecture-and-runtime-logic.md): how
   commands are parsed, scored, governed, blocked, logged, and remembered.
+- [Policies](policies.md): current policy sources, precedence, and examples.
+- [Policy modes](policy-modes.md): intended modes and current implementation
+  boundary.
+- [Approvals](approvals.md): `allow-once`, `mark-safe`, and local memory.
+- [Codex integration](codex-integration.md): native hook and MCP behavior.
+- [Claude Code integration](claude-integration.md): native hook and MCP
+  behavior.
+- [Limitations](limitations.md): explicit non-goals and current gaps.
+- [Product research](product-research.md): practical market direction.
 - [Feature and file reference](feature-and-file-reference.md): every current
   user-facing feature and every source, test, script, and data file.
 - [Governance benchmark](benchmark.md): fixture design, metrics, compatibility
@@ -20,9 +31,9 @@ dashboard, SDK, or enterprise features.
 ## Current Product Boundary
 
 Termyte is a local-first Node.js CLI for deterministic command risk analysis,
-local policy enforcement, operational records, an MCP gateway, and
-experimental subprocess governance. It has no cloud dependency and no LLM in
-its critical decision path.
+local policy enforcement, operational records, an MCP gateway, and optional
+native hook adapters. It has no cloud dependency and no LLM in its critical
+decision path.
 
 The most dependable alpha surfaces are:
 
@@ -30,22 +41,22 @@ The most dependable alpha surfaces are:
 - `termyte policy`
 - `termyte logs`
 - `termyte memory`
+- `termyte inspect`
+- `termyte allow-once`
+- `termyte mark-safe`
 - `termyte doctor`
 - `termyte prove-runtime`
 - `termyte mcp serve`
 - `termyte mcp install <agent>`
 
-The execution and interception surfaces are implemented but still
-experimental:
+The native hook adapters are optional:
 
 - `termyte install <claude|codex>`
 - `termyte codex`, `termyte claude`
 - `termyte run <agent>`
 - `termyte run -- <command>`
-- `termyte shell`
-- internal shell hooks and command shims
 
 The MCP gateway is the launchable governed path for coding agents that support
-MCP. It exposes Termyte-controlled Git, filesystem, shell, package, policy,
-replay, and proof tools. `termyte run <agent>` remains an interception path
-for supported subprocess hooks and shims, not a full sandbox.
+MCP. It exposes Termyte-controlled Git, filesystem, package, policy, replay,
+and proof tools. `termyte run <agent>` is a direct launcher, not an
+interception path.

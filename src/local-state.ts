@@ -7,6 +7,7 @@ export interface LocalStatePaths {
   stateDir: string;
   logsPath: string;
   memoryPath: string;
+  approvalsPath: string;
 }
 
 export function getLocalStatePaths(cwd = process.cwd()): LocalStatePaths {
@@ -19,6 +20,7 @@ export function getLocalStatePaths(cwd = process.cwd()): LocalStatePaths {
     stateDir,
     logsPath: path.join(stateDir, "logs.jsonl"),
     memoryPath: path.join(stateDir, "memory.jsonl"),
+    approvalsPath: path.join(stateDir, "approvals.json"),
   };
 }
 

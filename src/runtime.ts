@@ -4,6 +4,8 @@ import { defaultDbPath, openDatabase } from "./db.js";
 import { defaultPolicies, type PolicySet } from "./policy.js";
 import { Ledger } from "./ledger.js";
 import { MemoryEngine } from "./memory.js";
+import { consumeMatchingApproval, findMatchingApproval } from "./local-approvals.js";
+import { matchLocalMemory } from "./local-memory.js";
 import { executeCommand } from "./execute.js";
 import { redactEnvKeys } from "./redact.js";
 import { normalizeAction } from "./action-model.js";
@@ -87,6 +89,66 @@ function resolveAllowOnce(
   return { decision, reason };
 }
 
+function applyUserMemoryOverrides(
+  decision: Decision,
+  reason: string,
+  command: string,
+  cwd: string,
+): { decision: Decision; reason: string; matchedApproval: boolean; matchedSafeMemory: boolean } {
+  const approval = findMatchingApproval(command, cwd);
+  if (approval && decision !== "block") {
+    consumeMatchingApproval(command, cwd);
+    return {
+      decision: "allow",
+      reason: `${reason} One-time approval applied.`,
+      matchedApproval: true,
+      matchedSafeMemory: false,
+    };
+  }
+
+  const safeMemory = matchLocalMemory(command, cwd).some((record) => record.type === "safe");
+  if (safeMemory && decision === "warn") {
+    return {
+      decision: "allow",
+      reason: `${reason} Command was marked safe in this repository.`,
+      matchedApproval: false,
+      matchedSafeMemory: true,
+    };
+  }
+
+  return {
+    decision,
+    reason,
+    matchedApproval: false,
+    matchedSafeMemory: false,
+  };
+}
+
+function previewUserMemoryOverrides(
+  decision: Decision,
+  reason: string,
+  command: string,
+  cwd: string,
+): { decision: Decision; reason: string } {
+  const approval = findMatchingApproval(command, cwd);
+  if (approval && decision !== "block") {
+    return {
+      decision: "allow",
+      reason: `${reason} One-time approval applied.`,
+    };
+  }
+
+  const safeMemory = matchLocalMemory(command, cwd).some((record) => record.type === "safe");
+  if (safeMemory && decision === "warn") {
+    return {
+      decision: "allow",
+      reason: `${reason} Command was marked safe in this repository.`,
+    };
+  }
+
+  return { decision, reason };
+}
+
 export async function runRuntime(options: RuntimeOptions): Promise<RuntimeResult> {
   const cwd = loadWorkspaceRoot(options.cwd ?? process.cwd());
   const dbContext = ensureWorkspace(undefined, cwd, options.dbPath);
@@ -96,8 +158,9 @@ export async function runRuntime(options: RuntimeOptions): Promise<RuntimeResult
   const action = normalizeAction(options.command, { cwd, source: "runtime" });
   const evaluation = evaluateAction(action, { cwd, dbPath: dbContext.dbPath, applyMemory: true });
   const resolved = options.allowOnce ? resolveAllowOnce(evaluation.decision, evaluation.reason, evaluation.targets) : { decision: evaluation.decision, reason: evaluation.reason };
-  const finalDecision = resolved.decision;
-  const finalReason = resolved.reason;
+  const memoryOverrides = applyUserMemoryOverrides(resolved.decision, resolved.reason, action.command, cwd);
+  const finalDecision = memoryOverrides.decision;
+  const finalReason = memoryOverrides.reason;
 
   const ledgerId = ledger.createPending(evaluation.parsedAction, evaluation.targets, envKeys, {
     cwd,
@@ -107,9 +170,11 @@ export async function runRuntime(options: RuntimeOptions): Promise<RuntimeResult
     policy: evaluation.policy,
     memoryMatches: evaluation.memoryMatches,
     finalDecision,
-    allowOnce: options.allowOnce ?? false,
-    safeAlternative: evaluation.safeAlternative,
-  });
+      allowOnce: options.allowOnce ?? false,
+      approvalApplied: memoryOverrides.matchedApproval,
+      safeMemoryApplied: memoryOverrides.matchedSafeMemory,
+      safeAlternative: evaluation.safeAlternative,
+    });
 
   let outcome;
   if (finalDecision === "block") {
@@ -173,14 +238,15 @@ export function inspectPolicies(policies: PolicySet = defaultPolicies): string {
 export function inspectAction(command: string, cwd = process.cwd(), dbPath?: string): InspectionReport {
   const action = normalizeAction(command, { cwd, source: "runtime" });
   const evaluation = evaluateAction(action, { cwd, dbPath, applyMemory: true });
+  const memoryPreview = previewUserMemoryOverrides(evaluation.decision, evaluation.reason, action.command, cwd);
   return {
     action: evaluation.parsedAction,
     targets: evaluation.targets,
     risk: evaluation.risk,
     policy: evaluation.policy,
     memoryMatches: evaluation.memoryMatches,
-    finalDecision: evaluation.decision,
-    finalReason: evaluation.reason,
+    finalDecision: memoryPreview.decision,
+    finalReason: memoryPreview.reason,
     safeAlternative: evaluation.safeAlternative,
     matchedPolicies: evaluation.matchedPolicies,
   };

@@ -9,6 +9,10 @@ function isWildcardDelete(action: ParsedAction): boolean {
 }
 
 export function analyzeRisk(action: ParsedAction, targets: ResolvedTargets): RiskResult {
+  return enrichRisk(action, targets, analyzeRiskCore(action, targets));
+}
+
+function analyzeRiskCore(action: ParsedAction, targets: ResolvedTargets): RiskResult {
   const signals: string[] = [];
   let score = 0;
 
@@ -248,9 +252,19 @@ export function analyzeRisk(action: ParsedAction, targets: ResolvedTargets): Ris
   if (action.kind === "package.publish") {
     signals.push("package publish");
     return {
+      decision: "block",
+      score: 85,
+      reason: "package publishing is blocked because it changes public release state",
+      signals,
+    };
+  }
+
+  if (action.kind === "package.install") {
+    signals.push("dependency install");
+    return {
       decision: "warn",
-      score: 55,
-      reason: "package publish requires approval because it changes the public release state",
+      score: 40,
+      reason: "dependency installation changes the local dependency graph and may update manifests or lockfiles",
       signals,
     };
   }
@@ -277,6 +291,15 @@ export function analyzeRisk(action: ParsedAction, targets: ResolvedTargets): Ris
 
   if (action.kind === "privilege.escalation") {
     signals.push("privilege escalation");
+    if (action.semanticId === "permission.chmod_recursive_777") {
+      signals.push("recursive world-writable permissions");
+      return {
+        decision: "block",
+        score: 90,
+        reason: "recursive chmod 777 is blocked because it makes files world-writable",
+        signals,
+      };
+    }
     return {
       decision: "warn",
       score: 70,
@@ -321,4 +344,111 @@ export function analyzeRisk(action: ParsedAction, targets: ResolvedTargets): Ris
     reason: "no risky pattern detected",
     signals,
   };
+}
+
+function enrichRisk(action: ParsedAction, targets: ResolvedTargets, risk: RiskResult): RiskResult {
+  return {
+    ...risk,
+    level: riskLevel(risk.score),
+    ruleId: ruleIdFor(action, targets),
+    suggestedFix: suggestedFixFor(action, targets),
+  };
+}
+
+function riskLevel(score: number): NonNullable<RiskResult["level"]> {
+  if (score >= 80) return "critical";
+  if (score >= 50) return "high";
+  if (score >= 25) return "medium";
+  return "low";
+}
+
+function ruleIdFor(action: ParsedAction, targets: ResolvedTargets): string {
+  if (action.kind === "git.push" && action.isForce) {
+    return targets.protectedBranch ? "git.push.force.protected_branch" : "git.push.force.any";
+  }
+
+  if (action.kind === "git.destructive") {
+    if (action.semanticId === "git.reset.hard") return "git.reset.hard";
+    if (action.semanticId.startsWith("git.branch.delete")) return "git.branch.delete";
+    return action.semanticId;
+  }
+
+  if (action.kind === "filesystem.delete") {
+    if (targets.targetClasses.some((entry) => entry.category === "git-metadata")) return "file.delete.git_dir";
+    if (targets.protectedTargets.length > 0) return "file.delete.protected_path";
+    if (targets.targetClasses.some((entry) => entry.category === "workspace-source") && action.isRecursive) return "file.delete.source_dir";
+    if (action.isRecursive) return "file.delete.recursive";
+    return "file.delete";
+  }
+
+  if (action.kind === "filesystem.write") {
+    if (targets.protectedTargets.length > 0) return "file.modify.protected_path";
+    if (targets.targetClasses.some((entry) => entry.category === "config")) {
+      const targetText = targets.expandedTargets.join(" ").toLowerCase();
+      if (/package(-lock)?\.json|pnpm-lock\.yaml|yarn\.lock/.test(targetText)) {
+        return targetText.includes("lock") ? "package.lockfile.modify" : "package.manifest.modify";
+      }
+      if (targetText.includes(".github")) return "ci.modify";
+      if (/dockerfile|docker-compose\.ya?ml/.test(targetText)) return "docker.modify";
+      if (/infra|terraform|migrations/.test(targetText)) return targetText.includes("migrations") ? "migration.run" : "infra.modify";
+    }
+    return "file.modify";
+  }
+
+  if (action.kind === "secret.access") {
+    const target = action.target.toLowerCase();
+    if (target.includes(".env")) return "secret.read.env";
+    if (/id_rsa|\.pem|\.key/.test(target)) return "secret.read.private_key";
+    return "secret.possible_exfiltration";
+  }
+
+  if (action.kind === "package.publish") return "package.publish";
+  if (action.kind === "package.install") return "package.install";
+
+  if (action.kind === "sql.destructive") {
+    if (action.sqlPattern === "drop-table") return "db.drop";
+    if (action.sqlPattern === "truncate-table") return "db.truncate";
+    if (action.sqlPattern === "delete-without-where") return "db.delete_without_where";
+    return "db.delete_with_where";
+  }
+
+  if (action.kind === "remote-script.execution") {
+    const first = action.tokens[0]?.toLowerCase() ?? "";
+    if (first === "wget") return "network.wget_pipe_shell";
+    return "network.curl_pipe_shell";
+  }
+
+  if (action.kind === "docker.destructive") return "docker.modify";
+  if (action.kind === "deploy.mutation") {
+    const first = action.tokens[0]?.toLowerCase() ?? "";
+    if (first === "prisma" || first === "alembic") return "migration.run";
+    if (first === "terraform" || first === "kubectl") return "infra.modify";
+    return "deploy.command";
+  }
+  if (action.kind === "privilege.escalation") {
+    return action.rawCommand.toLowerCase().includes("chmod -r 777") ? "permission.chmod_recursive_777" : "sudo.destructive";
+  }
+
+  if (action.kind === "shell.generic" && action.confidence < 0.6 && action.rawCommand.length > 160) {
+    return "unknown.high_entropy_command";
+  }
+
+  return action.semanticId;
+}
+
+function suggestedFixFor(action: ParsedAction, targets: ResolvedTargets): string {
+  if (action.kind === "git.push" && action.isForce) {
+    return targets.protectedBranch ? "Create a feature branch or use a normal push after review." : "Prefer --force-with-lease on a feature branch after review.";
+  }
+  if (action.kind === "filesystem.delete") return "Delete narrower targets and inspect them first.";
+  if (action.kind === "filesystem.write" && targets.protectedTargets.length > 0) return "Move the change to a reviewed branch or edit a non-protected file.";
+  if (action.kind === "secret.access") return "Use a secret manager or request explicit approval for secret access.";
+  if (action.kind === "package.publish") return "Run a pack or dry-run release step first.";
+  if (action.kind === "package.install") return "Review manifest and lockfile changes before committing.";
+  if (action.kind === "sql.destructive") return "Run the SQL in a disposable database or add a narrow WHERE clause.";
+  if (action.kind === "remote-script.execution") return "Download and inspect the script before execution.";
+  if (action.kind === "privilege.escalation") return "Run the least-privileged command that performs the same operation.";
+  if (action.kind === "docker.destructive") return "Inspect Docker resources and target only the specific resource.";
+  if (action.kind === "deploy.mutation") return "Run a plan/dry-run and require review before mutating deployment state.";
+  return "Run `termyte inspect` before executing or split the action into a smaller step.";
 }

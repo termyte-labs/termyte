@@ -51,11 +51,24 @@ describe("Phase 1 check and policy CLI", () => {
     expect(parsed.presets).toContain("safe-default");
   });
 
+  it("shows a product-oriented policies overview", () => {
+    const result = runCli(["policies"], fs.mkdtempSync(path.join(os.tmpdir(), "termyte-policies-overview-")));
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("Termyte effective policy");
+    expect(result.stdout).toContain("Mode:");
+    expect(result.stdout).toContain("Local SQLite policy state");
+    expect(result.stdout).toContain("memory database:");
+  });
+
   it("checks commands without executing them", () => {
-    expect(checkCommand("npm test").decision).toBe("allow");
-    expect(checkCommand("npm publish").decision).toBe("warn");
-    expect(checkCommand("cat .env").decision).toBe("block");
-    expect(checkCommand("rm -rf /").decision).toBe("block");
+    const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-check-isolated-"));
+
+    expect(checkCommand("npm test", workspace).decision).toBe("allow");
+    expect(checkCommand("npm publish", workspace).decision).toBe("block");
+    expect(checkCommand("npm install zod", workspace).decision).toBe("warn");
+    expect(checkCommand("cat .env", workspace).decision).toBe("block");
+    expect(checkCommand("rm -rf /", workspace).decision).toBe("block");
   });
 
   it("returns block exit status for blocked policy tests", () => {
@@ -79,5 +92,35 @@ describe("Phase 1 check and policy CLI", () => {
     expect(result.status).toBe(0);
     expect(fs.existsSync(sentinel)).toBe(false);
     expect(JSON.parse(result.stdout)).toMatchObject({ executed: false });
+  });
+
+  it("accepts inspect without a double-dash and reports the decision", () => {
+    const result = runCli(["inspect", "git push --force origin main"], fs.mkdtempSync(path.join(os.tmpdir(), "termyte-inspect-")));
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("Final Decision");
+    expect(result.stdout).toContain("git.push.force");
+    expect(result.stdout).toContain("  - rule:");
+    expect(result.stdout).toContain("git.push.force.protected_branch");
+    expect(result.stdout).toContain("suggested fix:");
+  });
+
+  it("applies project termyte.yaml rules during inspect", () => {
+    const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-inspect-project-policy-"));
+    fs.writeFileSync(path.join(workspace, "termyte.yaml"), [
+      "version: 1",
+      "mode: standard",
+      "commands:",
+      "  block:",
+      "    - \"echo blocked\"",
+      "",
+    ].join("\n"), "utf8");
+
+    const result = runCli(["inspect", "echo blocked", "--json"], workspace);
+
+    expect(result.status).toBe(0);
+    const parsed = JSON.parse(result.stdout) as { finalDecision: string; matchedPolicies: string[] };
+    expect(parsed.finalDecision).toBe("block");
+    expect(parsed.matchedPolicies).toContain("local:block configured commands");
   });
 });

@@ -39,10 +39,12 @@ export function formatPolicyPresets(json = false): string {
 export function formatPolicyShow(cwd = process.cwd(), json = false): string {
   const effective = mergePhaseOnePolicies(loadPhaseOnePolicies(cwd));
   const payload = {
+    mode: effective.mode,
     layers: effective.layers.map((layer) => ({
       name: layer.name,
       path: layer.path,
       loaded: layer.loaded,
+      mode: layer.mode,
     })),
     presets: effective.presets,
     rules: effective.rules.map((rule) => ({
@@ -62,11 +64,16 @@ export function formatPolicyShow(cwd = process.cwd(), json = false): string {
 
   return [
     "Termyte effective policy",
+    `Mode: ${payload.mode}`,
     "Layers:",
     ...payload.layers.map((layer) => `  ${layer.name}: ${layer.loaded ? "loaded" : "missing"}${layer.path ? ` (${layer.path})` : ""}`),
     `Presets: ${payload.presets.length > 0 ? payload.presets.join(", ") : "none"}`,
     "Rules:",
     ...payload.rules.map((rule) => `  ${rule.action} ${rule.name} [${rule.source}${rule.preset ? `/${rule.preset}` : ""}]`),
+    ...(payload.warnings.length > 0 ? [
+      "Warnings:",
+      ...payload.warnings.map((warning) => `  ${warning}`),
+    ] : []),
   ].join("\n");
 }
 
@@ -119,7 +126,9 @@ export function slimCheckResult(result: ReturnType<typeof inspectCommand>): obje
     decision: result.decision,
     risk: result.risk,
     riskScore: result.riskScore,
+    rule_id: result.rule_id,
     reason: result.reason,
+    suggested_fix: result.suggested_fix,
     semantic_id: result.semantic_id,
     matched_rules: result.matched_rules,
     policy_sources: result.policy_sources,

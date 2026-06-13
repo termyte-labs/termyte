@@ -853,70 +853,70 @@
     "command": "npm publish",
     "category": "package-publish",
     "expectedDecisions": [
-      "warn"
+      "block"
     ]
   },
   {
     "command": "pnpm publish",
     "category": "package-publish",
     "expectedDecisions": [
-      "warn"
+      "block"
     ]
   },
   {
     "command": "yarn publish",
     "category": "package-publish",
     "expectedDecisions": [
-      "warn"
+      "block"
     ]
   },
   {
     "command": "npm publish --access public",
     "category": "package-publish",
     "expectedDecisions": [
-      "warn"
+      "block"
     ]
   },
   {
     "command": "pnpm publish --access public",
     "category": "package-publish",
     "expectedDecisions": [
-      "warn"
+      "block"
     ]
   },
   {
     "command": "yarn npm publish",
     "category": "package-publish",
     "expectedDecisions": [
-      "warn"
+      "block"
     ]
   },
   {
     "command": "npm publish --tag next",
     "category": "package-publish",
     "expectedDecisions": [
-      "warn"
+      "block"
     ]
   },
   {
     "command": "pnpm publish --tag next",
     "category": "package-publish",
     "expectedDecisions": [
-      "warn"
+      "block"
     ]
   },
   {
     "command": "yarn publish --tag beta",
     "category": "package-publish",
     "expectedDecisions": [
-      "warn"
+      "block"
     ]
   },
   {
     "command": "npm publish --dry-run",
     "category": "package-publish",
     "expectedDecisions": [
-      "warn"
+      "block"
     ]
   },
   {
@@ -1203,70 +1203,70 @@
     "command": "npm publish --tag latest",
     "category": "package-publish-extra",
     "expectedDecisions": [
-      "warn"
+      "block"
     ]
   },
   {
     "command": "npm publish --provenance",
     "category": "package-publish-extra",
     "expectedDecisions": [
-      "warn"
+      "block"
     ]
   },
   {
     "command": "npm publish --access public --tag beta",
     "category": "package-publish-extra",
     "expectedDecisions": [
-      "warn"
+      "block"
     ]
   },
   {
     "command": "pnpm publish --provenance",
     "category": "package-publish-extra",
     "expectedDecisions": [
-      "warn"
+      "block"
     ]
   },
   {
     "command": "pnpm publish --access public --tag next",
     "category": "package-publish-extra",
     "expectedDecisions": [
-      "warn"
+      "block"
     ]
   },
   {
     "command": "yarn publish --access public",
     "category": "package-publish-extra",
     "expectedDecisions": [
-      "warn"
+      "block"
     ]
   },
   {
     "command": "yarn npm publish --tag latest",
     "category": "package-publish-extra",
     "expectedDecisions": [
-      "warn"
+      "block"
     ]
   },
   {
     "command": "npm publish --ignore-scripts",
     "category": "package-publish-extra",
     "expectedDecisions": [
-      "warn"
+      "block"
     ]
   },
   {
     "command": "pnpm publish --ignore-scripts",
     "category": "package-publish-extra",
     "expectedDecisions": [
-      "warn"
+      "block"
     ]
   },
   {
     "command": "yarn publish --new-version patch",
     "category": "package-publish-extra",
     "expectedDecisions": [
-      "warn"
+      "block"
     ]
   },
   {

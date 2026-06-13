@@ -59,9 +59,9 @@ addGroup({
 });
 
 addGroup({
-  category: "warn.package-publish",
-  expectedDecision: "warn",
-  riskClass: "review-required",
+  category: "block.package-publish",
+  expectedDecision: "block",
+  riskClass: "blocked-release",
   tags: ["package", "publish"],
   rationale: "Publishing changes public package release state and requires review.",
   commands: sequence(100, (n) => `npm publish --tag benchmark-${n}`),
@@ -130,8 +130,8 @@ const counts = cases.reduce((result, entry) => {
 }, {});
 const uniqueIds = new Set(cases.map((entry) => entry.id));
 const uniqueCommands = new Set(cases.map((entry) => entry.command));
-if (cases.length !== 1200 || counts.allow !== 400 || counts.warn !== 400 || counts.block !== 400) {
-  throw new Error(`Expected 1200 balanced cases, got ${JSON.stringify(counts)}`);
+if (cases.length !== 1200 || counts.allow !== 400 || counts.warn !== 300 || counts.block !== 500) {
+  throw new Error(`Expected 1200 cases with allow=400, warn=300, block=500, got ${JSON.stringify(counts)}`);
 }
 if (uniqueIds.size !== cases.length || uniqueCommands.size !== cases.length) {
   throw new Error("Governance benchmark ids and commands must be unique.");

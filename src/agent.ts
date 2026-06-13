@@ -183,7 +183,7 @@ export function resolveRuntimeProfile(agentName: string, platform: NodeJS.Platfo
     notes:
       profileName === "codex-windows" && agentName === "codex" && platform === "win32"
         ? ["Codex Windows profile is preserved as a launch label only; enforcement now lives in run -- and MCP."]
-        : ["Native hooks are optional adapters; Termyte no longer relies on shell shims for the default runtime."],
+        : ["Native hooks are optional adapters; the default runtime uses direct execution plus MCP."],
   };
 }
 

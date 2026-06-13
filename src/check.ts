@@ -4,6 +4,7 @@ import { evaluatePhaseOnePolicy, type MatchedPolicyRule } from "./policy-evaluat
 import { parseAction } from "./parser.js";
 import { resolveTargets } from "./resolver.js";
 import { analyzeRisk } from "./risk.js";
+import { findMatchingApproval } from "./local-approvals.js";
 import { matchLocalMemory } from "./local-memory.js";
 import { normalizeCommandPattern } from "./local-state.js";
 import type { Decision, LocalMemoryMatch, ParsedAction, ResolvedTargets, RiskResult } from "./types.js";
@@ -14,7 +15,9 @@ export interface PhaseOneCheckResult {
   decision: Decision;
   risk: "low" | "medium" | "high" | "critical";
   riskScore: number;
+  rule_id?: string;
   reason: string;
+  suggested_fix?: string;
   semantic_id: string;
   matched_rules: MatchedPolicyRule[];
   policy_sources: string[];
@@ -56,10 +59,17 @@ export function checkCommandWithPolicy(
 ): PhaseOneCheckResult {
   const policyResult = evaluatePhaseOnePolicy(action, targets, riskResult, policy);
   const memoryMatches = options.applyMemory === false ? [] : matchLocalMemory(action.redactedCommand, cwd);
-  const memoryAdjustedDecision = applyMemoryDecision(policyResult.decision, memoryMatches);
-  const reason = memoryAdjustedDecision !== policyResult.decision
-    ? `This resembles a command you marked unsafe: ${memoryMatches.find((match) => match.type === "unsafe")?.pattern ?? action.redactedCommand}`
-    : policyResult.reason;
+  const approval = findMatchingApproval(action.redactedCommand, cwd);
+  const memoryAdjustedDecision = applyMemoryDecision(policyResult.decision, memoryMatches, approval);
+  const unsafeMatch = memoryMatches.find((match) => match.type === "unsafe");
+  const safeMatch = memoryMatches.find((match) => match.type === "safe");
+  const reason = approval && policyResult.decision !== "block"
+    ? `One-time approval applied for ${approval.command}.`
+    : memoryAdjustedDecision !== policyResult.decision && unsafeMatch
+      ? `This resembles a command you marked unsafe: ${unsafeMatch.pattern}`
+      : memoryAdjustedDecision !== policyResult.decision && safeMatch
+        ? `This command was marked safe in this repository: ${safeMatch.pattern}`
+        : policyResult.reason;
   const policySources = uniqueSources(policyResult.matchedRules.map((rule) => rule.source));
 
   return {
@@ -68,7 +78,9 @@ export function checkCommandWithPolicy(
     decision: memoryAdjustedDecision,
     risk: riskBand(riskResult.score),
     riskScore: riskResult.score,
+    rule_id: riskResult.ruleId,
     reason,
+    suggested_fix: riskResult.suggestedFix,
     semantic_id: action.semanticId,
     matched_rules: policyResult.matchedRules,
     policy_sources: policySources,
@@ -90,8 +102,10 @@ export function formatCheckHuman(result: PhaseOneCheckResult): string {
   return [
     `Decision: ${result.decision}`,
     `Risk: ${result.risk} (${result.riskScore})`,
+    `Rule: ${result.rule_id ?? result.semantic_id}`,
     `Semantic ID: ${result.semantic_id}`,
     `Reason: ${result.reason}`,
+    `Suggested fix: ${result.suggested_fix ?? "none"}`,
     `Matched policy: ${matched}`,
     `Memory matches: ${memory}`,
     "Executed: false",
@@ -105,9 +119,15 @@ function riskBand(score: number): PhaseOneCheckResult["risk"] {
   return "low";
 }
 
-function applyMemoryDecision(decision: Decision, matches: LocalMemoryMatch[]): Decision {
-  if (decision === "block" || decision === "ask" || decision === "warn") {
+function applyMemoryDecision(decision: Decision, matches: LocalMemoryMatch[], approval?: { used_at: string | null } | null): Decision {
+  if (approval && decision !== "block") {
+    return "allow";
+  }
+  if (decision === "block" || decision === "ask") {
     return decision;
+  }
+  if (decision === "warn") {
+    return matches.some((match) => match.type === "safe") ? "allow" : "warn";
   }
   return matches.some((match) => match.type === "unsafe") ? "warn" : decision;
 }

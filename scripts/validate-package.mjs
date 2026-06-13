@@ -117,6 +117,14 @@ try {
   const doctorJson = JSON.parse(doctor.stdout);
   assertEqual(doctorJson.summary?.fail, 0, "packaged doctor failure count");
 
+  const hooksDoctor = run(installedBin, ["hooks", "doctor", "--json"], { cwd: smokeDir, env, timeoutMs: 120_000 });
+  const hooksDoctorJson = JSON.parse(hooksDoctor.stdout);
+  assertEqual(hooksDoctorJson.ok, true, "packaged hooks doctor readiness");
+
+  const hooksSmoke = run(installedBin, ["hooks", "smoke", "claude", "--json"], { cwd: smokeDir, env, timeoutMs: 120_000 });
+  const hooksSmokeJson = JSON.parse(hooksSmoke.stdout);
+  assertEqual(hooksSmokeJson.ok, true, "packaged hooks smoke readiness");
+
   const proof = run(installedBin, ["prove-runtime", "--json"], { cwd: smokeDir, env, timeoutMs: 120_000 });
   const proofJson = JSON.parse(proof.stdout);
   assertEqual(proofJson.summary?.fail, 0, "packaged runtime proof failure count");
@@ -272,7 +280,7 @@ function verifyDemo(installedBin, workspace, env) {
   }
   assertEqual(forcePushJson.executed, false, "demo force-push execution state");
 
-  const publish = run(installedBin, ["check", "npm publish", "--json"], { cwd: workspace, env });
+  const publish = run(installedBin, ["check", "npm publish", "--json"], { cwd: workspace, env, expectedStatuses: [0, 1] });
   const publishJson = JSON.parse(publish.stdout);
   if (publishJson.decision !== "warn" && publishJson.decision !== "block") {
     throw new Error(`demo package publish check expected warn or block, received ${JSON.stringify(publishJson.decision)}`);

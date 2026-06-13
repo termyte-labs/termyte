@@ -101,7 +101,7 @@ describe("policy updates", () => {
     const dbPath = path.join(workspaceRoot, "termyte.db");
 
     savePolicies(dbPath, {
-      block: [...defaultPolicies.block],
+      block: defaultPolicies.block.filter((rule) => rule !== "package.*.publish"),
       warn: ["filesystem.delete.recursive.force"],
     }, { customized: false, defaultVersion: 1 });
 
@@ -111,7 +111,8 @@ describe("policy updates", () => {
     expect(state.metadata.customized).toBe(false);
     expect(state.metadata.defaultVersion).toBe(1);
     expect(drift.staleDefaultVersion).toBe(true);
-    expect(drift.missingWarnDefaults).toEqual(expect.arrayContaining(["git.push.force", "package.*.publish"]));
+    expect(drift.missingBlockDefaults).toEqual(expect.arrayContaining(["package.*.publish"]));
+    expect(drift.missingWarnDefaults).toEqual(expect.arrayContaining(["git.push.force"]));
 
     addPolicies(dbPath, "warn", ["team.custom.warn"]);
     expect(loadPolicyState(dbPath).metadata.customized).toBe(true);

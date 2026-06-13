@@ -41,12 +41,23 @@ describe("runtime parsing and risk", () => {
     expect(risk.decision).toBe("warn");
   });
 
-  it("warns on package publish", () => {
+  it("blocks package publish", () => {
     const action = parseAction("npm publish");
     const targets = resolveTargets(action, process.cwd());
     const risk = analyzeRisk(action, targets);
 
     expect(action.semanticId).toBe("package.npm.publish");
+    expect(risk.decision).toBe("block");
+    expect(risk.ruleId).toBe("package.publish");
+  });
+
+  it("warns on package installs", () => {
+    const action = parseAction("npm install zod");
+    const targets = resolveTargets(action, process.cwd());
+    const risk = analyzeRisk(action, targets);
+
+    expect(action.kind).toBe("package.install");
+    expect(action.semanticId).toBe("package.npm.install");
     expect(risk.decision).toBe("warn");
   });
 
@@ -101,15 +112,30 @@ describe("runtime parsing and risk", () => {
 
   it("warns on docker destructive actions and deployment mutations", () => {
     const docker = parseAction("docker system prune -af");
+    const dockerBuild = parseAction("docker build .");
     const terraform = parseAction("terraform destroy");
     const kubectl = parseAction("kubectl delete namespace prod");
+    const prisma = parseAction("prisma migrate deploy");
 
     expect(docker.semanticId).toBe("docker.system.prune");
+    expect(dockerBuild.semanticId).toBe("docker.build");
     expect(terraform.semanticId).toBe("deploy.mutation");
     expect(kubectl.semanticId).toBe("deploy.mutation");
+    expect(prisma.semanticId).toBe("deploy.mutation");
     expect(analyzeRisk(docker, resolveTargets(docker, process.cwd())).decision).toBe("warn");
+    expect(analyzeRisk(dockerBuild, resolveTargets(dockerBuild, process.cwd())).ruleId).toBe("docker.modify");
     expect(analyzeRisk(terraform, resolveTargets(terraform, process.cwd())).decision).toBe("warn");
     expect(analyzeRisk(kubectl, resolveTargets(kubectl, process.cwd())).decision).toBe("warn");
+    expect(analyzeRisk(prisma, resolveTargets(prisma, process.cwd())).ruleId).toBe("migration.run");
+  });
+
+  it("blocks recursive chmod 777", () => {
+    const action = parseAction("chmod -R 777 .");
+    const risk = analyzeRisk(action, resolveTargets(action, process.cwd()));
+
+    expect(action.semanticId).toBe("permission.chmod_recursive_777");
+    expect(risk.decision).toBe("block");
+    expect(risk.ruleId).toBe("permission.chmod_recursive_777");
   });
 
   it("blocks SQL destructive strings", () => {

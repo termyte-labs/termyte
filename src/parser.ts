@@ -201,6 +201,10 @@ function semanticAction(command: string, tokens: string[], lowered: string[]): {
     return { kind: "privilege.escalation", semanticId: "privilege.escalation", domain: "system", operation: "elevate privileges", target: first, confidence: 0.9 };
   }
 
+  if (first === "chmod" && hasFlag(tokens, ["-r", "--recursive"]) && lowered.includes("777")) {
+    return { kind: "privilege.escalation", semanticId: "permission.chmod_recursive_777", domain: "filesystem", operation: "chmod recursive 777", target: tokens.at(-1) ?? "workspace", confidence: 0.96 };
+  }
+
   if (
     /(api[_-]?key|secret|token|password|passwd|authorization|credentials|id_rsa|\.aws[\\/]+credentials|\.env)/i.test(command) &&
     /^(cat|type|get-content|printenv|echo|node|python|powershell|pwsh|rg|grep)$/i.test(first)
@@ -209,6 +213,9 @@ function semanticAction(command: string, tokens: string[], lowered: string[]): {
   }
 
   if (first === "docker") {
+    if (second === "build") {
+      return { kind: "docker.destructive", semanticId: "docker.build", domain: "docker", operation: "build image", target: tokens.at(-1) ?? "docker build", confidence: 0.88 };
+    }
     if (second === "system" && lowered[2] === "prune") {
       return { kind: "docker.destructive", semanticId: "docker.system.prune", domain: "docker", operation: "system prune", target: "docker system", confidence: 0.94 };
     }
@@ -218,6 +225,8 @@ function semanticAction(command: string, tokens: string[], lowered: string[]): {
   }
 
   if (
+    (first === "prisma" && second === "migrate") ||
+    (first === "alembic" && second === "upgrade") ||
     (first === "kubectl" && ["apply", "delete", "rollout"].includes(second)) ||
     (first === "terraform" && ["apply", "destroy"].includes(second)) ||
     (first === "vercel" && lowered.includes("--prod")) ||
@@ -284,6 +293,34 @@ export function parseAction(command: string): ParsedAction {
       isForce: false,
       packageManager,
       confidence: 0.96,
+    };
+  }
+
+  if (
+    packageManager &&
+    (
+      (packageManager === "npm" && (lowered[1] === "install" || lowered[1] === "i" || lowered[1] === "add")) ||
+      (packageManager === "pnpm" && (lowered[1] === "install" || lowered[1] === "i" || lowered[1] === "add")) ||
+      (packageManager === "yarn" && (lowered[1] === "add" || lowered[1] === "install"))
+    )
+  ) {
+    const packageTargets = tokens.slice(2).filter((token) => !token.startsWith("-"));
+    return {
+      rawCommand: command,
+      redactedCommand,
+      tokens,
+      shell,
+      kind: "package.install",
+      semanticId: `package.${packageManager}.install`,
+      domain: "package",
+      operation: "install",
+      target: packageTargets.join(" ") || packageManager,
+      flags: tokens.filter((token) => token.startsWith("-")),
+      isWildcard: false,
+      isRecursive: false,
+      isForce: false,
+      packageManager,
+      confidence: 0.92,
     };
   }
 

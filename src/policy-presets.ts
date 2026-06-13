@@ -18,7 +18,8 @@ export const phaseOnePolicyPresets: PolicyPreset[] = [
       ]),
       rule("block protected branch force push", "block", ["git.push.force"]),
       rule("block destructive SQL", "block", ["sql.drop-table", "sql.truncate-table", "sql.delete-without-where"]),
-      rule("warn package publish", "warn", ["package.*.publish"]),
+      rule("block package publish", "block", ["package.*.publish"]),
+      rule("warn package installs", "warn", ["package.*.install"]),
       rule("warn remote script execution", "warn", ["remote-script.*"]),
       rule("warn deploy mutation", "warn", ["deploy.*"]),
       rule("warn privilege escalation", "warn", ["privilege.escalation"]),
@@ -52,8 +53,11 @@ export const phaseOnePolicyPresets: PolicyPreset[] = [
   },
   {
     name: "package-manager-safe",
-    description: "Warns before package publishing and public release mutations.",
-    rules: [rule("warn package publish", "warn", ["package.*.publish"])],
+    description: "Warns before package installs, publishing, and public release mutations.",
+    rules: [
+      rule("warn package install", "warn", ["package.*.install"]),
+      rule("block package publish", "block", ["package.*.publish"]),
+    ],
   },
   {
     name: "ci-safe",

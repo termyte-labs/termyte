@@ -17,15 +17,15 @@ termyte bench --json
 The governance fixture contains 1,200 unique actions:
 
 - 400 expected `allow` actions
-- 400 expected `warn` actions
-- 400 expected `block` actions
+- 300 expected `warn` actions
+- 500 expected `block` actions
 
 Each case has one strict expected decision plus a category, risk class,
 platform metadata, tags, source, and rationale. The generator enforces count,
-balance, uniqueness, and deterministic ordering.
+the expected decision distribution, uniqueness, and deterministic ordering.
 
 The suite covers representative read-only commands, tests and validation,
-ordinary file reads, package publishing, scoped SQL deletion, privilege
+ordinary file reads, blocked package publishing, scoped SQL deletion, privilege
 escalation, destructive git history operations, secret access, protected
 branch force pushes, destructive SQL, and broad filesystem deletion.
 

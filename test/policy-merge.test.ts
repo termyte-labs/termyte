@@ -17,7 +17,7 @@ describe("Phase 1 policy merge and conflict resolution", () => {
     const loaded: LoadedPolicies = {
       warnings: [],
       layers: [
-        { name: "built-in", path: null, loaded: true, presets: ["safe-default"], rules: [{ name: "built-in allow", action: "allow", source: "built-in", match: { semantic_ids: ["shell.generic"] } }] },
+        { name: "built-in", path: null, loaded: true, mode: "standard", presets: ["safe-default"], rules: [{ name: "built-in allow", action: "allow", source: "built-in", match: { semantic_ids: ["shell.generic"] } }] },
         { name: "global", path: null, loaded: true, presets: [], rules: [{ name: "global ask", action: "ask", source: "global", match: { semantic_ids: ["shell.generic"] } }] },
         { name: "local", path: null, loaded: true, presets: [], rules: [{ name: "local warn", action: "warn", source: "local", match: { semantic_ids: ["shell.generic"] } }] },
       ],
@@ -33,12 +33,29 @@ describe("Phase 1 policy merge and conflict resolution", () => {
     const loaded: LoadedPolicies = {
       warnings: [],
       layers: [
-        { name: "built-in", path: null, loaded: true, presets: ["safe-default"], rules: [{ name: "built-in block", action: "block", source: "built-in", match: { semantic_ids: ["secret.access"] } }] },
+        { name: "built-in", path: null, loaded: true, mode: "standard", presets: ["safe-default"], rules: [{ name: "built-in block", action: "block", source: "built-in", match: { semantic_ids: ["secret.access"] } }] },
         { name: "global", path: null, loaded: true, presets: [], rules: [] },
         { name: "local", path: null, loaded: true, presets: [], rules: [{ name: "local allow", action: "allow", source: "local", match: { semantic_ids: ["secret.access"] } }] },
       ],
     };
 
     expect(evaluate("cat .env", loaded).decision).toBe("block");
+  });
+
+  it("applies strict and observe modes after rule evaluation", () => {
+    const loaded: LoadedPolicies = {
+      warnings: [],
+      layers: [
+        { name: "built-in", path: null, loaded: true, mode: "standard", presets: ["safe-default"], rules: [] },
+        { name: "global", path: null, loaded: true, mode: "strict", presets: [], rules: [] },
+        { name: "local", path: null, loaded: false, presets: [], rules: [] },
+      ],
+    };
+
+    expect(evaluate("npm install zod", loaded).decision).toBe("ask");
+    expect(evaluate("git push --force origin feature", loaded).decision).toBe("block");
+
+    loaded.layers[2] = { name: "local", path: null, loaded: true, mode: "observe", presets: [], rules: [] };
+    expect(evaluate("git push --force origin main", loaded).decision).toBe("allow");
   });
 });

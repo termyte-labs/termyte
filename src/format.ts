@@ -252,7 +252,7 @@ export function formatInspection(report: InspectionReport): string {
     ),
     formatInspectionSection(
       "Blast Radius",
-      `  - score: ${report.risk.score}\n  - reason: ${report.risk.reason}\n  - signals: ${report.risk.signals.length > 0 ? report.risk.signals.join(", ") : "none"}`,
+      `  - level: ${report.risk.level ?? "unknown"}\n  - score: ${report.risk.score}\n  - rule: ${report.risk.ruleId ?? report.action.semanticId}\n  - reason: ${report.risk.reason}\n  - signals: ${report.risk.signals.length > 0 ? report.risk.signals.join(", ") : "none"}\n  - suggested fix: ${report.risk.suggestedFix ?? "none"}`,
     ),
     formatInspectionSection(
       "Memory Matches",
@@ -260,7 +260,7 @@ export function formatInspection(report: InspectionReport): string {
     ),
     formatInspectionSection(
       "Final Decision",
-      `  - policy decision: ${report.policy.decision}\n  - final decision: ${report.finalDecision}\n  - reasoning: ${report.finalReason}\n  - matched policies: ${report.matchedPolicies && report.matchedPolicies.length > 0 ? report.matchedPolicies.join(", ") : (report.policy.matchedPolicy ?? "none")}\n  - safe alternative: ${report.safeAlternative ?? "none"}`,
+      `  - policy decision: ${report.policy.decision}\n  - final decision: ${report.finalDecision}\n  - rule: ${report.risk.ruleId ?? report.action.semanticId}\n  - reasoning: ${report.finalReason}\n  - matched policies: ${report.matchedPolicies && report.matchedPolicies.length > 0 ? report.matchedPolicies.join(", ") : (report.policy.matchedPolicy ?? "none")}\n  - safe alternative: ${report.safeAlternative ?? "none"}`,
     ),
   ];
 

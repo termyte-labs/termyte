@@ -2,7 +2,7 @@
 
 ## System Overview
 
-Termyte has shared analysis primitives and two primary governed decision paths:
+Termyte has shared analysis primitives and three governed decision paths:
 
 ```text
                          +--------------------+
@@ -13,7 +13,8 @@ command text ----------> | parser + resolver  |
                     +---------------+----------------+
                     |                                |
           direct check/runtime path          governed MCP tool path
-          SQLite policy + memory             same parser/risk/policy/memory
+          native hook adapter path           same parser/risk/policy/memory
+          SQLite policy + memory             SQLite policy + memory
           SQLite ledger entries              SQLite ledger entries
           never executes on check            executes only when allowed
 ```
@@ -21,10 +22,12 @@ command text ----------> | parser + resolver  |
 The shared primitives are implemented in `parser.ts`, `resolver.ts`, and
 `risk.ts`. The check path starts in `runtime.ts` and `check.ts`. The direct
 execution gate starts in `runtime.ts`. The MCP gateway starts in `mcp.ts`.
+Native Claude Code and Codex hook adapters start in `agent-hook.ts` and call
+the same runtime evaluator directly.
 
 The direct agent launcher in `agent-runner.ts` is a convenience wrapper around
-the resolved agent executable. It does not enforce policy. Native Claude Code
-and Codex hooks remain optional adapters in `agent-hook.ts`.
+the resolved agent executable. It does not enforce policy. Hooks validate
+native agent actions before tool execution; MCP validates Termyte-owned tools.
 
 ## Stable Check Flow
 
@@ -66,8 +69,8 @@ Recognized semantic actions include:
 | Package publish | `package.npm.publish`, `package.pnpm.publish`, `package.yarn.publish` |
 | Secret access | `secret.access` |
 | Remote script | `remote-script.execute` |
-| Privilege escalation | `privilege.escalation` |
-| Docker destruction | `docker.system.prune`, `docker.destructive` |
+| Privilege escalation | `privilege.escalation`, `permission.chmod_recursive_777` |
+| Docker changes | `docker.build`, `docker.system.prune`, `docker.destructive` |
 | Deploy mutation | `deploy.mutation` |
 | Destructive SQL | `sql.drop-table`, `sql.truncate-table`, `sql.delete-without-where` |
 | Unknown command | `shell.generic` |
@@ -114,6 +117,8 @@ neither policy engine can weaken a baseline block.
 Hard blocks include:
 
 - SQL `DROP TABLE`, `TRUNCATE TABLE`, and `DELETE FROM` without `WHERE`;
+- package publishing;
+- recursive `chmod 777`;
 - filesystem deletes outside the workspace;
 - deletes of protected targets;
 - recursive or wildcard deletes against sensitive or low-recoverability
@@ -123,7 +128,6 @@ Hard blocks include:
 Warnings include:
 
 - SQL delete with `WHERE`;
-- package publishing;
 - force push to non-protected branches;
 - destructive Git history operations;
 - secret access;
@@ -142,7 +146,7 @@ The stable check path uses three additive layers:
 
 1. built-in `safe-default`;
 2. global file at `TERMYTE_HOME/policy.yaml` or `~/.termyte/policy.yaml`;
-3. local file at `<repo>/termyte.policy.yaml`.
+3. local file at `<repo>/termyte.policy.yaml`, or `<repo>/termyte.yaml` when the legacy policy file is absent.
 
 Rules match one or more of:
 
@@ -175,7 +179,7 @@ This policy is a simpler pair of semantic-ID pattern lists:
 ```json
 {
   "block": ["filesystem.delete.wildcard"],
-  "warn": ["package.*.publish"]
+  "warn": ["package.*.install"]
 }
 ```
 
@@ -212,7 +216,9 @@ then:
 `allow-once` can override warn or block except when resolved targets include
 protected targets, the home directory, or a filesystem root.
 
-There is no PATH shim or shell-hook interception in the default runtime path.
+There is no PATH interception in the default runtime path.
+Native hook adapters do not sandbox subprocesses spawned by an allowed tool
+call.
 
 ## Operational Memory
 
@@ -252,8 +258,9 @@ top-level aliases cover the common agent names directly. Termyte resolves the
 executable from the original `PATH`; `claudecode` can fall back to `claude`.
 
 For Claude Code and Codex, `termyte install <agent>` writes optional native
-hook configuration before launch. `termyte run <agent>` no longer depends on
-those hooks.
+hook configuration before launch. `termyte hooks smoke <agent>` performs live
+verification, and `termyte hooks doctor` summarizes readiness. `termyte run
+<agent>` no longer depends on those hooks.
 
 Before launch, it:
 
@@ -264,14 +271,18 @@ Before launch, it:
 - spawns the resolved agent executable directly;
 - passes through repository, database, and session environment variables.
 
-Agent child commands are not mediated by shell shims in the default runtime
-path. Governed command inspection happens in `run --` and MCP tool calls.
+Agent child commands are not mediated by Termyte in the default runtime path.
+Governed command inspection happens in `run --` and MCP tool calls.
 
 ## MCP Gateway Logic
 
 `termyte mcp serve` starts a stdio JSON-RPC server for agents that support
 MCP. `termyte mcp install <agent>` prints a config snippet that pins
 `TERMYTE_WORKSPACE` to the current repository before launching the server.
+
+MCP is the adapter for Termyte-owned tools. Native agent hooks are a separate
+adapter for native Claude Code and Codex tool events and do not pass through
+MCP.
 
 The MCP server exposes governed tools for:
 
@@ -344,3 +355,5 @@ persistence but is not a general secret scanner.
   prompts for `warn`; SQLite runtime policy does not emit `ask`.
 - `mcp serve` governs Termyte-controlled tool calls, but it does not by itself
   sandbox raw agent-native tools or direct syscalls.
+  Native hook adapters also do not sandbox subprocesses spawned inside an
+  allowed command.

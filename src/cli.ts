@@ -7,6 +7,8 @@ import { defaultDbPath, openDatabase } from "./db.js";
 import { formatInspection, formatLedger, formatMemory, formatReplay, replayEntries, toJson } from "./format.js";
 import { Ledger } from "./ledger.js";
 import { MemoryEngine } from "./memory.js";
+import { storeLocalMemory, listLocalMemory, formatLocalMemoryHuman } from "./local-memory.js";
+import { storeLocalApproval, listLocalApprovals, formatLocalApprovalsHuman } from "./local-approvals.js";
 import { inspectAction, runRuntime } from "./runtime.js";
 import {
   addPolicies,
@@ -27,7 +29,18 @@ import {
 import { formatDoctorHuman, formatDoctorJson, runDoctor } from "./doctor.js";
 import type { Decision } from "./types.js";
 import { buildAgentRunPlan, formatAgentDryRunReport, isSupportedAgentName, parseRunInvocation } from "./agent.js";
-import { formatAgentInstallResult, formatAgentUninstallResult, installAgentHooks, isNativeHookAgent, runAgentHookCli, uninstallAgentHooks } from "./agent-hook.js";
+import {
+  formatAgentInstallResult,
+  formatAgentUninstallResult,
+  formatHookDoctorResult,
+  formatHookSmokeResult,
+  installAgentHooks,
+  isNativeHookAgent,
+  runHookSmoke,
+  runHooksDoctor,
+  runAgentHookCli,
+  uninstallAgentHooks,
+} from "./agent-hook.js";
 import { runAgent } from "./agent-runner.js";
 import { buildPolicyAddPlan, formatPolicyPresets, formatPolicyShow, runPolicyTest, savePolicyAddPlan } from "./policy-cli.js";
 import { runGovernanceBenchmarks, runLegacyBenchmarks } from "./benchmark.js";
@@ -44,13 +57,17 @@ function printUsage(): void {
   termyte policy local add "<natural language rule>" [--dry-run|--yes]
   termyte logs [--limit <n>] [--json]
   termyte memory [--limit <n>] [--json]
+  termyte approvals [--json]
+  termyte mark-safe "<command>"
   termyte <codex|claude|claudecode> [...args]
   termyte run [--dry-run] [--profile <profile>] <agent> [...args]
   termyte run [--dry-run] -- <command>
   termyte install <claude|codex>
   termyte uninstall <claude|codex>
   termyte agent hook <claude|codex> [--post]
-  termyte allow-once -- <command>
+  termyte hooks doctor [--json]
+  termyte hooks smoke <claude|codex> [--json]
+  termyte allow-once "<command>"
   termyte mcp serve
   termyte mcp install <codex|claude|cursor|generic>
   termyte prove-runtime [--json]
@@ -125,6 +142,28 @@ function printPolicySet(policies: PolicySet, json = false): void {
   console.log(json ? policyJsonOutput(policies) : describePolicies(policies));
 }
 
+function formatPoliciesOverview(cwd: string, dbPath: string, json = false): string {
+  if (json) {
+    return toJson({
+      effective: JSON.parse(formatPolicyShow(cwd, true)),
+      localState: JSON.parse(formatPolicyStatus(dbPath, true)),
+      memoryDatabase: dbPath,
+    });
+  }
+
+  return [
+    formatPolicyShow(cwd, false),
+    "",
+    "Local SQLite policy state",
+    formatPolicyStatus(dbPath, false)
+      .split("\n")
+      .slice(1)
+      .map((line) => `  ${line.trim()}`)
+      .join("\n"),
+    `  memory database: ${dbPath}`,
+  ].join("\n");
+}
+
 function formatPolicyStatus(dbPath: string, json = false): string {
   const state = loadPolicyState(dbPath);
   const drift = analyzePolicyDrift(state);
@@ -168,6 +207,14 @@ function parseFileFlag(args: string[], fallbackIndex: number): string | null {
 function commandAfterDoubleDash(args: string[]): string {
   const separatorIndex = args.indexOf("--");
   return separatorIndex >= 0 ? args.slice(separatorIndex + 1).join(" ") : args.slice(1).join(" ");
+}
+
+function commandFromArgs(args: string[], startIndex: number): string {
+  const separatorIndex = args.indexOf("--", startIndex);
+  if (separatorIndex >= 0) {
+    return args.slice(separatorIndex + 1).filter((token) => token !== "--json").join(" ").trim();
+  }
+  return args.slice(startIndex).filter((token) => token !== "--json").join(" ").trim();
 }
 
 function commandArgument(args: string[], startIndex: number): string {
@@ -255,6 +302,37 @@ async function main(): Promise<number> {
       process.stderr.write(result.stderr);
     }
     return result.exitCode;
+  }
+
+  if (command === "hooks") {
+    const subcommand = args[1];
+    if (subcommand === "doctor") {
+      try {
+        const report = runHooksDoctor(cwd);
+        console.log(formatHookDoctorResult(report, hasJsonFlag(args)));
+        return report.ok ? 0 : 1;
+      } catch (error) {
+        console.error(error instanceof Error ? error.message : String(error));
+        return 1;
+      }
+    }
+    if (subcommand === "smoke") {
+      const agent = args[2];
+      if (!agent || !isNativeHookAgent(agent)) {
+        console.error("Usage: termyte hooks smoke <claude|codex> [--json]");
+        return 1;
+      }
+      try {
+        const report = runHookSmoke(agent, cwd);
+        console.log(formatHookSmokeResult(report, hasJsonFlag(args)));
+        return report.ok ? 0 : 1;
+      } catch (error) {
+        console.error(error instanceof Error ? error.message : String(error));
+        return 1;
+      }
+    }
+    console.error("Usage: termyte hooks doctor | smoke <claude|codex>");
+    return 1;
   }
 
   if (command === "check") {
@@ -482,33 +560,54 @@ async function main(): Promise<number> {
   }
 
   if (command === "allow-once") {
-    const rawCommand = commandAfterDoubleDash(args);
+    const rawCommand = commandFromArgs(args, 1);
     if (!rawCommand) {
-      console.error("Missing command after `termyte allow-once --`.");
+      console.error('Missing command after `termyte allow-once`.');
       return 1;
     }
 
-    const result = await runRuntime({
-      command: rawCommand,
-      cwd,
-      dbPath,
-      allowOnce: true,
-      stdout: process.stdout,
-      stderr: process.stderr,
-      env: process.env,
-    });
-
-    if (result.stdout) {
-      process.stdout.write(result.stdout);
-    }
-    if (result.stderr) {
-      process.stderr.write(result.stderr);
-    }
-    if (!result.wasExecuted) {
-      process.stderr.write(`termyte ${result.decision}: ${result.semanticId} (${result.reason})\n`);
+    const inspection = inspectAction(rawCommand, cwd, dbPath);
+    if (inspection.finalDecision === "block" && !args.includes("--force")) {
+      console.error(`Refusing to store a one-time approval for a critical command.\n\n${formatInspection(inspection)}`);
+      return 1;
     }
 
-    return result.exitCode;
+    const approval = storeLocalApproval(rawCommand, cwd, 30, inspection.finalReason);
+    console.log([
+      "Stored one-time approval.",
+      `Command: ${approval.command}`,
+      `Fingerprint: ${approval.fingerprint.slice(0, 12)}`,
+      `Expires: ${new Date(approval.expires_at).toLocaleString()}`,
+      inspection.finalDecision === "block" ? "Warning: stored only because --force was supplied." : "Next step: run the same command through Termyte to consume it once.",
+    ].join("\n"));
+    return 0;
+  }
+
+  if (command === "mark-safe") {
+    const rawCommand = commandFromArgs(args, 1);
+    if (!rawCommand) {
+      console.error('Missing command after `termyte mark-safe`.');
+      return 1;
+    }
+
+    const record = storeLocalMemory("safe", rawCommand, cwd);
+    console.log([
+      "Stored safe command memory.",
+      `Pattern: ${record.pattern}`,
+      `Memory ID: ${record.memory_id}`,
+      `Scope: repo`,
+    ].join("\n"));
+    return 0;
+  }
+
+  if (command === "approvals") {
+    const records = listLocalApprovals(cwd);
+    if (hasJsonFlag(args)) {
+      console.log(toJson(records));
+    } else {
+      console.log(formatLocalApprovalsHuman(records));
+    }
+    return 0;
   }
 
   if (command === "mcp") {
@@ -574,9 +673,9 @@ async function main(): Promise<number> {
   }
 
   if (command === "inspect") {
-    const rawCommand = commandAfterDoubleDash(args);
+    const rawCommand = commandFromArgs(args, 1);
     if (!rawCommand) {
-      console.error("Missing command after `termyte inspect --`.");
+      console.error('Missing command after `termyte inspect`.');
       return 1;
     }
 
@@ -630,7 +729,7 @@ async function main(): Promise<number> {
     const subcommand = args[1];
 
     if (!subcommand || subcommand === "--json") {
-      printPolicySet(loadPolicies(dbPath), json);
+      console.log(formatPoliciesOverview(cwd, dbPath, json));
       return 0;
     }
 

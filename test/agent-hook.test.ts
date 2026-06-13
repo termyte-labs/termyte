@@ -7,6 +7,7 @@ import { Ledger } from "../src/ledger.js";
 import { MemoryEngine } from "../src/memory.js";
 import {
   formatAgentHookResponse,
+  formatAgentInstallResult,
   handleAgentHookInvocation,
   installAgentHooks,
   uninstallAgentHooks,
@@ -254,7 +255,7 @@ describe("agent native hook bridge", () => {
     expect(result.active).toBe(true);
     expect(verification.ok).toBe(true);
     expect(fs.readFileSync(result.path, "utf8")).toContain("agent hook claude");
-  });
+  }, 15000);
 
   it("installs Codex hooks only when live smoke verification passes", () => {
     const cwd = workspace("termyte-codex-install-");
@@ -266,7 +267,23 @@ describe("agent native hook bridge", () => {
     expect(verification.ok).toBe(true);
     expect(result.message).toContain("live smoke test");
     expect(fs.readFileSync(result.path, "utf8")).toContain("agent hook codex");
-  });
+  }, 15000);
+
+  it("backs up existing hook config before installing new hooks", () => {
+    const cwd = workspace("termyte-hook-backup-");
+    const configPath = path.join(cwd, ".codex", "hooks.json");
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    fs.writeFileSync(configPath, JSON.stringify({ hooks: { SessionStart: [] } }, null, 2), "utf8");
+
+    const result = installAgentHooks("codex", cwd);
+    const formatted = formatAgentInstallResult(result);
+    const backups = fs.readdirSync(path.dirname(configPath)).filter((entry) => entry.startsWith("hooks.json.bak-"));
+
+    expect(result.backupPath).toBeTruthy();
+    expect(backups.length).toBeGreaterThan(0);
+    expect(formatted).toContain("Backup:");
+    expect(fs.readFileSync(configPath, "utf8")).toContain("agent hook codex");
+  }, 15000);
 
   it("uninstalls Termyte hook configuration", () => {
     const cwd = workspace("termyte-hook-uninstall-");
@@ -276,5 +293,5 @@ describe("agent native hook bridge", () => {
     expect(uninstall.removed).toBe(true);
     expect(fs.existsSync(install.path)).toBe(false);
     expect(verifyAgentHooks("codex", cwd).ok).toBe(false);
-  });
+  }, 15000);
 });

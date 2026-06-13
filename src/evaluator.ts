@@ -1,5 +1,8 @@
 import { defaultDbPath, openDatabase } from "./db.js";
 import { evaluatePolicies, loadPolicies } from "./policy.js";
+import { loadPhaseOnePolicies } from "./policy-loader.js";
+import { mergePhaseOnePolicies, strongestDecision, type EffectivePhaseOnePolicy } from "./policy-merge.js";
+import { evaluatePhaseOnePolicy } from "./policy-evaluator.js";
 import { resolveTargets } from "./resolver.js";
 import { analyzeRisk } from "./risk.js";
 import { MemoryEngine } from "./memory.js";
@@ -39,14 +42,24 @@ export function evaluateAction(action: RuntimeAction, context: EvaluationContext
   const targets = resolveTargets(parsedAction, cwd);
   const risk = analyzeRisk(parsedAction, targets);
   const dbContext = openDatabase(dbPath);
-  const policy = evaluatePolicies(parsedAction, risk, loadPolicies(dbContext.dbPath));
+  const legacyPolicy = evaluatePolicies(parsedAction, risk, loadPolicies(dbContext.dbPath));
+  const phaseOnePolicy = runtimeFilePolicy(mergePhaseOnePolicies(loadPhaseOnePolicies(cwd)));
+  const filePolicy = evaluatePhaseOnePolicy(parsedAction, targets, risk, phaseOnePolicy);
   const memory = new MemoryEngine(dbContext.db);
   const memoryMatches = context.applyMemory === false ? [] : memory.findMatches(parsedAction, targets);
-  const policyDecision = policy.decision;
-  const decision = context.preferAskForWarnings && policyDecision === "warn" ? "ask" : policyDecision;
-  const reason = buildReason(action, parsedAction, targets, risk, policy.reason, memoryMatches, decision);
+  const policyDecision = strongestDecision([legacyPolicy.decision, filePolicy.decision]);
+  const decision = action.kind === "unknown"
+    ? (context.preferAskForWarnings ? "ask" : "warn")
+    : context.preferAskForWarnings && policyDecision === "warn"
+      ? "ask"
+      : policyDecision;
+  const policyReason = policyDecision === filePolicy.decision ? filePolicy.reason : legacyPolicy.reason;
+  const reason = buildReason(action, parsedAction, targets, risk, policyReason, memoryMatches, decision);
   const safeAlternative = buildSafeAlternative(action, parsedAction, targets, decision, risk);
-  const matchedPolicies = policy.matchedRule ? [policy.matchedRule] : [];
+  const matchedPolicies = [
+    ...(legacyPolicy.matchedRule ? [legacyPolicy.matchedRule] : []),
+    ...filePolicy.matchedRules.map((rule) => `${rule.source}:${rule.name}`),
+  ];
 
   return {
     action,
@@ -55,8 +68,8 @@ export function evaluateAction(action: RuntimeAction, context: EvaluationContext
     risk,
     policy: {
       decision: policyDecision,
-      reason: policy.reason,
-      matchedPolicy: policy.matchedRule,
+      reason: policyReason,
+      matchedPolicy: matchedPolicies[0],
       matchedPolicies,
     },
     memoryMatches,
@@ -64,6 +77,13 @@ export function evaluateAction(action: RuntimeAction, context: EvaluationContext
     reason,
     safeAlternative,
     matchedPolicies,
+  };
+}
+
+function runtimeFilePolicy(policy: EffectivePhaseOnePolicy): EffectivePhaseOnePolicy {
+  return {
+    ...policy,
+    rules: policy.rules.filter((rule) => rule.source !== "built-in"),
   };
 }
 
@@ -92,6 +112,10 @@ function buildSafeAlternative(
 ): string {
   if (action.kind === "mcp.tool_call") {
     return `Use a Termyte MCP wrapper for the same workflow, or narrow the tool call before retrying.`;
+  }
+
+  if (action.kind === "unknown") {
+    return "Resolve the hook payload into a concrete command or tool call before retrying.";
   }
 
   if (action.kind === "network.request") {

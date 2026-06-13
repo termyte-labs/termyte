@@ -1,6 +1,7 @@
 import type { Decision } from "./types.js";
 
 export type PolicyLayerName = "built-in" | "global" | "local";
+export type PolicyMode = "off" | "observe" | "standard" | "strict" | "paranoid";
 
 export interface PolicyMatcher {
   semantic_ids?: string[];
@@ -19,6 +20,7 @@ export interface PhaseOnePolicyRule {
 
 export interface PhaseOnePolicyDocument {
   version: 1;
+  mode: PolicyMode;
   presets: string[];
   rules: PhaseOnePolicyRule[];
 }
@@ -28,10 +30,11 @@ export interface PolicyValidationResult {
   errors: string[];
 }
 
-const TOP_LEVEL_KEYS = new Set(["version", "presets", "rules"]);
+const TOP_LEVEL_KEYS = new Set(["version", "mode", "presets", "rules"]);
 const RULE_KEYS = new Set(["name", "description", "action", "match"]);
 const MATCH_KEYS = new Set(["semantic_ids", "commands", "paths"]);
 const ACTIONS = new Set(["allow", "warn", "ask", "block"]);
+const POLICY_MODES = new Set(["off", "observe", "standard", "strict", "paranoid"]);
 
 export function parsePhaseOnePolicyYaml(raw: string): unknown {
   const document: Record<string, unknown> = {};
@@ -58,6 +61,8 @@ export function parsePhaseOnePolicyYaml(raw: string): unknown {
       }
       if (key === "version") {
         document.version = parseScalar(value);
+      } else if (key === "mode") {
+        document.mode = parseScalar(value);
       } else if (key === "presets") {
         section = "presets";
         document.presets = parseInlineArray(value);
@@ -152,6 +157,7 @@ export function normalizePhaseOnePolicyDocument(rawDocument: unknown, knownPrese
 
   return {
     version: 1,
+    mode: typeof rawDocument.mode === "string" ? rawDocument.mode as PolicyMode : "standard",
     presets: Array.isArray(rawDocument.presets) ? rawDocument.presets.map(String) : [],
     rules: Array.isArray(rawDocument.rules) ? rawDocument.rules.map((rule) => normalizeRule(rule as Record<string, unknown>)) : [],
   };
@@ -169,6 +175,10 @@ export function validateRawPolicyDocument(rawDocument: unknown, knownPresets: Se
 
   if (rawDocument.version !== 1) {
     errors.push("version must be 1");
+  }
+
+  if (rawDocument.mode !== undefined && (typeof rawDocument.mode !== "string" || !POLICY_MODES.has(rawDocument.mode))) {
+    errors.push("mode must be one of off, observe, standard, strict, paranoid");
   }
 
   if (rawDocument.presets !== undefined) {

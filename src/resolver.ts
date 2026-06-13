@@ -178,13 +178,13 @@ export function resolveTargets(action: ParsedAction, workspaceRoot: string): Res
     };
   }
 
-  if (action.kind === "package.publish") {
+  if (action.kind === "package.publish" || action.kind === "package.install") {
     return {
       targetKind: "package",
       workspaceRoot,
       insideWorkspace: true,
       targetCount: 1,
-      expandedTargets: [action.packageManager ?? "package"],
+      expandedTargets: [action.target || action.packageManager || "package"],
       protectedTargets: [],
       sensitiveTargets: [],
       targetClasses: [],

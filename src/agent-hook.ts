@@ -39,6 +39,8 @@ export interface AgentInstallResult {
   path: string;
   installed: boolean;
   active: boolean;
+  backupPath?: string;
+  changes: string[];
   message: string;
 }
 
@@ -54,6 +56,37 @@ export interface AgentHookVerification {
   ok: boolean;
   path: string;
   reasons: string[];
+}
+
+export interface HookSmokeCheck {
+  id: string;
+  label: string;
+  status: "PASS" | "WARN" | "FAIL";
+  message: string;
+}
+
+export interface HookSmokeResult {
+  agent: NativeHookAgent;
+  ok: boolean;
+  workspaceRoot: string;
+  cliPath: string;
+  commandPath: string;
+  dbPath: string;
+  checks: HookSmokeCheck[];
+  reasons: string[];
+}
+
+export interface HookDoctorResult {
+  ok: boolean;
+  workspaceRoot: string;
+  cliPath: string;
+  dbPath: string;
+  checks: HookSmokeCheck[];
+  agents: Record<NativeHookAgent, HookSmokeResult>;
+}
+
+export interface HookInstallOptions {
+  smokeRunner?: (agent: NativeHookAgent, cwd: string) => HookSmokeResult;
 }
 
 const HOOK_MATCHER = "Bash|Read|Write|Edit|MultiEdit|WebFetch|WebSearch|mcp__.*";
@@ -95,12 +128,25 @@ function currentCliPath(): string {
   return candidates[0];
 }
 
+export function getBuiltCliPath(): string {
+  return currentCliPath();
+}
+
 function nodeHookCommand(hookId: string): string {
   const cliPath = currentCliPath();
   if (!fs.existsSync(cliPath)) {
     throw new Error("Built Termyte CLI is missing. Run: npm run build");
   }
   return `${quote(process.execPath)} ${quote(cliPath)} ${hookId}`;
+}
+
+export function getNativeHookCommand(agent: NativeHookAgent): { cliPath: string; commandPath: string } {
+  const hookId = agent === "claude" ? CLAUDE_HOOK_ID : CODEX_HOOK_ID;
+  const cliPath = currentCliPath();
+  return {
+    cliPath,
+    commandPath: `${quote(process.execPath)} ${quote(cliPath)} ${hookId}`,
+  };
 }
 
 function quote(value: string): string {
@@ -338,23 +384,7 @@ function updateHookRecord(
   return { ledgerId, outcome, finalDecision, reason };
 }
 
-function runGeneratedHookCommand(commandLine: string, cwd: string, input: string): { status: number | null; stdout: string; stderr: string; error?: Error } {
-  const result = spawnSync(commandLine, {
-    cwd,
-    input,
-    encoding: "utf8",
-    timeout: 30_000,
-    shell: true,
-  });
-  return {
-    status: result.status,
-    stdout: result.stdout ?? "",
-    stderr: result.stderr ?? "",
-    error: result.error instanceof Error ? result.error : undefined,
-  };
-}
-
-export async function handleAgentHookInvocation(options: NativeHookInvocation): Promise<NativeHookResult> {
+export function handleAgentHookInvocation(options: NativeHookInvocation): NativeHookResult {
   let payload: Record<string, unknown>;
   try {
     payload = readJson(options.input);
@@ -479,13 +509,18 @@ function readStdin(stream: NodeJS.ReadableStream): Promise<string> {
   });
 }
 
-export async function runAgentHookCli(agent: NativeHookAgent, args: string[], stdin: NodeJS.ReadableStream = process.stdin): Promise<NativeHookResult> {
+export async function runAgentHookCli(
+  agent: NativeHookAgent,
+  args: string[],
+  stdin: NodeJS.ReadableStream = process.stdin,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<NativeHookResult> {
   const input = await readStdin(stdin);
   return handleAgentHookInvocation({
     agent,
     phase: args.includes("--post") ? "post" : "pre",
     input,
-    env: process.env,
+    env,
   });
 }
 
@@ -504,6 +539,17 @@ function readJsonFile(filePath: string): Record<string, unknown> {
 function writeJsonFile(filePath: string, value: Record<string, unknown>): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+}
+
+function backupJsonFile(filePath: string): string | null {
+  if (!fs.existsSync(filePath)) {
+    return null;
+  }
+
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const backupPath = `${filePath}.bak-${timestamp}`;
+  fs.copyFileSync(filePath, backupPath);
+  return backupPath;
 }
 
 function mergeHookConfig(existing: Record<string, unknown>, event: "PreToolUse" | "PostToolUse", matcher: string, hookId: string): void {
@@ -546,51 +592,194 @@ function removeTermyteHookConfig(existing: Record<string, unknown>): boolean {
   return changed;
 }
 
-function smokeTest(agent: NativeHookAgent, cwd: string): { ok: boolean; reasons: string[] } {
-  const allowPayload = JSON.stringify({
-    hook_event_name: "PreToolUse",
-    cwd,
-    session_id: "tm_smoke",
-    tool_name: "Bash",
-    tool_input: { command: "git status --short" },
-  });
-  const blockPayload = JSON.stringify({
-    hook_event_name: "PreToolUse",
-    cwd,
-    session_id: "tm_smoke",
-    tool_name: "Bash",
-    tool_input: { command: "git push --force origin main" },
-  });
-  const command = nodeHookCommand(agent === "claude" ? CLAUDE_HOOK_ID : CODEX_HOOK_ID);
-  const allow = runGeneratedHookCommand(command, cwd, allowPayload);
-  const block = runGeneratedHookCommand(command, cwd, blockPayload);
-  const reasons: string[] = [];
-  if (allow.status !== 0) {
-    reasons.push(`allow smoke failed: ${allow.stderr || allow.stdout || allow.error?.message || "unknown"}`);
-  }
-  if (allow.stdout.trim().length > 0) {
-    reasons.push("allow smoke should be silent");
-  }
-  if (block.status !== 0) {
-    reasons.push(`block smoke failed: ${block.stderr || block.stdout || block.error?.message || "unknown"}`);
-  }
-  try {
-    const parsed = JSON.parse(block.stdout || "{}") as { hookSpecificOutput?: { permissionDecision?: string } };
-    if (parsed.hookSpecificOutput?.permissionDecision !== "deny") {
-      reasons.push("block smoke did not emit deny JSON");
-    }
-  } catch {
-    reasons.push("block smoke emitted invalid JSON");
-  }
-  return { ok: reasons.length === 0, reasons };
+function hookSmokeEnvironment(workspaceRoot: string, dbPath: string, agent: NativeHookAgent): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    TERMYTE_SESSION_ID: `tm_hook_smoke_${agent}`,
+    TERMYTE_DB_PATH: dbPath,
+    TERMYTE_WORKSPACE: workspaceRoot,
+    TERMYTE_WORKSPACE_ROOT: workspaceRoot,
+  };
 }
 
-export function installAgentHooks(agent: NativeHookAgent, cwd = process.cwd()): AgentInstallResult {
+function smokeCheck(id: string, label: string, ok: boolean, message: string): HookSmokeCheck {
+  return {
+    id,
+    label,
+    status: ok ? "PASS" : "FAIL",
+    message,
+  };
+}
+
+function smokeChecksReport(checks: HookSmokeCheck[]): { ok: boolean; reasons: string[] } {
+  return {
+    ok: checks.every((check) => check.status === "PASS"),
+    reasons: checks.filter((check) => check.status !== "PASS").map((check) => `${check.label}: ${check.message}`),
+  };
+}
+
+function invokeHook(agent: NativeHookAgent, phase: NativeHookPhase, payload: Record<string, unknown>, env: NodeJS.ProcessEnv, cliPath: string): NativeHookResult {
+  const args = [cliPath, "agent", "hook", agent];
+  if (phase === "post") {
+    args.push("--post");
+  }
+  const result = spawnSync(process.execPath, args, {
+    cwd: safeString(payload.cwd) ?? env.TERMYTE_WORKSPACE ?? process.cwd(),
+    env,
+    input: `${JSON.stringify(payload)}\n`,
+    encoding: "utf8",
+    timeout: 30_000,
+  });
+
+  return {
+    exitCode: typeof result.status === "number" ? result.status : 1,
+    stdout: result.stdout ?? "",
+    stderr: result.stderr ?? "",
+    decision: result.status === 0 ? ((result.stdout ?? "").trim().length > 0 ? "block" : "allow") : "block",
+    command: args.join(" "),
+    reason: result.status === 0 ? "hook invocation completed" : (result.stderr || result.stdout || result.error?.message || "hook invocation failed"),
+  };
+}
+
+export function runHookSmoke(agent: NativeHookAgent, cwd = process.cwd()): HookSmokeResult {
+  const workspaceRoot = path.resolve(cwd);
+  const cliPath = currentCliPath();
+  const { commandPath } = getNativeHookCommand(agent);
+  const dbPath = defaultDbPath(workspaceRoot);
+  const checks: HookSmokeCheck[] = [];
+
+  checks.push(smokeCheck("cli.path", "CLI path exists", fs.existsSync(cliPath), `Resolved CLI path: ${cliPath}`));
+  checks.push(smokeCheck("hook.command", "Hook command exists", fs.existsSync(cliPath), `Command path: ${commandPath}`));
+
+  try {
+    openDatabase(dbPath);
+    checks.push(smokeCheck("db.writable", "Termyte DB is writable", fs.existsSync(dbPath), `Database path: ${dbPath}`));
+  } catch (error) {
+    checks.push(smokeCheck("db.writable", "Termyte DB is writable", false, error instanceof Error ? error.message : String(error)));
+  }
+
+  const env = hookSmokeEnvironment(workspaceRoot, dbPath, agent);
+
+  const allowPayload = {
+    hook_event_name: "PreToolUse",
+    cwd: workspaceRoot,
+    session_id: `smoke-${agent}`,
+    tool_call_id: `allow-${agent}`,
+    tool_name: "Bash",
+    tool_input: { command: "git status --short" },
+  };
+  const allow = invokeHook(agent, "pre", allowPayload, env, cliPath);
+  const allowRecord = new Ledger(openDatabase(dbPath).db).findLatestByMetadataKey("correlationKey", `tool:allow-${agent}`);
+  checks.push(smokeCheck(
+    "stdin.allow",
+    "Hook receives stdin JSON and allows safe input",
+    allow.exitCode === 0 && allow.stdout === "" && allow.decision === "allow" && allowRecord?.decision === "allow" && allowRecord?.status === "planned",
+    allow.stderr || allow.reason,
+  ));
+
+  const blockPayload = {
+    hook_event_name: "PreToolUse",
+    cwd: workspaceRoot,
+    session_id: `smoke-${agent}`,
+    tool_call_id: `block-${agent}`,
+    tool_name: "Bash",
+    tool_input: { command: "git push --force origin main" },
+  };
+  const block = invokeHook(agent, "pre", blockPayload, env, cliPath);
+  const blockRecord = new Ledger(openDatabase(dbPath).db).findLatestByMetadataKey("correlationKey", `tool:block-${agent}`);
+  let blockJsonOk = false;
+  try {
+    const parsed = JSON.parse(block.stdout || "{}") as { hookSpecificOutput?: { permissionDecision?: string } };
+    blockJsonOk = parsed.hookSpecificOutput?.permissionDecision === "deny";
+  } catch {
+    blockJsonOk = false;
+  }
+  checks.push(smokeCheck(
+    "stdin.block",
+    "Blocked hook emits Claude deny JSON and logs the block",
+    block.exitCode === 0 && block.decision === "block" && blockJsonOk && blockRecord?.decision === "block" && blockRecord?.status === "blocked",
+    block.stderr || block.reason,
+  ));
+
+  const correlationId = `post-${agent}`;
+  const pre = invokeHook(agent, "pre", {
+    hook_event_name: "PreToolUse",
+    cwd: workspaceRoot,
+    session_id: `smoke-${agent}`,
+    tool_call_id: correlationId,
+    tool_name: "Bash",
+    tool_input: { command: "git status --short" },
+  }, env, cliPath);
+  const post = invokeHook(agent, "post", {
+    hook_event_name: "PostToolUse",
+    cwd: workspaceRoot,
+    session_id: `smoke-${agent}`,
+    tool_call_id: correlationId,
+    tool_name: "Bash",
+    tool_input: { command: "git status --short" },
+    stdout: "clean\n",
+    exit_code: 0,
+  }, env, cliPath);
+  const finalizedRecord = new Ledger(openDatabase(dbPath).db).findLatestByMetadataKey("correlationKey", `tool:${correlationId}`);
+  checks.push(smokeCheck(
+    "stdin.post",
+    "PostToolUse finalizes the ledger and memory path",
+    pre.decision === "allow" && post.exitCode === 0 && finalizedRecord?.status === "executed" && finalizedRecord?.decision === "allow",
+    post.stderr || post.reason,
+  ));
+
+  const report = smokeChecksReport(checks);
+  return {
+    agent,
+    ok: report.ok,
+    workspaceRoot,
+    cliPath,
+    commandPath,
+    dbPath,
+    checks,
+    reasons: report.reasons,
+  };
+}
+
+export function runHooksDoctor(cwd = process.cwd()): HookDoctorResult {
+  const workspaceRoot = path.resolve(cwd);
+  const cliPath = currentCliPath();
+  const dbPath = defaultDbPath(workspaceRoot);
+  const checks: HookSmokeCheck[] = [];
+
+  checks.push(smokeCheck("cli.path", "Built CLI path exists", fs.existsSync(cliPath), cliPath));
+  try {
+    openDatabase(dbPath);
+    checks.push(smokeCheck("db.writable", "Workspace DB is writable", fs.existsSync(dbPath), dbPath));
+  } catch (error) {
+    checks.push(smokeCheck("db.writable", "Workspace DB is writable", false, error instanceof Error ? error.message : String(error)));
+  }
+
+  const agents: Record<NativeHookAgent, HookSmokeResult> = {
+    claude: runHookSmoke("claude", workspaceRoot),
+    codex: runHookSmoke("codex", workspaceRoot),
+  };
+
+  checks.push(...agents.claude.checks.map((check) => ({ ...check, label: `Claude ${check.label}`, id: `claude.${check.id}` })));
+  checks.push(...agents.codex.checks.map((check) => ({ ...check, label: `Codex ${check.label}`, id: `codex.${check.id}` })));
+
+  return {
+    ok: checks.every((check) => check.status === "PASS"),
+    workspaceRoot,
+    cliPath,
+    dbPath,
+    checks,
+    agents,
+  };
+}
+
+export function installAgentHooks(agent: NativeHookAgent, cwd = process.cwd(), options: HookInstallOptions = {}): AgentInstallResult {
   const workspaceRoot = path.resolve(cwd);
   const configPath = agent === "claude"
     ? path.join(workspaceRoot, ".claude", "settings.local.json")
     : path.join(workspaceRoot, ".codex", "hooks.json");
   const config = readJsonFile(configPath);
+  const existingText = fs.existsSync(configPath) ? fs.readFileSync(configPath, "utf8") : "";
 
   if (agent === "claude") {
     mergeHookConfig(config, "PreToolUse", HOOK_MATCHER, CLAUDE_HOOK_ID);
@@ -600,17 +789,28 @@ export function installAgentHooks(agent: NativeHookAgent, cwd = process.cwd()): 
     mergeHookConfig(config, "PostToolUse", HOOK_MATCHER, CODEX_POST_HOOK_ID);
   }
 
+  const nextText = `${JSON.stringify(config, null, 2)}\n`;
+  const changed = nextText !== existingText;
+  const backupPath = changed ? backupJsonFile(configPath) : null;
   writeJsonFile(configPath, config);
-  const smoke = smokeTest(agent, workspaceRoot);
-
+  const result = (options.smokeRunner ?? runHookSmoke)(agent, workspaceRoot);
+  const changes = [
+    `installed PreToolUse hook for ${agent}`,
+    `installed PostToolUse hook for ${agent}`,
+    ...(backupPath ? [`backed up previous config to ${backupPath}`] : []),
+  ];
   return {
     agent,
     path: configPath,
     installed: true,
-    active: smoke.ok,
-    message: smoke.ok
+    active: result.ok,
+    backupPath: backupPath ?? undefined,
+    changes,
+    message: result.ok
       ? `Installed Termyte ${agent} hooks at ${configPath} and verified them with a live smoke test.`
-      : `Installed Termyte ${agent} hook config at ${configPath}, but live smoke failed. Use Termyte MCP for the fallback path. ${smoke.reasons.join("; ")}`,
+      : agent === "codex"
+        ? `Installed Termyte Codex hook config at ${configPath}, but live smoke verification failed. Codex native hooks unavailable. Termyte MCP and Codex sandbox/approval mode remain available. ${result.reasons.join("; ")}`
+        : `Installed Termyte ${agent} hook config at ${configPath}, but live smoke failed. Use Termyte MCP for the fallback path. ${result.reasons.join("; ")}`,
   };
 }
 
@@ -663,8 +863,11 @@ export function verifyAgentHooks(agent: NativeHookAgent, cwd = process.cwd()): A
     if (postCommands.length === 0) {
       reasons.push("missing PostToolUse handler");
     }
-    const smoke = smokeTest(agent, workspaceRoot);
+    const smoke = runHookSmoke(agent, workspaceRoot);
     if (!smoke.ok) {
+      if (agent === "codex") {
+        reasons.push("Codex native hooks unavailable. Termyte MCP and Codex sandbox/approval mode remain available.");
+      }
       reasons.push(...smoke.reasons);
     }
   }
@@ -704,10 +907,15 @@ export function formatAgentUninstallResult(result: AgentUninstallResult): string
 export function formatAgentInstallResult(result: AgentInstallResult): string {
   return [
     result.message,
+    "Changes:",
+    ...result.changes.map((change) => `  - ${change}`),
+    ...(result.backupPath ? [`Backup: ${result.backupPath}`] : []),
     `Active: ${result.active ? "yes" : "no"}`,
     "",
     "Next steps:",
     `  termyte doctor`,
+    `  termyte hooks doctor`,
+    `  termyte hooks smoke ${result.agent}`,
     `  termyte run ${result.agent}`,
     `  termyte mcp install ${result.agent}`,
   ].join(os.EOL);
@@ -716,6 +924,14 @@ export function formatAgentInstallResult(result: AgentInstallResult): string {
 export function formatAgentHookVerification(verification: AgentHookVerification): string {
   if (verification.ok) {
     return `Termyte ${verification.agent} hooks verified at ${verification.path}`;
+  }
+  if (verification.agent === "codex") {
+    return [
+      `Termyte ${verification.agent} hooks are not ready.`,
+      ...verification.reasons.map((reason) => `  - ${reason}`),
+      "",
+      "Codex native hooks unavailable. Termyte MCP and Codex sandbox/approval mode remain available.",
+    ].join(os.EOL);
   }
   return [
     `Termyte ${verification.agent} hooks are not ready.`,
@@ -731,4 +947,35 @@ export function isNativeHookAgent(agentName: string): agentName is NativeHookAge
 
 export function formatAgentHookResponse(agent: NativeHookAgent, eventName: string, decision: Decision, reason: string, ledgerId?: number): string {
   return hookResponse(agent, eventName, decision, reason, ledgerId);
+}
+
+export function formatHookSmokeResult(result: HookSmokeResult, json = false): string {
+  if (json) {
+    return JSON.stringify(result, null, 2);
+  }
+  return [
+    `Termyte hook smoke: ${result.agent}`,
+    `  CLI path: ${result.cliPath}`,
+    `  Hook command: ${result.commandPath}`,
+    `  DB path: ${result.dbPath}`,
+    ...result.checks.map((check) => `  ${check.status} ${check.label}: ${check.message}`),
+    result.ok ? "  Result: ready" : `  Result: not ready (${result.reasons.join("; ")})`,
+  ].join(os.EOL);
+}
+
+export function formatHookDoctorResult(result: HookDoctorResult, json = false): string {
+  if (json) {
+    return JSON.stringify(result, null, 2);
+  }
+  return [
+    "Termyte hooks doctor",
+    `  Workspace: ${result.workspaceRoot}`,
+    `  CLI path: ${result.cliPath}`,
+    `  DB path: ${result.dbPath}`,
+    ...result.checks.map((check) => `  ${check.status} ${check.label}: ${check.message}`),
+    "",
+    `  Claude smoke: ${result.agents.claude.ok ? "PASS" : "FAIL"}`,
+    `  Codex smoke: ${result.agents.codex.ok ? "PASS" : "FAIL"}`,
+    result.ok ? "  Result: ready" : "  Result: not ready",
+  ].join(os.EOL);
 }

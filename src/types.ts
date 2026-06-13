@@ -5,6 +5,7 @@ export type ActionKind =
   | "filesystem.write"
   | "git.push"
   | "git.destructive"
+  | "package.install"
   | "package.publish"
   | "secret.access"
   | "remote-script.execution"
@@ -70,8 +71,11 @@ export interface TargetClassification {
 export interface RiskResult {
   decision: Decision;
   score: number;
+  level?: "low" | "medium" | "high" | "critical";
+  ruleId?: string;
   reason: string;
   signals: string[];
+  suggestedFix?: string;
 }
 
 export interface MemoryMatch {

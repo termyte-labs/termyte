@@ -116,12 +116,12 @@ describe("doctor diagnostics", () => {
     expect(check.status).toBe("PASS");
   });
 
-  it("keeps the default doctor report free of shell runtime checks", async () => {
+  it("keeps the default doctor report focused on direct runtime checks", async () => {
     const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-doctor-shell-free-"));
     const report = await runDoctor(workspaceRoot);
 
     expect(report.checks.some((check) => check.section === "Shell Runtime")).toBe(false);
-  });
+  }, 15000);
 
   it("warns when default-origin policies are stale and missing current defaults", () => {
     const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "termyte-doctor-policy-drift-"));

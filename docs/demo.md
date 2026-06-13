@@ -37,8 +37,7 @@ termyte policy test "cat .env"
 
 Expected:
 
-- Secret access and force push checks are blocked.
-- Package publishing warns.
+- Secret access, force push, and package publishing checks are blocked.
 - `policy test` evaluates without writing a check log.
 
 Preview and save a deterministic local policy:
@@ -85,9 +84,9 @@ Doctor includes environment-dependent checks. Optional missing tools can appear
 as warnings. Doctor success does not mean Termyte is a sandbox or can observe
 every execution path.
 
-The agent runner uses `runtime mode: intercepted` for supported shim and shell
-hook paths. This is not full sandbox containment, and this demo does not launch
-a coding agent.
+The agent runner uses `runtime mode: direct-launch` for supported agent
+paths. This is not full sandbox containment, and this demo does not launch a
+coding agent.
 
 Prove the governed runtime path:
 

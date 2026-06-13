@@ -1,9 +1,10 @@
 import type { Decision } from "./types.js";
 import type { LoadedPolicies, LoadedPolicyLayer } from "./policy-loader.js";
-import type { PhaseOnePolicyRule } from "./policy-schema.js";
+import type { PhaseOnePolicyRule, PolicyMode } from "./policy-schema.js";
 
 export interface EffectivePhaseOnePolicy {
   layers: LoadedPolicyLayer[];
+  mode: PolicyMode;
   presets: string[];
   rules: PhaseOnePolicyRule[];
   warnings: string[];
@@ -12,8 +13,10 @@ export interface EffectivePhaseOnePolicy {
 export function mergePhaseOnePolicies(loaded: LoadedPolicies): EffectivePhaseOnePolicy {
   const presets = unique(loaded.layers.flatMap((layer) => layer.presets));
   const rules = loaded.layers.flatMap((layer) => layer.rules.map((rule) => ({ ...rule, source: rule.source ?? layer.name })));
+  const mode = [...loaded.layers].reverse().find((layer) => layer.loaded && layer.mode)?.mode ?? "standard";
   return {
     layers: loaded.layers,
+    mode,
     presets,
     rules,
     warnings: loaded.warnings,

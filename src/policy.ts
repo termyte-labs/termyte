@@ -24,12 +24,13 @@ export interface PolicyDocument {
   policies: PolicySet;
 }
 
-export const DEFAULT_POLICY_VERSION = 2;
+export const DEFAULT_POLICY_VERSION = 4;
 
 export const defaultPolicies: PolicySet = {
   block: [
     "filesystem.delete.recursive.force.wildcard",
     "filesystem.delete.wildcard",
+    "package.*.publish",
     "sql.drop-table",
     "sql.truncate-table",
     "sql.delete-without-where",
@@ -45,7 +46,7 @@ export const defaultPolicies: PolicySet = {
     "git.stash.drop",
     "git.rebase.interactive",
     "git.reflog.expire",
-    "package.*.publish",
+    "package.*.install",
     "secret.access",
     "remote-script.*",
     "privilege.escalation",

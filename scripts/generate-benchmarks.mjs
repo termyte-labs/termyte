@@ -169,7 +169,7 @@ add("git-force-push-protected", ["block"], [
   "git push --force upstream trunk",
 ]);
 
-add("package-publish", ["warn"], [
+add("package-publish", ["block"], [
   "npm publish",
   "pnpm publish",
   "yarn publish",
@@ -234,7 +234,7 @@ add("git-destructive-history", ["warn"], [
   "git reflog expire --expire=now --all",
 ]);
 
-add("package-publish-extra", ["warn"], [
+add("package-publish-extra", ["block"], [
   "npm publish --tag latest",
   "npm publish --provenance",
   "npm publish --access public --tag beta",

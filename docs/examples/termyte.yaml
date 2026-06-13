@@ -1,0 +1,65 @@
+version: 1
+
+mode: standard
+
+protectedBranches:
+  - main
+  - master
+  - production
+
+protectedPaths:
+  - .env
+  - .env.*
+  - .git/**
+  - .github/**
+  - package-lock.json
+  - pnpm-lock.yaml
+  - yarn.lock
+  - Dockerfile
+  - docker-compose.yml
+  - infra/**
+  - terraform/**
+  - migrations/**
+
+secrets:
+  blockRead:
+    - .env
+    - .env.*
+    - .env.production
+    - secrets/**
+
+commands:
+  block:
+    - "rm -rf *"
+    - "git push --force origin main"
+    - "git push --force origin master"
+    - "npm publish"
+    - "DROP TABLE"
+    - "TRUNCATE TABLE"
+  warn:
+    - "npm install"
+    - "pnpm install"
+    - "yarn add"
+    - "docker build"
+    - "prisma migrate"
+    - "curl * | bash"
+
+allow:
+  commands:
+    - "npm test"
+    - "npm run build"
+    - "git status"
+    - "git diff"
+
+# Accepted for compatibility. Current enforcement uses built-in local
+# one-time approvals and built-in local memory behavior.
+approvals:
+  requireFor:
+    - "git push --force"
+    - "npm publish"
+
+memory:
+  enabled: true
+  warnOnRepeatedRisk: true
+  rememberApprovals: true
+  approvalTTLMinutes: 30
