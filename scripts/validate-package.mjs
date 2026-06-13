@@ -163,12 +163,29 @@ try {
   const codexHookConfigPath = path.join(smokeDir, ".codex", "hooks.json");
   assertFile(codexHookConfigPath, "codex hook config");
   const codexHookConfig = JSON.parse(fs.readFileSync(codexHookConfigPath, "utf8"));
+  assertEqual(codexHookConfig.hooks?.PreToolUse?.[0]?.matcher, "*", "codex PreToolUse matcher");
+  assertEqual(codexHookConfig.hooks?.PermissionRequest?.[0]?.matcher, "*", "codex PermissionRequest matcher");
+  assertEqual(codexHookConfig.hooks?.PostToolUse?.[0]?.matcher, "*", "codex PostToolUse matcher");
   const codexPreHook = codexHookConfig.hooks?.PreToolUse?.[0]?.hooks?.[0];
-  assertEqual(Object.keys(codexPreHook ?? {}).sort().join(","), "command,commandWindows", "codex hook command fields");
+  const codexPermissionHook = codexHookConfig.hooks?.PermissionRequest?.[0]?.hooks?.[0];
+  const codexPostHook = codexHookConfig.hooks?.PostToolUse?.[0]?.hooks?.[0];
+  assertEqual(Object.keys(codexPreHook ?? {}).sort().join(","), "command,commandWindows,statusMessage,timeout,type", "codex hook command fields");
+  assertEqual(Object.keys(codexPermissionHook ?? {}).sort().join(","), "command,commandWindows,statusMessage,timeout,type", "codex permission hook command fields");
+  assertEqual(Object.keys(codexPostHook ?? {}).sort().join(","), "command,commandWindows,statusMessage,timeout,type", "codex post hook command fields");
+  assertEqual(codexPreHook.type, "command", "codex hook type");
+  assertEqual(codexPermissionHook.type, "command", "codex permission hook type");
+  assertEqual(codexPostHook.type, "command", "codex post hook type");
+  assertEqual(codexPreHook.timeout, 30, "codex hook timeout");
+  assertEqual(codexPermissionHook.timeout, 30, "codex permission hook timeout");
+  assertEqual(codexPostHook.timeout, 30, "codex post hook timeout");
   assertIncludes(codexPreHook.command, "node", "codex hook command");
   assertIncludes(normalizePath(codexPreHook.command), "dist/cli.js", "codex hook command");
   assertIncludes(codexPreHook.command, "agent hook codex", "codex hook command");
+  assertIncludes(codexPermissionHook.command, "agent hook codex --permission-request", "codex permission hook command");
+  assertIncludes(codexPostHook.command, "agent hook codex --post", "codex post hook command");
   assertEqual(codexPreHook.commandWindows, codexPreHook.command, "codex hook commandWindows");
+  assertEqual(codexPermissionHook.commandWindows, codexPermissionHook.command, "codex permission hook commandWindows");
+  assertEqual(codexPostHook.commandWindows, codexPostHook.command, "codex post hook commandWindows");
   assertExcludes(JSON.stringify(codexHookConfig), "command_windows", "codex hook config");
   assertExcludes(JSON.stringify(codexHookConfig), "termyte agent hook codex", "codex hook config");
 
@@ -195,6 +212,28 @@ try {
   });
   const hookJson = JSON.parse(hookSmoke.stdout);
   assertEqual(hookJson.hookSpecificOutput?.permissionDecision, "deny", "agent hook deny decision");
+  assertEqual(Object.keys(hookJson).sort().join(","), "hookSpecificOutput", "agent hook deny output shape");
+
+  const permissionHookInput = JSON.stringify({
+    hook_event_name: "PermissionRequest",
+    cwd: smokeDir,
+    tool_name: "shell_command",
+    tool_input: {
+      command: "npm publish",
+    },
+  });
+  const permissionHookSmoke = runGeneratedHookCommand(codexPermissionHook.commandWindows, {
+    cwd: smokeDir,
+    env: {
+      ...env,
+      TERMYTE_SESSION_ID: "tm_package_permission",
+      TERMYTE_DB_PATH: path.join(smokeDir, ".termyte", "termyte.db"),
+    },
+    input: permissionHookInput,
+  });
+  const permissionHookJson = JSON.parse(permissionHookSmoke.stdout);
+  assertEqual(permissionHookJson.hookSpecificOutput?.decision?.behavior, "deny", "permission hook deny decision");
+  assertEqual(Object.keys(permissionHookJson).sort().join(","), "hookSpecificOutput", "permission hook deny output shape");
 
   const allowHookInput = JSON.stringify({
     hook_event_name: "PreToolUse",

@@ -89,10 +89,12 @@ export interface HookInstallOptions {
   smokeRunner?: (agent: NativeHookAgent, cwd: string) => HookSmokeResult;
 }
 
-const HOOK_MATCHER = "Bash|Read|Write|Edit|MultiEdit|WebFetch|WebSearch|mcp__.*";
+const CLAUDE_HOOK_MATCHER = "Bash|Read|Write|Edit|MultiEdit|WebFetch|WebSearch|mcp__.*";
+const CODEX_HOOK_MATCHER = "*";
 const CLAUDE_HOOK_ID = "agent hook claude";
 const CLAUDE_POST_HOOK_ID = "agent hook claude --post";
 const CODEX_HOOK_ID = "agent hook codex";
+const CODEX_PERMISSION_HOOK_ID = "agent hook codex --permission-request";
 const CODEX_POST_HOOK_ID = "agent hook codex --post";
 
 function safeObject(value: unknown): Record<string, unknown> {
@@ -194,6 +196,21 @@ function hookResponse(agent: NativeHookAgent, eventName: string, decision: Decis
     })}\n`;
   }
 
+  if (eventName === "PermissionRequest") {
+    if (decision !== "block") {
+      return "";
+    }
+    return `${JSON.stringify({
+      hookSpecificOutput: {
+        hookEventName: "PermissionRequest",
+        decision: {
+          behavior: "deny",
+          message: `Termyte block: ${reason}`,
+        },
+      },
+    })}\n`;
+  }
+
   if (decision === "warn" || decision === "ask") {
     return `${JSON.stringify({
       systemMessage: `Termyte ${decision}: ${reason}${safeAlternative ? ` Safe alternative: ${safeAlternative}` : ""}`,
@@ -205,11 +222,6 @@ function hookResponse(agent: NativeHookAgent, eventName: string, decision: Decis
       hookEventName: eventName,
       permissionDecision: "deny",
       permissionDecisionReason: `Termyte block: ${reason}`,
-      ...(safeAlternative ? { safeAlternative } : {}),
-    },
-    termyte: {
-      decision,
-      ledgerId,
     },
   })}\n`;
 }
@@ -516,11 +528,13 @@ export async function runAgentHookCli(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<NativeHookResult> {
   const input = await readStdin(stdin);
+  const isPermissionRequest = args.includes("--permission-request");
   return handleAgentHookInvocation({
     agent,
     phase: args.includes("--post") ? "post" : "pre",
     input,
     env,
+    ...(isPermissionRequest ? { cwd: process.cwd() } : {}),
   });
 }
 
@@ -552,7 +566,7 @@ function backupJsonFile(filePath: string): string | null {
   return backupPath;
 }
 
-function mergeHookConfig(existing: Record<string, unknown>, event: "PreToolUse" | "PostToolUse", matcher: string, hookId: string): void {
+function mergeHookConfig(existing: Record<string, unknown>, event: "PreToolUse" | "PermissionRequest" | "PostToolUse", matcher: string, hookId: string): void {
   const hooks = safeObject(existing.hooks);
   existing.hooks = hooks;
   const entries = Array.isArray(hooks[event]) ? hooks[event] as unknown[] : [];
@@ -561,8 +575,11 @@ function mergeHookConfig(existing: Record<string, unknown>, event: "PreToolUse" 
     matcher,
     hooks: [
       {
+        type: "command",
         command,
         commandWindows: command,
+        timeout: 30,
+        statusMessage: hookStatusMessage(hookId),
       },
     ],
   };
@@ -573,7 +590,7 @@ function mergeHookConfig(existing: Record<string, unknown>, event: "PreToolUse" 
 function removeTermyteHookConfig(existing: Record<string, unknown>): boolean {
   const hooks = safeObject(existing.hooks);
   let changed = false;
-  for (const event of ["PreToolUse", "PostToolUse"] as const) {
+  for (const event of ["PreToolUse", "PermissionRequest", "PostToolUse"] as const) {
     const entries = Array.isArray(hooks[event]) ? hooks[event] as unknown[] : [];
     const nextEntries = entries.filter((entry) => JSON.stringify(entry).includes("agent hook ") === false);
     if (nextEntries.length !== entries.length) {
@@ -590,6 +607,16 @@ function removeTermyteHookConfig(existing: Record<string, unknown>): boolean {
     changed = true;
   }
   return changed;
+}
+
+function hookStatusMessage(hookId: string): string {
+  if (hookId.includes("--post")) {
+    return "Recording Termyte tool result";
+  }
+  if (hookId.includes("--permission-request")) {
+    return "Checking Termyte approval request";
+  }
+  return "Checking Termyte policy";
 }
 
 function hookSmokeEnvironment(workspaceRoot: string, dbPath: string, agent: NativeHookAgent): NodeJS.ProcessEnv {
@@ -696,10 +723,36 @@ export function runHookSmoke(agent: NativeHookAgent, cwd = process.cwd()): HookS
   }
   checks.push(smokeCheck(
     "stdin.block",
-    "Blocked hook emits Claude deny JSON and logs the block",
+    "Blocked hook emits deny JSON and logs the block",
     block.exitCode === 0 && block.decision === "block" && blockJsonOk && blockRecord?.decision === "block" && blockRecord?.status === "blocked",
     block.stderr || block.reason,
   ));
+
+  if (agent === "codex") {
+    const permissionPayload = {
+      hook_event_name: "PermissionRequest",
+      cwd: workspaceRoot,
+      session_id: `smoke-${agent}`,
+      tool_call_id: `permission-${agent}`,
+      tool_name: "Bash",
+      tool_input: { command: "git push --force origin main" },
+    };
+    const permission = invokeHook(agent, "pre", permissionPayload, env, cliPath);
+    const permissionRecord = new Ledger(openDatabase(dbPath).db).findLatestByMetadataKey("correlationKey", `tool:permission-${agent}`);
+    let permissionJsonOk = false;
+    try {
+      const parsed = JSON.parse(permission.stdout || "{}") as { hookSpecificOutput?: { decision?: { behavior?: string } } };
+      permissionJsonOk = parsed.hookSpecificOutput?.decision?.behavior === "deny";
+    } catch {
+      permissionJsonOk = false;
+    }
+    checks.push(smokeCheck(
+      "stdin.permission_request",
+      "PermissionRequest hook emits Codex deny JSON and logs the block",
+      permission.exitCode === 0 && permission.decision === "block" && permissionJsonOk && permissionRecord?.decision === "block" && permissionRecord?.status === "blocked",
+      permission.stderr || permission.reason,
+    ));
+  }
 
   const correlationId = `post-${agent}`;
   const pre = invokeHook(agent, "pre", {
@@ -782,11 +835,12 @@ export function installAgentHooks(agent: NativeHookAgent, cwd = process.cwd(), o
   const existingText = fs.existsSync(configPath) ? fs.readFileSync(configPath, "utf8") : "";
 
   if (agent === "claude") {
-    mergeHookConfig(config, "PreToolUse", HOOK_MATCHER, CLAUDE_HOOK_ID);
-    mergeHookConfig(config, "PostToolUse", HOOK_MATCHER, CLAUDE_POST_HOOK_ID);
+    mergeHookConfig(config, "PreToolUse", CLAUDE_HOOK_MATCHER, CLAUDE_HOOK_ID);
+    mergeHookConfig(config, "PostToolUse", CLAUDE_HOOK_MATCHER, CLAUDE_POST_HOOK_ID);
   } else {
-    mergeHookConfig(config, "PreToolUse", HOOK_MATCHER, CODEX_HOOK_ID);
-    mergeHookConfig(config, "PostToolUse", HOOK_MATCHER, CODEX_POST_HOOK_ID);
+    mergeHookConfig(config, "PreToolUse", CODEX_HOOK_MATCHER, CODEX_HOOK_ID);
+    mergeHookConfig(config, "PermissionRequest", CODEX_HOOK_MATCHER, CODEX_PERMISSION_HOOK_ID);
+    mergeHookConfig(config, "PostToolUse", CODEX_HOOK_MATCHER, CODEX_POST_HOOK_ID);
   }
 
   const nextText = `${JSON.stringify(config, null, 2)}\n`;
@@ -796,6 +850,7 @@ export function installAgentHooks(agent: NativeHookAgent, cwd = process.cwd(), o
   const result = (options.smokeRunner ?? runHookSmoke)(agent, workspaceRoot);
   const changes = [
     `installed PreToolUse hook for ${agent}`,
+    ...(agent === "codex" ? [`installed PermissionRequest hook for ${agent}`] : []),
     `installed PostToolUse hook for ${agent}`,
     ...(backupPath ? [`backed up previous config to ${backupPath}`] : []),
   ];
@@ -856,9 +911,13 @@ export function verifyAgentHooks(agent: NativeHookAgent, cwd = process.cwd()): A
   } else {
     const config = readJsonFile(configPath);
     const preCommands = hookCommands(config, agent === "claude" ? CLAUDE_HOOK_ID : CODEX_HOOK_ID);
+    const permissionCommands = agent === "codex" ? hookCommands(config, CODEX_PERMISSION_HOOK_ID) : ["not-required"];
     const postCommands = hookCommands(config, agent === "claude" ? CLAUDE_POST_HOOK_ID : CODEX_POST_HOOK_ID);
     if (preCommands.length === 0) {
       reasons.push("missing PreToolUse handler");
+    }
+    if (agent === "codex" && permissionCommands.length === 0) {
+      reasons.push("missing PermissionRequest handler");
     }
     if (postCommands.length === 0) {
       reasons.push("missing PostToolUse handler");
@@ -883,7 +942,7 @@ export function verifyAgentHooks(agent: NativeHookAgent, cwd = process.cwd()): A
 function hookCommands(config: Record<string, unknown>, hookId: string): string[] {
   const hooks = safeObject(config.hooks);
   const commands: string[] = [];
-  for (const event of ["PreToolUse", "PostToolUse"] as const) {
+  for (const event of ["PreToolUse", "PermissionRequest", "PostToolUse"] as const) {
     const entries = Array.isArray(hooks[event]) ? hooks[event] as unknown[] : [];
     for (const entry of entries) {
       const entryObject = safeObject(entry);

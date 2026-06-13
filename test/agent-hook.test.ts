@@ -229,9 +229,97 @@ describe("agent native hook bridge", () => {
     });
 
     expect(blocked.exitCode).toBe(0);
-    expect(parseHookOutput(blocked.stdout).hookSpecificOutput?.permissionDecision).toBe("deny");
+    expect(parseHookOutput(blocked.stdout)).toEqual({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "deny",
+        permissionDecisionReason: expect.stringContaining("Termyte block:"),
+      },
+    });
     expect(allowed.exitCode).toBe(0);
     expect(allowed.stdout).toBe("");
+  });
+
+  it("blocks Codex shell-like payload variants that include a command field", async () => {
+    const cwd = workspace("termyte-codex-shell-variant-");
+    const dbPath = path.join(cwd, "termyte.db");
+    const result = await handleAgentHookInvocation({
+      agent: "codex",
+      phase: "pre",
+      cwd,
+      dbPath,
+      env: { TERMYTE_SESSION_ID: "tm_test", TERMYTE_DB_PATH: dbPath },
+      input: JSON.stringify({
+        hook_event_name: "PreToolUse",
+        cwd,
+        session_id: "codex-session",
+        tool_name: "shell_command",
+        tool_input: { command: "npm publish" },
+      }),
+    });
+
+    const record = new Ledger(openDatabase(dbPath).db).getById(result.ledgerId ?? 0);
+    expect(result.exitCode).toBe(0);
+    expect(result.decision).toBe("block");
+    expect(parseHookOutput(result.stdout)).toEqual({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "deny",
+        permissionDecisionReason: expect.stringContaining("package publishing is blocked"),
+      },
+    });
+    expect(record?.semanticId).toBe("package.npm.publish");
+    expect(record?.status).toBe("blocked");
+  });
+
+  it("returns Codex PermissionRequest deny JSON only for blocked approval requests", async () => {
+    const cwd = workspace("termyte-codex-permission-hook-");
+    const dbPath = path.join(cwd, "termyte.db");
+    const blocked = await handleAgentHookInvocation({
+      agent: "codex",
+      phase: "pre",
+      cwd,
+      dbPath,
+      env: { TERMYTE_SESSION_ID: "tm_test", TERMYTE_DB_PATH: dbPath },
+      input: JSON.stringify({
+        hook_event_name: "PermissionRequest",
+        cwd,
+        session_id: "codex-session",
+        tool_name: "Bash",
+        tool_input: { command: "git push --force origin main" },
+      }),
+    });
+    const warned = await handleAgentHookInvocation({
+      agent: "codex",
+      phase: "pre",
+      cwd,
+      dbPath,
+      env: { TERMYTE_SESSION_ID: "tm_test", TERMYTE_DB_PATH: dbPath },
+      input: JSON.stringify({
+        hook_event_name: "PermissionRequest",
+        cwd,
+        session_id: "codex-session",
+        tool_call_id: "tool-warn-1",
+        tool_name: "Bash",
+        tool_input: { command: "npm install zod" },
+      }),
+    });
+
+    const output = parseHookOutput(blocked.stdout) as {
+      hookSpecificOutput?: { hookEventName?: string; decision?: { behavior?: string; message?: string } };
+    };
+    expect(blocked.decision).toBe("block");
+    expect(output).toEqual({
+      hookSpecificOutput: {
+        hookEventName: "PermissionRequest",
+        decision: {
+          behavior: "deny",
+          message: expect.stringContaining("Termyte block:"),
+        },
+      },
+    });
+    expect(warned.decision).toBe("ask");
+    expect(warned.stdout).toBe("");
   });
 
   it("maps warn decisions to ask JSON for Claude and system messages for Codex", () => {
@@ -266,7 +354,19 @@ describe("agent native hook bridge", () => {
     expect(result.active).toBe(true);
     expect(verification.ok).toBe(true);
     expect(result.message).toContain("live smoke test");
-    expect(fs.readFileSync(result.path, "utf8")).toContain("agent hook codex");
+    const config = JSON.parse(fs.readFileSync(result.path, "utf8")) as {
+      hooks: {
+        PreToolUse: Array<{ matcher: string; hooks: Array<{ type?: string; command?: string; timeout?: number; statusMessage?: string }> }>;
+        PermissionRequest: Array<{ matcher: string; hooks: Array<{ type?: string; command?: string; timeout?: number; statusMessage?: string }> }>;
+        PostToolUse: Array<{ matcher: string; hooks: Array<{ type?: string; command?: string; timeout?: number; statusMessage?: string }> }>;
+      };
+    };
+
+    expect(config.hooks.PreToolUse[0]?.matcher).toBe("*");
+    expect(config.hooks.PreToolUse[0]?.hooks[0]).toMatchObject({ type: "command", timeout: 30 });
+    expect(config.hooks.PermissionRequest[0]?.hooks[0]).toMatchObject({ type: "command", timeout: 30 });
+    expect(config.hooks.PermissionRequest[0]?.hooks[0]?.command).toContain("agent hook codex --permission-request");
+    expect(config.hooks.PostToolUse[0]?.hooks[0]).toMatchObject({ type: "command", timeout: 30 });
   }, 15000);
 
   it("backs up existing hook config before installing new hooks", () => {

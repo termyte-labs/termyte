@@ -48,7 +48,7 @@ export function evaluateAction(action: RuntimeAction, context: EvaluationContext
   const memory = new MemoryEngine(dbContext.db);
   const memoryMatches = context.applyMemory === false ? [] : memory.findMatches(parsedAction, targets);
   const policyDecision = strongestDecision([legacyPolicy.decision, filePolicy.decision]);
-  const decision = action.kind === "unknown"
+  const decision = action.kind === "unknown" && policyDecision === "allow"
     ? (context.preferAskForWarnings ? "ask" : "warn")
     : context.preferAskForWarnings && policyDecision === "warn"
       ? "ask"

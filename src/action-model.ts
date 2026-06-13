@@ -168,7 +168,14 @@ function inferRuntimeKind(parsed: ParsedAction, toolName?: string): RuntimeActio
 function commandFromTool(toolName: string, toolInput: Record<string, unknown>): string {
   const path = safeString(toolInput.file_path ?? toolInput.path ?? toolInput.target ?? toolInput.filename) ?? "";
   const content = safeString(toolInput.content ?? toolInput.text ?? toolInput.patch ?? toolInput.diff) ?? "";
-  const command = safeString(toolInput.command) ?? safeString(toolInput.query) ?? safeString(toolInput.url) ?? safeString(toolInput.prompt) ?? "";
+  const command = safeString(toolInput.command)
+    ?? safeString(toolInput.cmd)
+    ?? safeString(toolInput.shell_command)
+    ?? safeString(toolInput.shellCommand)
+    ?? safeString(toolInput.query)
+    ?? safeString(toolInput.url)
+    ?? safeString(toolInput.prompt)
+    ?? "";
 
   if (toolName === "Bash") {
     return command;
@@ -187,6 +194,9 @@ function commandFromTool(toolName: string, toolInput: Record<string, unknown>): 
   }
   if (toolName.startsWith("mcp__")) {
     return `${toolName} ${stableJson(toolInput)}`;
+  }
+  if (command) {
+    return command;
   }
   return `${toolName} ${stableJson(toolInput)}`.trim();
 }
