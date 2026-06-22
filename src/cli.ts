@@ -1,866 +1,359 @@
 #!/usr/bin/env node
-import fs from "node:fs";
 import path from "node:path";
-import readline from "node:readline/promises";
-import { stdin as input, stdout as output } from "node:process";
 import { defaultDbPath, openDatabase } from "./db.js";
-import { formatInspection, formatLedger, formatMemory, formatReplay, replayEntries, toJson } from "./format.js";
-import { Ledger } from "./ledger.js";
-import { MemoryEngine } from "./memory.js";
-import { storeLocalMemory, listLocalMemory, formatLocalMemoryHuman } from "./local-memory.js";
-import { storeLocalApproval, listLocalApprovals, formatLocalApprovalsHuman } from "./local-approvals.js";
-import { inspectAction, runRuntime } from "./runtime.js";
-import {
-  addPolicies,
-  analyzePolicyDrift,
-  DEFAULT_POLICY_VERSION,
-  defaultPolicies,
-  describePolicies,
-  exportPolicyDocument,
-  loadPolicyState,
-  loadPolicies,
-  parsePolicyDocument,
-  removePolicies,
-  resetPolicies,
-  savePolicies,
-  validatePolicySet,
-  type PolicySet,
-} from "./policy.js";
-import { formatDoctorHuman, formatDoctorJson, runDoctor } from "./doctor.js";
-import type { Decision } from "./types.js";
-import { buildAgentRunPlan, formatAgentDryRunReport, isSupportedAgentName, parseRunInvocation } from "./agent.js";
-import {
-  formatAgentInstallResult,
-  formatAgentUninstallResult,
-  formatHookDoctorResult,
-  formatHookSmokeResult,
-  installAgentHooks,
-  isNativeHookAgent,
-  runHookSmoke,
-  runHooksDoctor,
-  runAgentHookCli,
-  uninstallAgentHooks,
-} from "./agent-hook.js";
-import { runAgent } from "./agent-runner.js";
-import { buildPolicyAddPlan, formatPolicyPresets, formatPolicyShow, runPolicyTest, savePolicyAddPlan } from "./policy-cli.js";
-import { runGovernanceBenchmarks, runLegacyBenchmarks } from "./benchmark.js";
-import { formatMcpInstall, runMcpServer } from "./mcp.js";
-import { formatRuntimeProofHuman, runRuntimeProof } from "./proof.js";
+import { CaptureEngine } from "./capture/index.js";
+import { createMemoryEngine } from "./memory/index.js";
+import { createGeminiClient, type GeminiClient } from "./extraction/gemini.js";
+import { extractMemoriesFromTrace, buildTraceSummary } from "./extraction/index.js";
+import { createRetrievalEngine } from "./retrieval/index.js";
+import { buildInjectionContext, formatForAgent } from "./retrieval/inject.js";
+import { recordFeedback, getFeedbackStats } from "./feedback/index.js";
+import { applyDecay, deactivateLowConfidence } from "./memory/decay.js";
+import { recordGitEvents } from "./capture/git.js";
+import { generateId, nowISO } from "./utils.js";
 
 function printUsage(): void {
-  console.log(`Usage:
-  termyte check [--json] "<command>"
-  termyte policy presets [--json]
-  termyte policy show [--json]
-  termyte policy test [--json] "<command>"
-  termyte policy global add "<natural language rule>" [--dry-run|--yes]
-  termyte policy local add "<natural language rule>" [--dry-run|--yes]
-  termyte logs [--limit <n>] [--json]
-  termyte memory [--limit <n>] [--json]
-  termyte approvals [--json]
-  termyte mark-safe "<command>"
-  termyte <codex|claude|claudecode> [...args]
-  termyte run [--dry-run] [--profile <profile>] <agent> [...args]
-  termyte run [--dry-run] -- <command>
-  termyte install <claude|codex>
-  termyte uninstall <claude|codex>
-  termyte agent hook <claude|codex> [--post]
-  termyte hooks doctor [--json]
-  termyte hooks smoke <claude|codex> [--json]
-  termyte allow-once "<command>"
-  termyte mcp serve
-  termyte mcp install <codex|claude|cursor|generic>
-  termyte prove-runtime [--json]
-  termyte bench [--json] [--legacy]
-  termyte doctor [--json]
-  termyte replay [--json]
-  termyte policies [--json]
-  termyte policies status [--json]
-  termyte policies defaults [--json]
-  termyte policies reset
-  termyte policies set [--block <patterns...>] [--warn <patterns...>]
-  termyte policies add <block|warn> <patterns...>
-  termyte policies remove <block|warn> <patterns...>
-  termyte policies export [--file <path>]
-  termyte policies import <path>
-  termyte policies validate <path>
-  termyte inspect [--json] -- <command>`);
+  console.log(`Termyte - Self-correcting memory for coding agents
+
+Usage:
+  termyte init                                  Initialize .termyte/ directory
+  termyte capture start --agent <name>          Start a session capture
+  termyte capture end --session <id>            End session and extract memories
+  termyte capture event --session <id> --type <type> --summary <text>
+  termyte search "<query>" [--scope <scope>]    Search memories
+  termyte inject --task "<task>" [--scope <s>]  Generate context for agent
+  termyte memories list [--type <type>]         List stored memories
+  termyte memories show <id>                    Show memory details
+  termyte feedback --memory <id> --outcome <success|failure|ignored>
+  termyte decay [--dry-run]                     Apply memory decay
+  termyte index [--reindex]                     Index memories for vector search
+  termyte sessions list                         List captured sessions
+  termyte sessions show <id>                    Show session details
+  termyte stats                                 Show memory statistics`);
 }
 
-function parseLimit(args: string[]): number {
-  const index = args.indexOf("--limit");
-  if (index === -1) return 50;
-  const value = Number(args[index + 1]);
-  return Number.isFinite(value) && value > 0 ? Math.floor(value) : 50;
+function requireArg(args: string[], flag: string): string | undefined {
+  const index = args.indexOf(flag);
+  if (index === -1 || index + 1 >= args.length) return undefined;
+  return args[index + 1];
 }
 
-function hasJsonFlag(args: string[]): boolean {
-  return args.includes("--json");
-}
-
-function policyJsonOutput(policies: PolicySet): string {
-  return toJson(policies);
-}
-
-function parsePolicyKind(value: string): keyof PolicySet | null {
-  if (value === "block" || value === "warn") {
-    return value;
-  }
-  return null;
-}
-
-function parsePolicySetArgs(args: string[]): { block?: string[]; warn?: string[] } {
-  let mode: keyof PolicySet | null = null;
-  const block: string[] = [];
-  const warn: string[] = [];
-
-  for (const token of args) {
-    if (token === "--json") {
-      continue;
-    }
-    if (token === "--block") {
-      mode = "block";
-      continue;
-    }
-    if (token === "--warn") {
-      mode = "warn";
-      continue;
-    }
-    if (!mode) {
-      throw new Error(`Unexpected policy token: ${token}`);
-    }
-    (mode === "block" ? block : warn).push(token);
-  }
-
-  return {
-    block: args.includes("--block") ? block : undefined,
-    warn: args.includes("--warn") ? warn : undefined,
-  };
-}
-
-function printPolicySet(policies: PolicySet, json = false): void {
-  console.log(json ? policyJsonOutput(policies) : describePolicies(policies));
-}
-
-function formatPoliciesOverview(cwd: string, dbPath: string, json = false): string {
-  if (json) {
-    return toJson({
-      effective: JSON.parse(formatPolicyShow(cwd, true)),
-      localState: JSON.parse(formatPolicyStatus(dbPath, true)),
-      memoryDatabase: dbPath,
-    });
-  }
-
-  return [
-    formatPolicyShow(cwd, false),
-    "",
-    "Local SQLite policy state",
-    formatPolicyStatus(dbPath, false)
-      .split("\n")
-      .slice(1)
-      .map((line) => `  ${line.trim()}`)
-      .join("\n"),
-    `  memory database: ${dbPath}`,
-  ].join("\n");
-}
-
-function formatPolicyStatus(dbPath: string, json = false): string {
-  const state = loadPolicyState(dbPath);
-  const drift = analyzePolicyDrift(state);
-  const missingDefaultCount = drift.missingBlockDefaults.length + drift.missingWarnDefaults.length;
-  const payload = {
-    defaultPolicyVersion: DEFAULT_POLICY_VERSION,
-    activeDefaultVersion: state.metadata.defaultVersion,
-    customized: state.metadata.customized,
-    blockRules: state.policies.block.length,
-    warnRules: state.policies.warn.length,
-    staleDefaultVersion: drift.staleDefaultVersion,
-    missingDefaultCount,
-    drift,
-  };
-  if (json) {
-    return toJson(payload);
-  }
-
-  return [
-    "Termyte policy status",
-    `  default policy version: ${payload.defaultPolicyVersion}`,
-    `  active default version: ${payload.activeDefaultVersion}`,
-    `  customized: ${payload.customized ? "yes" : "no"}`,
-    `  rules: ${payload.blockRules} block, ${payload.warnRules} warn`,
-    `  stale default version: ${payload.staleDefaultVersion ? "yes" : "no"}`,
-    `  missing current default rules: ${payload.missingDefaultCount}`,
-    payload.missingDefaultCount > 0
-      ? "  next step: run `termyte policies reset` to adopt current defaults, or keep custom policies intentionally."
-      : "  next step: none",
-  ].join("\n");
-}
-
-function parseFileFlag(args: string[], fallbackIndex: number): string | null {
-  const fileIndex = args.indexOf("--file");
-  if (fileIndex >= 0) {
-    return args[fileIndex + 1] ?? null;
-  }
-  return args[fallbackIndex] && args[fallbackIndex] !== "--json" ? args[fallbackIndex] : null;
-}
-
-function commandAfterDoubleDash(args: string[]): string {
-  const separatorIndex = args.indexOf("--");
-  return separatorIndex >= 0 ? args.slice(separatorIndex + 1).join(" ") : args.slice(1).join(" ");
-}
-
-function commandFromArgs(args: string[], startIndex: number): string {
-  const separatorIndex = args.indexOf("--", startIndex);
-  if (separatorIndex >= 0) {
-    return args.slice(separatorIndex + 1).filter((token) => token !== "--json").join(" ").trim();
-  }
-  return args.slice(startIndex).filter((token) => token !== "--json").join(" ").trim();
-}
-
-function commandArgument(args: string[], startIndex: number): string {
-  return args.slice(startIndex).filter((token) => token !== "--json").join(" ").trim();
-}
-
-function naturalLanguagePolicyArgument(args: string[], startIndex: number): string {
-  return args.slice(startIndex).filter((token) => token !== "--json" && token !== "--dry-run" && token !== "--yes" && token !== "-y").join(" ").trim();
-}
-
-function hasYesFlag(args: string[]): boolean {
-  return args.includes("--yes") || args.includes("-y");
+function hasFlag(args: string[], flag: string): boolean {
+  return args.includes(flag);
 }
 
 async function main(): Promise<number> {
   const args = process.argv.slice(2);
   const command = args[0];
-  if (command === "-h" || command === "--help") {
+
+  if (!command || command === "-h" || command === "--help") {
     printUsage();
     return 0;
   }
+
   const cwd = process.cwd();
   const dbPath = defaultDbPath(cwd);
+  const { db } = openDatabase(dbPath);
 
-  if (!command) {
-    printUsage();
-    return 1;
-  }
-
-  if (isSupportedAgentName(command)) {
-    if (!process.stdin.isTTY) {
-      console.error(`Termyte cannot directly launch ${command} without an interactive terminal.\n\nTry:\n  termyte run --dry-run ${command}\n  or run the command from a real TTY session.`);
-      return 1;
-    }
-
-    const plan = buildAgentRunPlan({
-      workspaceRoot: cwd,
-      dbPath,
-      agentName: command,
-      agentArgs: args.slice(1),
-      originalPath: process.env.PATH ?? "",
-    });
-
-    return (await runAgent(plan)).exitCode;
-  }
-
-  if (command === "install") {
-    const agent = args[1];
-    if (!agent || !isNativeHookAgent(agent)) {
-      console.error("Usage: termyte install <claude|codex>");
-      return 1;
-    }
-    try {
-      const result = installAgentHooks(agent, cwd);
-      console.log(formatAgentInstallResult(result));
-      return result.active ? 0 : 1;
-    } catch (error) {
-      console.error(`Termyte could not install ${agent} hooks: ${error instanceof Error ? error.message : String(error)}`);
-      return 1;
-    }
-  }
-
-  if (command === "uninstall") {
-    const agent = args[1];
-    if (!agent || !isNativeHookAgent(agent)) {
-      console.error("Usage: termyte uninstall <claude|codex>");
-      return 1;
-    }
-    try {
-      console.log(formatAgentUninstallResult(uninstallAgentHooks(agent, cwd)));
+  try {
+    if (command === "init") {
+      console.log(`Initialized Termyte at ${path.dirname(dbPath)}`);
+      console.log(`Database: ${dbPath}`);
       return 0;
-    } catch (error) {
-      console.error(`Termyte could not uninstall ${agent} hooks: ${error instanceof Error ? error.message : String(error)}`);
-      return 1;
     }
-  }
 
-  if (command === "agent") {
-    const subcommand = args[1];
-    const agent = args[2];
-    if (subcommand !== "hook" || !agent || !isNativeHookAgent(agent)) {
-      console.error("Usage: termyte agent hook <claude|codex> [--post]");
-      return 1;
-    }
-    const result = await runAgentHookCli(agent, args.slice(3));
-    if (result.stdout) {
-      process.stdout.write(result.stdout);
-    }
-    if (result.stderr) {
-      process.stderr.write(result.stderr);
-    }
-    return result.exitCode;
-  }
+    if (command === "capture") {
+      const subcommand = args[1];
+      const capture = new CaptureEngine(db);
 
-  if (command === "hooks") {
-    const subcommand = args[1];
-    if (subcommand === "doctor") {
-      try {
-        const report = runHooksDoctor(cwd);
-        console.log(formatHookDoctorResult(report, hasJsonFlag(args)));
-        return report.ok ? 0 : 1;
-      } catch (error) {
-        console.error(error instanceof Error ? error.message : String(error));
-        return 1;
-      }
-    }
-    if (subcommand === "smoke") {
-      const agent = args[2];
-      if (!agent || !isNativeHookAgent(agent)) {
-        console.error("Usage: termyte hooks smoke <claude|codex> [--json]");
-        return 1;
-      }
-      try {
-        const report = runHookSmoke(agent, cwd);
-        console.log(formatHookSmokeResult(report, hasJsonFlag(args)));
-        return report.ok ? 0 : 1;
-      } catch (error) {
-        console.error(error instanceof Error ? error.message : String(error));
-        return 1;
-      }
-    }
-    console.error("Usage: termyte hooks doctor | smoke <claude|codex>");
-    return 1;
-  }
-
-  if (command === "check") {
-    const rawCommand = commandArgument(args, 1);
-    if (!rawCommand) {
-      console.error('Usage: termyte check [--json] "<command>"');
-      return 1;
-    }
-    try {
-      const result = await runRuntime({
-        command: rawCommand,
-        cwd,
-        dbPath,
-        dryRun: true,
-        env: process.env,
-      });
-      console.log(toJson({
-        command: rawCommand,
-        decision: result.decision,
-        semantic_id: result.semanticId,
-        reason: result.reason,
-        ledger_id: result.ledgerId,
-        executed: false,
-      }));
-      return result.decision === "block" ? 1 : 0;
-    } catch (error) {
-      console.error(error instanceof Error ? error.message : String(error));
-      return 1;
-    }
-  }
-
-  if (command === "logs") {
-    try {
-      const dbContext = openDatabase(dbPath);
-      const ledger = new Ledger(dbContext.db);
-      const records = ledger.listLatest(parseLimit(args));
-      if (hasJsonFlag(args)) {
-        console.log(toJson(records));
-      } else {
-        console.log(formatLedger(records));
-      }
-      return 0;
-    } catch (error) {
-      console.error(error instanceof Error ? error.message : String(error));
-      return 1;
-    }
-  }
-
-  if (command === "memory") {
-    try {
-      const dbContext = openDatabase(dbPath);
-      const memory = new MemoryEngine(dbContext.db);
-      const records = memory.list(parseLimit(args));
-      if (hasJsonFlag(args)) {
-        console.log(toJson(records));
-      } else {
-        console.log(formatMemory(records));
-      }
-      return 0;
-    } catch (error) {
-      console.error(error instanceof Error ? error.message : String(error));
-      return 1;
-    }
-  }
-
-  if (command === "policy") {
-    const json = hasJsonFlag(args);
-    const subcommand = args[1];
-
-    try {
-      if (subcommand === "-h" || subcommand === "--help") {
-        console.log(`Usage:
-  termyte policy presets [--json]
-  termyte policy show [--json]
-  termyte policy test [--json] "<command>"
-  termyte policy global add "<natural language rule>" [--dry-run|--yes]
-  termyte policy local add "<natural language rule>" [--dry-run|--yes]`);
+      if (subcommand === "start") {
+        const agent = requireArg(args, "--agent") ?? "unknown";
+        const branch = requireArg(args, "--branch");
+        const session = capture.startSession(agent, cwd, branch);
+        console.log(JSON.stringify({ sessionId: session.id, agent: session.agent, startedAt: session.startedAt }));
         return 0;
       }
 
-      if ((subcommand === "global" || subcommand === "local") && args[2] === "add") {
-        const rawRule = naturalLanguagePolicyArgument(args, 3);
-        if (!rawRule) {
-          console.error(`Usage: termyte policy ${subcommand} add "<natural language rule>" [--dry-run|--yes]`);
+      if (subcommand === "end") {
+        const sessionId = requireArg(args, "--session");
+        if (!sessionId) {
+          console.error("Missing --session <id>");
           return 1;
         }
 
-        const planResult = buildPolicyAddPlan(subcommand, rawRule, cwd);
-        if (!planResult.ok) {
-          console.error(planResult.output);
+        const apiKey = process.env.GEMINI_API_KEY;
+        if (!apiKey) {
+          console.error("Missing GEMINI_API_KEY environment variable");
           return 1;
         }
 
-        console.log(planResult.plan.preview);
+        const gemini = createGeminiClient(apiKey);
+        const events = capture.getEvents(sessionId);
+        const session = capture.getSession(sessionId);
 
-        if (args.includes("--dry-run")) {
-          console.log("");
-          console.log("Dry run only. No policy file was changed.");
+        if (events.length === 0) {
+          capture.endSession(sessionId, "completed", "No events recorded");
+          console.log(JSON.stringify({ sessionId, eventsExtracted: 0, memoriesExtracted: 0 }));
           return 0;
         }
 
-        if (!hasYesFlag(args)) {
-          if (!process.stdin.isTTY) {
-            console.error("");
-            console.error("Refusing to save without confirmation in non-interactive mode. Use --yes to save or --dry-run to preview.");
-            return 1;
-          }
-          const rl = readline.createInterface({ input, output });
-          const answer = (await rl.question("Save this rule? [Y/n] ")).trim().toLowerCase();
-          rl.close();
-          if (answer && answer !== "y" && answer !== "yes") {
-            console.log("No policy file was changed.");
-            return 0;
-          }
+        const trace = buildTraceSummary(events);
+        const sourceIds = events.map((e) => e.id);
+        const repoScope = path.basename(cwd);
+
+        const extraction = await extractMemoriesFromTrace(gemini, trace, repoScope, sourceIds);
+
+        const memoryEngine = createMemoryEngine(db);
+        const retrieval = createRetrievalEngine(db, gemini);
+        let createdCount = 0;
+
+        for (const extracted of extraction.memories) {
+          memoryEngine.createMemory({
+            claim: extracted.claim,
+            type: extracted.type,
+            repoScope,
+            language: extracted.language,
+            sources: extracted.sources,
+          });
+          createdCount++;
         }
 
-        console.log("");
-        console.log(savePolicyAddPlan(planResult.plan));
+        capture.endSession(sessionId, "completed", `Extracted ${createdCount} memories`);
+
+        console.log(JSON.stringify({
+          sessionId,
+          eventsExtracted: events.length,
+          memoriesExtracted: createdCount,
+          repoScope,
+        }));
         return 0;
       }
 
-      if (subcommand === "presets") {
-        console.log(formatPolicyPresets(json));
+      if (subcommand === "event") {
+        const sessionId = requireArg(args, "--session");
+        const eventType = requireArg(args, "--type") ?? "summary";
+        const summary = requireArg(args, "--summary");
+        if (!sessionId || !summary) {
+          console.error("Usage: termyte capture event --session <id> --type <type> --summary <text>");
+          return 1;
+        }
+        const event = capture.recordEvent({
+          sessionId,
+          source: "cli",
+          actorType: "agent",
+          eventType: eventType as never,
+          summary,
+        });
+        console.log(JSON.stringify({ eventId: event.id }));
+        return 0;
+      }
+
+      console.error("Usage: termyte capture start|end|event");
+      return 1;
+    }
+
+    if (command === "search") {
+      const query = args.slice(1).filter((a) => !a.startsWith("--")).join(" ");
+      const scope = requireArg(args, "--scope");
+      if (!query) {
+        console.error('Usage: termyte search "<query>" [--scope <scope>]');
+        return 1;
+      }
+
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) {
+        console.error("Missing GEMINI_API_KEY environment variable");
+        return 1;
+      }
+
+      const gemini = createGeminiClient(apiKey);
+      const retrieval = createRetrievalEngine(db, gemini);
+      const result = await retrieval.search(query, { scope: scope ?? undefined });
+
+      console.log(JSON.stringify({
+        query,
+        count: result.totalCount,
+        queryTime: result.queryTime,
+        memories: result.memories.map((m) => ({
+          id: m.id,
+          claim: m.claim,
+          type: m.type,
+          confidence: m.confidence,
+          score: m.score,
+          matchedBecause: m.matchedBecause,
+        })),
+      }, null, 2));
+      return 0;
+    }
+
+    if (command === "inject") {
+      const task = requireArg(args, "--task");
+      const scope = requireArg(args, "--scope");
+      if (!task) {
+        console.error('Usage: termyte inject --task "<task>" [--scope <scope>]');
+        return 1;
+      }
+
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) {
+        console.error("Missing GEMINI_API_KEY environment variable");
+        return 1;
+      }
+
+      const gemini = createGeminiClient(apiKey);
+      const retrieval = createRetrievalEngine(db, gemini);
+      const injected = await retrieval.inject(task, { scope: scope ?? undefined });
+      console.log(formatForAgent(injected));
+      return 0;
+    }
+
+    if (command === "memories") {
+      const subcommand = args[1];
+      const memoryEngine = createMemoryEngine(db);
+
+      if (subcommand === "list") {
+        const type = requireArg(args, "--type") as never;
+        const scope = requireArg(args, "--scope");
+        const memories = memoryEngine.listMemories({
+          type: type ?? undefined,
+          scope: scope ?? undefined,
+          limit: 50,
+        });
+        console.log(JSON.stringify(memories.map((m) => ({
+          id: m.id,
+          claim: m.claim,
+          type: m.type,
+          confidence: m.confidence,
+          successCount: m.successCount,
+          failureCount: m.failureCount,
+          repoScope: m.repoScope,
+          language: m.language,
+          updatedAt: m.updatedAt,
+        })), null, 2));
         return 0;
       }
 
       if (subcommand === "show") {
-        console.log(formatPolicyShow(cwd, json));
+        const id = args[2];
+        if (!id) {
+          console.error("Usage: termyte memories show <id>");
+          return 1;
+        }
+        const memory = memoryEngine.getMemory(id);
+        if (!memory) {
+          console.error(`Memory not found: ${id}`);
+          return 1;
+        }
+        const stats = getFeedbackStats(db, id);
+        console.log(JSON.stringify({ ...memory, feedbackStats: stats }, null, 2));
         return 0;
       }
 
-      if (subcommand === "test") {
-        const rawCommand = commandArgument(args, 2);
-        if (!rawCommand) {
-          console.error('Usage: termyte policy test [--json] "<command>"');
-          return 1;
-        }
-        const result = runPolicyTest(rawCommand, cwd, json);
-        console.log(result.output);
-        return result.exitCode;
-      }
-    } catch (error) {
-      console.error(error instanceof Error ? error.message : String(error));
+      console.error("Usage: termyte memories list|show");
       return 1;
     }
 
-    console.error("Usage: termyte policy presets | show | test | global add | local add");
-    return 1;
-  }
-
-  if (command === "run") {
-    let invocation;
-    try {
-      invocation = parseRunInvocation(args.slice(1));
-    } catch (error) {
-      console.error(error instanceof Error ? error.message : String(error));
-      return 1;
-    }
-
-    if (invocation.mode === "command") {
-      const rawCommand = invocation.command?.join(" ") ?? "";
-      if (!rawCommand) {
-        console.error("Missing command after `termyte run --`.");
+    if (command === "feedback") {
+      const memoryId = requireArg(args, "--memory");
+      const outcome = requireArg(args, "--outcome") as "success" | "failure" | "ignored";
+      const context = requireArg(args, "--context");
+      if (!memoryId || !outcome) {
+        console.error("Usage: termyte feedback --memory <id> --outcome <success|failure|ignored>");
         return 1;
       }
 
-      if (invocation.dryRun) {
-        const inspection = inspectAction(rawCommand, cwd, dbPath);
-        console.log(formatInspection(inspection));
-        return 0;
+      const memoryEngine = createMemoryEngine(db);
+      recordFeedback(db, memoryId, outcome, { context });
+
+      if (outcome === "success") {
+        memoryEngine.recordSuccess(memoryId);
+      } else if (outcome === "failure") {
+        memoryEngine.recordFailure(memoryId);
       }
 
-      const approval = async (reason: string): Promise<boolean> => {
-        const rl = readline.createInterface({ input, output });
-        const answer = (await rl.question(`\n${reason}\nApprove? [y/N] `)).trim().toLowerCase();
-        rl.close();
-        return answer === "y" || answer === "yes";
-      };
+      console.log(JSON.stringify({ memoryId, outcome, recorded: true }));
+      return 0;
+    }
 
-      const result = await runRuntime({
-        command: rawCommand,
-        cwd,
-        dbPath,
-        approval,
-        stdout: process.stdout,
-        stderr: process.stderr,
-        env: process.env,
-      });
+    if (command === "decay") {
+      const dryRun = hasFlag(args, "--dry-run");
+      const results = applyDecay(db, { dryRun });
+      console.log(JSON.stringify({ dryRun, affected: results.length, results }, null, 2));
+      return 0;
+    }
 
-      if (result.stdout) {
-        process.stdout.write(result.stdout);
-      }
-      if (result.stderr) {
-        process.stderr.write(result.stderr);
-      }
-      if (!result.wasExecuted) {
-        process.stderr.write(`termyte ${result.decision}: ${result.semanticId} (${result.reason})\n`);
+    if (command === "index") {
+      const reindex = hasFlag(args, "--reindex");
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) {
+        console.error("Missing GEMINI_API_KEY environment variable");
+        return 1;
       }
 
-      return result.exitCode;
-    }
+      const gemini = createGeminiClient(apiKey);
+      const retrieval = createRetrievalEngine(db, gemini);
 
-    const agentName = invocation.agentName;
-    const agentArgs = invocation.agentArgs;
-    if (!agentName) {
-      console.error("Missing agent name.");
-      return 1;
-    }
-
-    if (!process.stdin.isTTY && !invocation.dryRun) {
-      console.error(`Termyte cannot directly launch ${agentName} without an interactive terminal.\n\nTry:\n  termyte run --dry-run ${agentName}\n  or run the command from a real TTY session.`);
-      return 1;
-    }
-
-    const plan = buildAgentRunPlan({
-      workspaceRoot: cwd,
-      dbPath,
-      agentName,
-      agentArgs,
-      profileName: invocation.profileName,
-      originalPath: process.env.PATH ?? "",
-    });
-
-    if (invocation.dryRun) {
-      console.log(formatAgentDryRunReport(plan));
-      return 0;
-    }
-
-    return (await runAgent(plan)).exitCode;
-  }
-
-  if (command === "allow-once") {
-    const rawCommand = commandFromArgs(args, 1);
-    if (!rawCommand) {
-      console.error('Missing command after `termyte allow-once`.');
-      return 1;
-    }
-
-    const inspection = inspectAction(rawCommand, cwd, dbPath);
-    if (inspection.finalDecision === "block" && !args.includes("--force")) {
-      console.error(`Refusing to store a one-time approval for a critical command.\n\n${formatInspection(inspection)}`);
-      return 1;
-    }
-
-    const approval = storeLocalApproval(rawCommand, cwd, 30, inspection.finalReason);
-    console.log([
-      "Stored one-time approval.",
-      `Command: ${approval.command}`,
-      `Fingerprint: ${approval.fingerprint.slice(0, 12)}`,
-      `Expires: ${new Date(approval.expires_at).toLocaleString()}`,
-      inspection.finalDecision === "block" ? "Warning: stored only because --force was supplied." : "Next step: run the same command through Termyte to consume it once.",
-    ].join("\n"));
-    return 0;
-  }
-
-  if (command === "mark-safe") {
-    const rawCommand = commandFromArgs(args, 1);
-    if (!rawCommand) {
-      console.error('Missing command after `termyte mark-safe`.');
-      return 1;
-    }
-
-    const record = storeLocalMemory("safe", rawCommand, cwd);
-    console.log([
-      "Stored safe command memory.",
-      `Pattern: ${record.pattern}`,
-      `Memory ID: ${record.memory_id}`,
-      `Scope: repo`,
-    ].join("\n"));
-    return 0;
-  }
-
-  if (command === "approvals") {
-    const records = listLocalApprovals(cwd);
-    if (hasJsonFlag(args)) {
-      console.log(toJson(records));
-    } else {
-      console.log(formatLocalApprovalsHuman(records));
-    }
-    return 0;
-  }
-
-  if (command === "mcp") {
-    const subcommand = args[1];
-    if (subcommand === "serve") {
-      const mcpWorkspace = process.env.TERMYTE_WORKSPACE ? path.resolve(process.env.TERMYTE_WORKSPACE) : cwd;
-      await runMcpServer({ cwd: mcpWorkspace, dbPath: defaultDbPath(mcpWorkspace) });
-      return 0;
-    }
-    if (subcommand === "install") {
-      const agent = args[2] ?? "generic";
-      console.log(formatMcpInstall(agent, cwd, hasJsonFlag(args)));
-      return 0;
-    }
-    console.error("Usage: termyte mcp serve | install <codex|claude|cursor|generic>");
-    return 1;
-  }
-
-  if (command === "prove-runtime") {
-    const report = await runRuntimeProof({ cwd, dbPath });
-    if (hasJsonFlag(args)) {
-      console.log(toJson(report));
-    } else {
-      console.log(formatRuntimeProofHuman(report));
-    }
-    return report.summary.fail > 0 ? 1 : 0;
-  }
-
-  if (command === "bench") {
-    const report = args.includes("--legacy") ? runLegacyBenchmarks(cwd) : runGovernanceBenchmarks(cwd);
-    if (hasJsonFlag(args)) {
-      console.log(toJson(report));
-    } else {
-      console.log(`Suite: ${report.suite}`);
-      console.log(`Engine: ${report.engine}`);
-      console.log(`Cases: ${report.summary.total}`);
-      console.log(`Accuracy: ${(report.summary.accuracy * 100).toFixed(1)}%`);
-      console.log(`False positives: ${report.summary.falsePositives}`);
-      console.log(`False negatives: ${report.summary.falseNegatives}`);
-      console.log(`False-safe rate: ${(report.summary.falseSafeRate * 100).toFixed(2)}%`);
-      console.log(`Overblock rate: ${(report.summary.overblockRate * 100).toFixed(2)}%`);
-      console.log("Decision recall:");
-      for (const decision of ["allow", "warn", "ask", "block"] as Decision[]) {
-        const stats = report.decisions[decision];
-        console.log(`  ${decision}: ${stats.correct}/${stats.expected} correct, recall=${(stats.recall * 100).toFixed(1)}%, precision=${(stats.precision * 100).toFixed(1)}%`);
-      }
-      console.log("Category breakdown:");
-      for (const [category, stats] of Object.entries(report.categories)) {
-        console.log(`  ${category}: ${stats.correct}/${stats.total} correct, fp=${stats.falsePositives}, fn=${stats.falseNegatives}, acc=${(stats.accuracy * 100).toFixed(1)}%`);
-      }
-    }
-    return report.summary.total > 0 && report.summary.falseSafe === 0 ? 0 : 1;
-  }
-
-  if (command === "doctor") {
-    const report = await runDoctor(cwd);
-    if (hasJsonFlag(args)) {
-      console.log(formatDoctorJson(report));
-    } else {
-      console.log(formatDoctorHuman(report));
-    }
-    return report.summary.fail > 0 ? 1 : 0;
-  }
-
-  if (command === "inspect") {
-    const rawCommand = commandFromArgs(args, 1);
-    if (!rawCommand) {
-      console.error('Missing command after `termyte inspect`.');
-      return 1;
-    }
-
-    const inspection = inspectAction(rawCommand, cwd);
-    if (hasJsonFlag(args)) {
-      console.log(toJson(inspection));
-    } else {
-      console.log(formatInspection(inspection));
-    }
-    return 0;
-  }
-
-  if (command === "logs") {
-    const dbContext = openDatabase(dbPath);
-    const ledger = new Ledger(dbContext.db);
-    const records = ledger.listLatest(parseLimit(args));
-    if (hasJsonFlag(args)) {
-      console.log(toJson(records));
-    } else {
-      console.log(formatLedger(records));
-    }
-    return 0;
-  }
-
-  if (command === "replay") {
-    const dbContext = openDatabase(dbPath);
-    const ledger = new Ledger(dbContext.db);
-    const records = ledger.replay();
-    if (hasJsonFlag(args)) {
-      console.log(toJson(replayEntries(records)));
-    } else {
-      console.log(formatReplay(records));
-    }
-    return 0;
-  }
-
-  if (command === "memory") {
-    const dbContext = openDatabase(dbPath);
-    const memory = new MemoryEngine(dbContext.db);
-    const records = memory.list(parseLimit(args));
-    if (hasJsonFlag(args)) {
-      console.log(toJson(records));
-    } else {
-      console.log(formatMemory(records));
-    }
-    return 0;
-  }
-
-  if (command === "policies") {
-    const json = hasJsonFlag(args);
-    const subcommand = args[1];
-
-    if (!subcommand || subcommand === "--json") {
-      console.log(formatPoliciesOverview(cwd, dbPath, json));
-      return 0;
-    }
-
-    if (subcommand === "status") {
-      console.log(formatPolicyStatus(dbPath, json));
-      return 0;
-    }
-
-    if (subcommand === "defaults") {
-      printPolicySet(defaultPolicies, json);
-      return 0;
-    }
-
-    if (subcommand === "reset") {
-      printPolicySet(resetPolicies(dbPath), json);
-      return 0;
-    }
-
-    if (subcommand === "export") {
-      const exportPath = parseFileFlag(args, 2);
-      const document = exportPolicyDocument(loadPolicies(dbPath));
-      const outputText = `${toJson(document)}\n`;
-      if (exportPath) {
-        fs.mkdirSync(path.dirname(path.resolve(exportPath)), { recursive: true });
-        fs.writeFileSync(exportPath, outputText, "utf8");
-        console.log(`Exported policies to ${path.resolve(exportPath)}`);
+      if (reindex) {
+        await retrieval.reindexAll();
+        console.log("Reindexed all memories");
       } else {
-        console.log(outputText.trimEnd());
+        console.log("Index ready. Use --reindex to rebuild all embeddings.");
       }
       return 0;
     }
 
-    if (subcommand === "import") {
-      const importPath = parseFileFlag(args, 2);
-      if (!importPath) {
-        console.error("Usage: termyte policies import <path>");
-        return 1;
-      }
-      try {
-        const next = savePolicies(dbPath, parsePolicyDocument(fs.readFileSync(importPath, "utf8")));
-        printPolicySet(next, json);
-        return 0;
-      } catch (error) {
-        console.error(error instanceof Error ? error.message : String(error));
-        return 1;
-      }
-    }
+    if (command === "sessions") {
+      const subcommand = args[1];
+      const capture = new CaptureEngine(db);
 
-    if (subcommand === "validate") {
-      const validatePath = parseFileFlag(args, 2);
-      if (!validatePath) {
-        console.error("Usage: termyte policies validate <path>");
-        return 1;
+      if (subcommand === "list") {
+        const sessions = capture.listSessions(20);
+        console.log(JSON.stringify(sessions, null, 2));
+        return 0;
       }
-      try {
-        const policies = parsePolicyDocument(fs.readFileSync(validatePath, "utf8"));
-        const errors = validatePolicySet(policies);
-        if (errors.length > 0) {
-          console.error(`Invalid policy file: ${errors.join("; ")}`);
+
+      if (subcommand === "show") {
+        const id = args[2];
+        if (!id) {
+          console.error("Usage: termyte sessions show <id>");
           return 1;
         }
-        console.log(json ? toJson({ ok: true, policies }) : "Policy file is valid.");
+        const session = capture.getSession(id);
+        if (!session) {
+          console.error(`Session not found: ${id}`);
+          return 1;
+        }
+        const events = capture.getEvents(id);
+        console.log(JSON.stringify({ session, events }, null, 2));
         return 0;
-      } catch (error) {
-        console.error(error instanceof Error ? error.message : String(error));
-        return 1;
       }
+
+      console.error("Usage: termyte sessions list|show");
+      return 1;
     }
 
-    if (subcommand === "set") {
-      let updates: { block?: string[]; warn?: string[] };
-      try {
-        updates = parsePolicySetArgs(args.slice(2));
-      } catch (error) {
-        console.error(error instanceof Error ? error.message : String(error));
-        console.error("Usage: termyte policies set [--block <patterns...>] [--warn <patterns...>]");
-        return 1;
-      }
-      if (updates.block === undefined && updates.warn === undefined) {
-        console.error("Usage: termyte policies set [--block <patterns...>] [--warn <patterns...>]");
-        return 1;
-      }
+    if (command === "stats") {
+      const memoryEngine = createMemoryEngine(db);
+      const total = memoryEngine.countMemories();
+      const facts = memoryEngine.countMemories({ type: "fact" });
+      const bugfixes = memoryEngine.countMemories({ type: "bugfix" });
+      const procedures = memoryEngine.countMemories({ type: "procedure" });
+      const conventions = memoryEngine.countMemories({ type: "convention" });
+      const warnings = memoryEngine.countMemories({ type: "warning" });
 
-      const current = loadPolicies(dbPath);
-      try {
-        const next = savePolicies(dbPath, {
-          block: updates.block !== undefined ? updates.block : current.block,
-          warn: updates.warn !== undefined ? updates.warn : current.warn,
-        });
-        printPolicySet(next, json);
-        return 0;
-      } catch (error) {
-        console.error(error instanceof Error ? error.message : String(error));
-        return 1;
-      }
+      console.log(JSON.stringify({
+        total,
+        byType: { facts, bugfixes, procedures, conventions, warnings },
+        databasePath: dbPath,
+      }, null, 2));
+      return 0;
     }
 
-    if (subcommand === "add" || subcommand === "remove") {
-      const kind = parsePolicyKind(args[2] ?? "");
-      const patterns = args.slice(3).filter((token) => token !== "--json");
-      if (!kind || patterns.length === 0) {
-        console.error(`Usage: termyte policies ${subcommand} <block|warn> <patterns...>`);
-        return 1;
-      }
-
-      try {
-        const next = subcommand === "add" ? addPolicies(dbPath, kind, patterns) : removePolicies(dbPath, kind, patterns);
-        printPolicySet(next, json);
-        return 0;
-      } catch (error) {
-        console.error(error instanceof Error ? error.message : String(error));
-        return 1;
-      }
-    }
-
-    console.error("Usage: termyte policies [--json] | status | defaults | reset | set | add | remove | export | import | validate");
-    return 0;
+    printUsage();
+    return 1;
+  } finally {
+    db.close();
   }
-
-  printUsage();
-  return 1;
 }
 
 main()

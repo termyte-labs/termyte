@@ -1,219 +1,215 @@
-export type Decision = "allow" | "warn" | "ask" | "block";
+export type MemoryType = "fact" | "bugfix" | "procedure" | "convention" | "warning";
 
-export type ActionKind =
-  | "filesystem.delete"
-  | "filesystem.write"
-  | "git.push"
-  | "git.destructive"
-  | "package.install"
-  | "package.publish"
-  | "secret.access"
-  | "remote-script.execution"
-  | "privilege.escalation"
-  | "docker.destructive"
-  | "deploy.mutation"
-  | "sql.destructive"
-  | "shell.generic";
+export type EventSource = "hook" | "mcp" | "cli" | "git" | "watcher" | "manual";
 
-export type ShellFlavor = "cmd" | "powershell" | "sh";
+export type ActorType = "human" | "agent" | "tool" | "system";
 
-export interface ParsedAction {
-  rawCommand: string;
-  redactedCommand: string;
-  tokens: string[];
-  shell: ShellFlavor;
-  kind: ActionKind;
-  semanticId: string;
-  domain: string;
-  operation: string;
-  target: string;
-  flags: string[];
-  isWildcard: boolean;
-  isRecursive: boolean;
-  isForce: boolean;
-  sqlPattern?: "drop-table" | "truncate-table" | "delete-without-where" | "delete-with-where";
-  gitBranch?: string;
-  packageManager?: "npm" | "pnpm" | "yarn";
-  confidence: number;
-}
+export type EventType =
+  | "prompt"
+  | "tool_call"
+  | "command"
+  | "file_read"
+  | "file_write"
+  | "file_delete"
+  | "git_operation"
+  | "test_run"
+  | "build_run"
+  | "approval"
+  | "error"
+  | "verification"
+  | "summary";
 
-export interface ResolvedTargets {
-  targetKind: "filesystem" | "git" | "package" | "sql" | "unknown";
+export type EventStatus = "started" | "succeeded" | "failed" | "blocked" | "unknown";
+
+export type SessionStatus = "running" | "completed" | "failed" | "interrupted";
+
+export type FailureCategory =
+  | "test"
+  | "build"
+  | "typecheck"
+  | "runtime"
+  | "dependency"
+  | "auth"
+  | "database"
+  | "deployment"
+  | "unknown";
+
+export type FileOperation = "read" | "write" | "patch" | "delete" | "rename";
+
+export type FeedbackOutcome = "success" | "failure" | "ignored";
+
+export interface Session {
+  id: string;
+  agent: string;
   workspaceRoot: string;
-  insideWorkspace: boolean;
-  targetCount: number;
-  expandedTargets: string[];
-  protectedTargets: string[];
-  protectedBranch?: boolean;
-  sensitiveTargets: string[];
-  targetClasses: TargetClassification[];
-  recoverability: "high" | "medium" | "low";
-  outsideWorkspace: boolean;
+  branch?: string;
+  startCommit?: string;
+  endCommit?: string;
+  startedAt: string;
+  endedAt?: string;
+  status: SessionStatus;
+  summary?: string;
 }
 
-export interface TargetClassification {
-  target: string;
-  category:
-    | "git-metadata"
-    | "workspace-source"
-    | "workspace-root"
-    | "config"
-    | "environment"
-    | "build-output"
-    | "dependency-tree"
-    | "home"
-    | "filesystem-root"
-    | "normal";
-  sensitive: boolean;
-  reason: string;
-}
-
-export interface RiskResult {
-  decision: Decision;
-  score: number;
-  level?: "low" | "medium" | "high" | "critical";
-  ruleId?: string;
-  reason: string;
-  signals: string[];
-  suggestedFix?: string;
-}
-
-export interface MemoryMatch {
-  memoryId: number;
-  semanticId: string;
-  workspaceRoot: string;
-  totalCount: number;
-  lastOutcome: string;
-  confidence: number;
-  score: number;
-  falsePositiveCount: number;
-  matchedBecause: string;
-  lesson: string;
-}
-
-export interface InspectionReport {
-  action: ParsedAction;
-  targets: ResolvedTargets;
-  risk: RiskResult;
-  policy: {
-    decision: Decision;
-    reason: string;
-    matchedRule?: string;
-    matchedPolicy?: string;
-    matchedPolicies?: string[];
-  };
-  memoryMatches: MemoryMatch[];
-  finalDecision: Decision;
-  finalReason: string;
-  safeAlternative?: string;
-  matchedPolicies?: string[];
-}
-
-export interface ReplayEntry {
+export interface Event {
+  id: string;
+  sessionId: string;
   timestamp: string;
-  action: string;
-  runtime?: string;
-  launchedVia?: string;
-  agentName?: string;
-  runtimeProfile?: string;
-  commandCorrelationId?: string;
-  semanticMeaning: string;
-  blastRadius: {
-    score: number | null;
-    reason: string | null;
-    targets: string;
-  };
-  memoryMatches: MemoryMatch[];
-  finalDecision: Decision | "pending";
-  outcome: string;
-}
-
-export interface ExecutionOutcome {
-  status: "executed" | "blocked" | "failed";
-  exitCode: number | null;
-  stdout: string;
-  stderr: string;
-  durationMs: number;
-  errorMessage?: string;
-}
-
-export interface RuntimeRecord {
-  id: number;
-  createdAt: string;
-  workspaceRoot: string;
-  rawCommand: string;
-  redactedCommand: string;
-  semanticId: string;
-  kind: ActionKind;
-  operation: string;
-  decision: Decision | "pending";
-  riskScore: number | null;
-  riskReason: string | null;
-  targetSummary: string;
-  targetCount: number;
-  executed: 0 | 1;
-  exitCode: number | null;
-  stdout: string | null;
-  stderr: string | null;
-  status: "planned" | "executed" | "blocked" | "failed";
-  envKeysJson: string;
-  metadataJson: string;
-}
-
-export interface MemoryEntry {
-  memoryId: number;
-  semanticId: string;
-  workspaceRoot: string;
-  kind: ActionKind;
-  operation: string;
-  sampleCommand: string;
-  lastOutcome: string;
-  totalCount: number;
-  allowCount: number;
-  warnCount: number;
-  blockCount: number;
-  failCount: number;
-  falsePositiveCount: number;
+  source: EventSource;
+  actorType: ActorType;
+  actorName?: string;
+  eventType: EventType;
+  status: EventStatus;
+  summary: string;
+  correlationId?: string;
   confidence: number;
+}
+
+export interface RawEventPayload {
+  eventId: string;
+  rawJson?: string;
+  rawText?: string;
+  redacted: boolean;
+  schemaVersion: number;
+}
+
+export interface CommandEvent {
+  eventId: string;
+  command: string;
+  shell?: string;
+  cwd?: string;
+  exitCode?: number;
+  stdoutExcerpt?: string;
+  stderrExcerpt?: string;
+  durationMs?: number;
+  semanticId?: string;
+}
+
+export interface FileTouch {
+  eventId: string;
+  path: string;
+  operation: FileOperation;
+  beforeHash?: string;
+  afterHash?: string;
+  linesAdded?: number;
+  linesRemoved?: number;
+  diffExcerpt?: string;
+  astAnchors?: ASTAnchor[];
+}
+
+export interface ASTAnchor {
+  kind: string;
+  name: string;
+  parent?: string;
+  startLine: number;
+  endLine: number;
+  language: string;
+}
+
+export interface Failure {
+  id: string;
+  sessionId: string;
+  eventId?: string;
+  fingerprint: string;
+  category: FailureCategory;
+  message: string;
+  failingFile?: string;
+  failingTest?: string;
+  command?: string;
+  firstSeenAt: string;
+}
+
+export interface EventLink {
+  fromEventId: string;
+  toEventId: string;
+  relation: "caused" | "followed_by" | "modified" | "read_before" | "failed_in" | "fixed_by" | "verified_by";
+}
+
+export interface Memory {
+  id: string;
+  claim: string;
+  type: MemoryType;
+  repoScope: string;
+  language?: string;
+  astAnchors?: ASTAnchor[];
+  sources: string[];
+  successCount: number;
+  failureCount: number;
+  confidence: number;
+  lastVerified?: string;
+  createdAt: string;
+  updatedAt: string;
+  consolidatedFrom?: string[];
+  isActive: boolean;
+}
+
+export interface MemoryWithScore extends Memory {
+  score: number;
+  keywordScore: number;
+  semanticScore: number;
+  matchedBecause: string;
+}
+
+export interface MemoryFeedback {
+  id: number;
+  memoryId: string;
+  usedAt: string;
+  context?: string;
+  outcome: FeedbackOutcome;
+  outcomeDetail?: string;
+  sessionId?: string;
+}
+
+export interface Procedure {
+  id: string;
+  name: string;
+  description: string;
+  repoScope: string;
+  stepCount: number;
+  steps: string[];
+  successCount: number;
+  failureCount: number;
+  confidence: number;
+  createdAt: string;
   updatedAt: string;
 }
 
-export interface LocalMemoryRecord {
-  memory_id: string;
-  created_at: string;
-  type: "safe" | "unsafe";
-  pattern: string;
-  normalized_pattern: string;
-  reason_optional?: string;
-  repo_scope: "repo";
-  source: "user";
+export interface SearchResult {
+  memories: MemoryWithScore[];
+  queryTime: number;
+  totalCount: number;
 }
 
-export interface LocalMemoryMatch {
-  memory_id: string;
-  type: "safe" | "unsafe";
-  pattern: string;
-  source: "user";
+export interface CaptureEvent {
+  sessionId: string;
+  source: EventSource;
+  actorType: ActorType;
+  actorName?: string;
+  eventType: EventType;
+  summary: string;
+  rawPayload?: unknown;
 }
 
-export interface LocalLogEvent {
-  event_id: string;
-  timestamp: string;
-  repo: string;
-  agent?: string;
-  session_id?: string;
-  command: string;
-  normalized_command: string;
-  decision: Decision;
-  action: Decision;
-  risk: "low" | "medium" | "high" | "critical";
-  reason: string;
-  matched_rules: Array<{
-    name: string;
-    action: Decision;
-    source: string;
-    preset?: string;
-  }>;
-  policy_sources: string[];
-  memory_matches: LocalMemoryMatch[];
+export interface ExtractedMemory {
+  claim: string;
+  type: MemoryType;
+  language?: string;
+  astAnchors?: ASTAnchor[];
+  sources: string[];
 }
+
+export interface RankingWeights {
+  keyword: number;
+  semantic: number;
+  confidence: number;
+  freshness: number;
+  reliability: number;
+}
+
+export const DEFAULT_RANKING_WEIGHTS: RankingWeights = {
+  keyword: 0.25,
+  semantic: 0.35,
+  confidence: 0.2,
+  freshness: 0.1,
+  reliability: 0.1,
+};

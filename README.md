@@ -1,15 +1,25 @@
 # Termyte
 
-Termyte is a local-first safety runtime for AI coding agents.
+A self-correcting memory system for coding agents.
 
-The current alpha focuses on a direct command gate, a governed MCP gateway,
-native Claude Code/Codex hook adapters, SQLite policy/ledger/memory, and
-repo-scoped auditability for autonomous coding-agent work. The goal is safer
-autonomous execution without moving policy, logs, or memory to a cloud service.
+Termyte gives AI coding assistants persistent, validated memories of past actions, fixes, and patterns — so agents "know what they did last time" and avoid repeated mistakes.
 
-**Alpha:** `termyte run -- <command>` and `termyte mcp serve` are the primary
-governed surfaces. Native Claude Code/Codex hooks are public verification
-surfaces that validate native agent actions. MCP validates Termyte-owned tools.
+## How It Works
+
+```
+Agent Session → Capture → Gemini Extraction → Memory Store (SQLite + FTS5 + vector)
+                                                        ↓
+New Task → Query → Hybrid Search → Rank → Inject into Agent Context
+                                                        ↓
+Agent Uses Memory → Monitor Outcomes → Update Confidence → Decay Stale Memories
+```
+
+1. **Capture** — Records agent session traces (commands, file changes, test results, diffs)
+2. **Extract** — Uses Gemini to extract structured memory claims from traces
+3. **Store** — SQLite with FTS5 (keyword) and vec0 (vector) indexes
+4. **Retrieve** — Hybrid search ranked by `similarity × confidence × freshness × reliability`
+5. **Self-Correct** — Tracks outcomes; successful memories gain confidence, failures lose it
+6. **Decay** — Automatically reduces confidence for stale or contradicted memories
 
 ## Install
 
@@ -17,380 +27,122 @@ surfaces that validate native agent actions. MCP validates Termyte-owned tools.
 npm install -g termyte
 ```
 
-Termyte requires Node.js 20 or later. It does not require signup, a cloud
-service, or initialization before use.
+Requires Node.js 20+ and a Gemini API key.
 
 ## Quickstart
 
-Run these commands inside a repository:
-
 ```bash
-npm install -g termyte
-termyte prove-runtime
-termyte mcp install codex
-termyte hooks doctor
-termyte hooks smoke claude
-termyte hooks smoke codex
-termyte run -- "git status --short --branch"
-termyte check "cat .env"
-termyte inspect "git push --force origin main"
-termyte allow-once "npm install zod"
-termyte mark-safe "npm run build"
-termyte policy local add "Ask before touching auth or payments" --dry-run
-termyte policy local add "Ask before touching auth or payments" --yes
-termyte logs
-termyte memory
-termyte doctor
+# Initialize in your project
+cd your-project
+termyte init
+
+# Set your Gemini API key
+export GEMINI_API_KEY=your-key-here
+
+# Start capturing a session
+termyte capture start --agent claude
+
+# Record events during the session
+termyte capture event --session <id> --type command --summary "npm test"
+termyte capture event --session <id> --type test_run --summary "Tests passed"
+
+# End session and extract memories
+termyte capture end --session <id>
+
+# Search memories
+termyte search "auth test failure"
+
+# Inject memories into agent context
+termyte inject --task "fix the login bug"
+
+# View stored memories
+termyte memories list
+termyte memories show <id>
+
+# Record feedback on memory usage
+termyte feedback --memory <id> --outcome success
+
+# Apply memory decay
+termyte decay --dry-run
 ```
 
-What happens:
+## CLI Commands
 
-- `check "cat .env"` returns allow/warn/block JSON and records the decision in
-  the SQLite ledger.
-- `prove-runtime` runs a local proof: allowed read, blocked force push,
-  blocked recursive delete, sentinel side-effect check, secret-read warning,
-  and replay ledger verification.
-- `mcp install codex` prints a stdio MCP configuration for Termyte's governed
-  tool gateway for Termyte-owned tools.
-- `hooks doctor` and `hooks smoke <agent>` verify native Claude Code/Codex hook
-  readiness and live behavior.
-- `run -- "<command>"` evaluates policy, logs the pending action, executes
-  only if allowed, finalizes the ledger, and updates memory.
-- `inspect "<command>"` explains the decision without executing anything.
-- `allow-once "<command>"` stores a repo-scoped one-time approval in
-  `.termyte/approvals.json`.
-- `mark-safe "<command>"` stores a repo-scoped safe memory that can reduce
-  repeated warnings without weakening hard blocks.
-- The policy dry run prints deterministic generated YAML and writes nothing.
-- The policy command with `--yes` creates or updates `termyte.policy.yaml`.
-- `logs` shows the SQLite replay ledger.
-- `memory` shows the SQLite semantic memory store.
-- `doctor` reports local setup and experimental runtime readiness.
+| Command | Description |
+|---------|-------------|
+| `termyte init` | Initialize `.termyte/` directory |
+| `termyte capture start --agent <name>` | Start a session capture |
+| `termyte capture end --session <id>` | End session and extract memories |
+| `termyte capture event --session <id> --type <type> --summary <text>` | Record an event |
+| `termyte search "<query>"` | Search memories (hybrid FTS5 + vector) |
+| `termyte inject --task "<task>"` | Generate context block for agents |
+| `termyte memories list` | List stored memories |
+| `termyte memories show <id>` | Show memory with feedback stats |
+| `termyte feedback --memory <id> --outcome <success\|failure\|ignored>` | Record outcome |
+| `termyte decay [--dry-run]` | Apply memory decay |
+| `termyte index [--reindex]` | Index memories for vector search |
+| `termyte sessions list` | List captured sessions |
+| `termyte stats` | Show memory statistics |
 
-## MCP Gateway
+## Memory Schema
 
-Termyte exposes a local stdio MCP server for coding agents that support MCP:
+Each memory is an evidence-backed claim:
 
-```bash
-termyte mcp serve
-termyte mcp install codex
-termyte mcp install claude
-termyte mcp install cursor
-termyte mcp install codex --json
+```json
+{
+  "id": "uuid",
+  "claim": "Auth tests fail when middleware config is stale",
+  "type": "bugfix",
+  "repoScope": "my-project",
+  "language": "typescript",
+  "sources": ["session-uuid", "event-uuid"],
+  "successCount": 5,
+  "failureCount": 2,
+  "confidence": 0.71,
+  "lastVerified": "2026-06-20T00:00:00Z"
+}
 ```
 
-The MCP server exposes governed tools for Git, filesystem, shell, package
-manager, policy explanation, replay, and runtime proof:
+Memory types: `fact`, `bugfix`, `procedure`, `convention`, `warning`
 
-```text
-termyte.git.status
-termyte.git.diff
-termyte.git.commit
-termyte.git.push
-termyte.git.reset
-termyte.fs.read
-termyte.fs.write
-termyte.fs.delete
-termyte.shell.run
-termyte.package.install
-termyte.package.run
-termyte.policy.explain
-termyte.replay.query
-termyte.runtime.prove
+## Ranking Formula
+
+```
+score = similarity × confidence × freshness × reliability
+
+where:
+  freshness = exp(-age_days / 60)
+  reliability = (success_count + 1) / (success_count + failure_count + 2)
 ```
 
-Each tool call goes through Termyte's parser, target resolver, blast-radius
-analysis, policy engine, memory engine, execution gate, replay ledger, and
-memory observation. Ordinary workspace file writes are allowed so agents can
-edit code. Sensitive/config writes warn, protected or out-of-workspace writes
-block, and broad destructive deletes block.
+## Tech Stack
 
-Allowed actions are not a containment boundary. Termyte does not guarantee
-that subprocesses spawned inside an allowed command are fully contained unless
-future sandbox mode is enabled.
+- **Storage**: SQLite (better-sqlite3) with FTS5 + sqlite-vec
+- **LLM**: Gemini 2.5 Flash (extraction) + gemini-embedding-2 (embeddings)
+- **Code Parsing**: Tree-Sitter for AST anchors
+- **Language**: TypeScript
 
-`mcp install` prints a config snippet with `TERMYTE_WORKSPACE` pinned to the
-current repository, so the MCP server keeps evaluating actions against the repo
-where setup was run even if the agent launches the server from another working
-directory.
+## Architecture
 
-## Native Hook Verification
-
-Claude Code and Codex native hooks are installed as thin adapters over the
-shared runtime evaluator. They validate native agent actions before tool
-execution, log pre- and post-tool outcomes, and update memory. They do not go
-through MCP.
-
-```bash
-termyte hooks doctor
-termyte hooks smoke claude
-termyte hooks smoke codex
-termyte install claude
-termyte install codex
+```
+src/
+├── cli.ts                    # CLI entry point
+├── db.ts                     # Database schema & migrations
+├── types.ts                  # TypeScript interfaces
+├── capture/                  # Session & event capture
+├── extraction/               # Gemini LLM extraction
+├── memory/                   # Memory storage & confidence
+├── retrieval/                # Hybrid search & ranking
+├── feedback/                 # Outcome tracking
+├── procedures/               # Workflow mining (Phase 3)
+└── ast/                      # Tree-Sitter integration
 ```
 
-Codex native hooks are only considered active after a live smoke verification
-passes. If native Codex hooks are unavailable, Termyte MCP and Codex
-sandbox/approval mode remain available.
+## Roadmap
 
-## Runtime Proof
-
-`termyte prove-runtime` is the launch readiness proof. It creates a sentinel
-under `.termyte/runtime-proof`, runs a safe read, attempts a protected force
-push, attempts a recursive force delete, verifies the sentinel still exists,
-checks that a secret-looking read requires approval, and verifies the replay
-ledger contains the proof decisions.
-
-```bash
-termyte prove-runtime
-termyte prove-runtime --json
-```
-
-Expected healthy output has zero failures and an explicit boundary warning for
-raw agent-native tools and unsupported subprocess paths. Allowed commands may
-still spawn subprocesses; Termyte does not claim full containment yet.
-
-## Safe Demo
-
-The [repeatable demo guide](https://github.com/termyte-labs/termyte/blob/main/docs/demo.md)
-uses a temporary directory and never executes the dangerous-looking command
-examples. It demonstrates command checks, policy creation, logs, memory, and
-doctor.
-
-## Governance Benchmark
-
-Termyte is evaluated against a deterministic 1,200-action governance suite
-spanning safe, review-required, and blocked command text. The benchmark uses
-the stable non-executing policy/check path and reports decision precision,
-recall, a confusion matrix, false-safe rate, and overblock rate.
-
-```bash
-termyte bench
-termyte bench --json
-termyte bench --legacy
-```
-
-The benchmark validates labeled fixtures; it does not prove complete command
-coverage or sandbox isolation. See the
-[benchmark methodology](https://github.com/termyte-labs/termyte/blob/main/docs/benchmark.md).
-
-## Check Commands Without Executing Them
-
-```bash
-termyte check "cat .env"
-termyte check "git push --force origin main"
-termyte check "npm publish"
-termyte check "npm test"
-termyte check "npm publish" --json
-```
-
-`termyte check` parses, evaluates, and records the supplied command text
-without executing it. The command always prints JSON. A blocked check exits
-non-zero.
-
-Built-in defaults currently block known secret access, destructive filesystem
-operations, protected-branch force pushes, and destructive SQL. Package
-installs, package publishing, and other risky operations may warn.
-
-The runtime memory store is semantic and SQLite-backed. It never downgrades a
-policy block.
-
-## Policies
-
-Termyte works with built-in defaults when no policy files exist.
-
-```bash
-termyte policy presets
-termyte policy show
-termyte policy show --json
-termyte policy test "cat .env"
-```
-
-`policy test` evaluates command text without executing it and does not write a
-ledger row.
-
-Policy layers:
-
-1. Built-in defaults
-2. Global policy at `~/.termyte/policy.yaml`
-3. Local policy at `termyte.policy.yaml`
-
-Rules from all loaded layers are evaluated together. Local and global rules
-cannot weaken a safer built-in result. When multiple matching rules conflict,
-the safest decision wins:
-
-```text
-block > ask > warn > allow
-```
-
-Run `termyte policy presets` to see the preset names available in this alpha.
-
-Policy files use YAML:
-
-```yaml
-version: 1
-presets: []
-rules:
-  - name: ask-auth-changes
-    description: Ask before touching auth
-    action: ask
-    match:
-      paths:
-        - "src/auth/**"
-```
-
-Current matchers are `semantic_ids`, `commands`, and `paths`.
-
-## Natural-Language Policies
-
-Termyte includes a deterministic, local-only compiler for a narrow set of
-plain-English policy patterns. It does not call an LLM or external API. This is
-policy authoring, not the runtime execution path.
-
-```bash
-termyte policy local add "Ask before touching auth or payments" --dry-run
-termyte policy local add "Ask before touching auth or payments" --yes
-termyte policy global add "Never allow agents to read .env files" --yes
-```
-
-- Generated YAML is shown before saving.
-- Interactive use asks for confirmation.
-- `--dry-run` prints the rule and writes nothing.
-- `--yes` or `-y` saves without prompting.
-- Unsupported or ambiguous input fails without changing policy files.
-
-Supported alpha pattern families:
-
-- Secret access
-- Force push
-- Auth and payment paths
-- Test deletion
-- Package publishing
-- Infrastructure and deployment paths
-- Destructive database commands
-
-This is template-based policy creation, not free-form language understanding.
-
-## Logs And Memory
-
-```bash
-termyte logs
-termyte logs --json
-termyte memory
-```
-
-`check`, `run --`, and governed MCP tool calls all write to the SQLite ledger.
-`memory` shows the semantic memory rows derived from runtime observations.
-Policy-only commands such as `policy test` remain non-executing and do not
-write ledger rows.
-
-## Doctor
-
-```bash
-termyte doctor
-termyte doctor --json
-```
-
-Doctor checks system tools, workspace state, policy/database health,
-experimental runtime readiness, optional agent executables, and packaged
-assets. Missing optional tools may appear as warnings.
-
-Doctor includes environment-dependent process and runtime checks, so it may
-take longer than pure `check` or `policy` commands. A successful doctor report
-does not mean Termyte is a sandbox or can observe every execution path.
-
-## Direct Agent Runner
-
-Termyte can launch supported coding agents directly:
-
-```bash
-termyte install codex
-termyte install claude
-
-termyte codex
-termyte claude
-
-termyte run codex
-termyte run claude
-termyte run claudecode
-```
-
-`termyte run <agent>` resolves and launches the agent executable directly when
-you are in an interactive terminal. It does not depend on PATH interception or
-hook injection. Noninteractive shells should use `termyte run --dry-run <agent>`
-or start the command from a real TTY session. Use `termyte install` and
-`termyte uninstall` only if you want the optional native Claude Code/Codex hook
-adapters. Those adapters are not required for the default runtime path.
-
-`termyte run -- <command>` is the enforced command gate. It evaluates policy,
-writes the ledger, updates memory, and either executes or blocks the command.
-
-## Threat Model
-
-Termyte reduces accidental damage by inspecting known command patterns,
-applying local policies, recording decisions, and remembering user-marked
-unsafe actions. It does not make agents safe.
-
-### Termyte Protects Against
-
-- Accidental dangerous shell commands
-- Obvious destructive file operations
-- Secret and config access
-- Git history rewrite commands
-- Package publishing mistakes
-- Destructive database commands
-- Repeated unsafe actions through local memory
-
-Protection is strongest when command text is evaluated through `termyte check`,
-`termyte run -- <command>`, or governed MCP tools.
-
-### Termyte Does Not Protect Against
-
-- Malicious root-level attackers
-- Commands bypassing Termyte
-- Arbitrary malware
-- Kernel-level attacks
-- All shell obfuscation
-- Full sandbox isolation
-- All direct API calls outside monitored surfaces
-
-## Alpha Limitations
-
-- `termyte run <agent>` is an interactive direct launcher, not a policy gate.
-- Commands that bypass Termyte are not governed.
-- Direct API calls outside monitored surfaces are not governed.
-- The natural-language compiler supports only deterministic templates and is
-  part of policy authoring, not the runtime execution path.
-- YAML policy matching currently supports `semantic_ids`, `commands`, and
-  `paths`.
-- Current built-in preset names are an alpha set and may change before a stable
-  policy schema release.
-- Broader PRD commands such as `explain`, optional `init`, and policy
-  use/edit/reset are not documented alpha surfaces yet.
-- Cross-platform runtime behavior must be verified with `termyte doctor`.
-
-## Development And Release Verification
-
-```bash
-npm run build
-npx vitest run --fileParallelism false
-npm run validate:package
-```
-
-`validate:package` builds, packs, installs into an isolated npm prefix, and
-exercises the installed CLI. Doctor results still depend on the local machine
-and installed optional tools.
-
-See [CHANGELOG.md](https://github.com/termyte-labs/termyte/blob/main/CHANGELOG.md)
-for current alpha release notes.
-
-## Security And Privacy
-
-- Local-first
-- No cloud dependency
-- No LLM or external API in deterministic natural-language policy compilation
-- Policy files, logs, and semantic memory remain on the local machine
-- Termyte is a guardrail, not a sandbox
+- **Phase 1 (Current)**: Capture + Store + Basic Retrieval
+- **Phase 2**: Self-Correction (outcome tracking, confidence updates, decay)
+- **Phase 3**: Advanced (procedure mining, contradiction detection, consolidation)
 
 ## License
 
