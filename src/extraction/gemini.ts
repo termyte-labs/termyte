@@ -8,6 +8,7 @@ export interface GeminiClient {
   consolidateMemories(claims: string[]): Promise<ConsolidatedMemoryResult>;
   observeToolUse(toolName: string, toolInput: unknown, toolResponse: unknown, lastUserMessage?: string): Promise<string>;
   generateContent(prompt: string): Promise<string>;
+  generateStructured(systemPrompt: string, userPrompt: string, schema: unknown): Promise<unknown>;
 }
 
 export interface ExtractedMemoryResult {
@@ -213,5 +214,23 @@ Return a consolidation result with the merged claims and which original indices 
     return response.text ?? "";
   }
 
-  return { extractMemories, embedText, embedBatch, consolidateMemories, observeToolUse, generateContent };
+  async function generateStructured(
+    systemPrompt: string,
+    userPrompt: string,
+    schema: unknown,
+  ): Promise<unknown> {
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: userPrompt,
+      config: {
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        responseMimeType: "application/json",
+        responseJsonSchema: schema as any,
+      },
+    });
+    const text = response.text ?? "{}";
+    return JSON.parse(text);
+  }
+
+  return { extractMemories, embedText, embedBatch, consolidateMemories, observeToolUse, generateContent, generateStructured };
 }

@@ -207,6 +207,8 @@ export interface ASTAnchor {
   language: string;
 }
 
+export type ConsolidationKind = "merge" | "compress" | "synthesize" | "manual";
+
 export interface Memory {
   id: string;
   claim: string;
@@ -225,9 +227,11 @@ export interface Memory {
   lastVerified?: string;
   lastOutcomeAt?: string;
   lastOutcomeType?: string;
+  consolidatedFrom?: string[];
+  consolidationKind?: ConsolidationKind;
+  consolidationRationale?: string;
   createdAt: string;
   updatedAt: string;
-  consolidatedFrom?: unknown;
   isActive: boolean;
 }
 

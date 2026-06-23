@@ -132,6 +132,9 @@ export function initSchema(db: Database.Database): void {
       confidence REAL NOT NULL DEFAULT 0.5,
       last_outcome_at TEXT,
       last_outcome_type TEXT,
+      consolidated_from TEXT,
+      consolidation_kind TEXT,
+      consolidation_rationale TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       is_active INTEGER NOT NULL DEFAULT 1
@@ -139,6 +142,7 @@ export function initSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_memories_type ON memories(type);
     CREATE INDEX IF NOT EXISTS idx_memories_scope ON memories(repo_scope);
     CREATE INDEX IF NOT EXISTS idx_memories_active ON memories(is_active);
+    -- (idx_memories_consolidated_from is created in the migration block below)
 
     CREATE TABLE IF NOT EXISTS memory_feedback (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -187,6 +191,20 @@ export function initSchema(db: Database.Database): void {
   } catch {
     // FTS5 table may already exist
   }
+
+  // Idempotent migrations for older DBs that lack the consolidation columns.
+  const memoryCols = db.prepare("PRAGMA table_info(memories)").all() as Array<{ name: string }>;
+  const hasCol = (name: string) => memoryCols.some((c) => c.name === name);
+  if (!hasCol("consolidated_from")) {
+    try { db.exec("ALTER TABLE memories ADD COLUMN consolidated_from TEXT"); } catch { /* ignore */ }
+  }
+  if (!hasCol("consolidation_kind")) {
+    try { db.exec("ALTER TABLE memories ADD COLUMN consolidation_kind TEXT"); } catch { /* ignore */ }
+  }
+  if (!hasCol("consolidation_rationale")) {
+    try { db.exec("ALTER TABLE memories ADD COLUMN consolidation_rationale TEXT"); } catch { /* ignore */ }
+  }
+  try { db.exec("CREATE INDEX IF NOT EXISTS idx_memories_consolidated_from ON memories(consolidated_from)"); } catch { /* ignore */ }
 }
 
 export function closeDatabase(ctx: DatabaseContext): void {

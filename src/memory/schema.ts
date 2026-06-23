@@ -19,6 +19,9 @@ interface MemoryRow {
   confidence: number;
   last_outcome_at: string | null;
   last_outcome_type: string | null;
+  consolidated_from: string | null;
+  consolidation_kind: string | null;
+  consolidation_rationale: string | null;
   created_at: string;
   updated_at: string;
   is_active: number;
@@ -41,6 +44,9 @@ export function rowToMemory(row: MemoryRow): Memory {
     confidence: row.confidence,
     lastOutcomeAt: row.last_outcome_at ?? undefined,
     lastOutcomeType: row.last_outcome_type ?? undefined,
+    consolidatedFrom: row.consolidated_from ? JSON.parse(row.consolidated_from) : undefined,
+    consolidationKind: row.consolidation_kind as Memory["consolidationKind"],
+    consolidationRationale: row.consolidation_rationale ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     isActive: row.is_active === 1,
@@ -55,9 +61,15 @@ export interface InsertMemoryInput {
   language?: string;
   astAnchors?: unknown[];
   sources: string[];
+  filesRead?: string;
+  filesModified?: string;
+  concepts?: string;
   successCount?: number;
   failureCount?: number;
   confidence?: number;
+  consolidatedFrom?: string[];
+  consolidationKind?: Memory["consolidationKind"];
+  consolidationRationale?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -67,8 +79,8 @@ export class MemoryStore {
 
   insert(input: InsertMemoryInput): Memory {
     const stmt = this.db.prepare(`
-      INSERT INTO memories (id, claim, type, repo_scope, language, ast_anchors, sources, success_count, failure_count, confidence, created_at, updated_at, is_active)
-      VALUES (@id, @claim, @type, @repo_scope, @language, @ast_anchors, @sources, @success_count, @failure_count, @confidence, @created_at, @updated_at, 1)
+      INSERT INTO memories (id, claim, type, repo_scope, language, ast_anchors, sources, files_read, files_modified, concepts, success_count, failure_count, confidence, consolidated_from, consolidation_kind, consolidation_rationale, created_at, updated_at, is_active)
+      VALUES (@id, @claim, @type, @repo_scope, @language, @ast_anchors, @sources, @files_read, @files_modified, @concepts, @success_count, @failure_count, @confidence, @consolidated_from, @consolidation_kind, @consolidation_rationale, @created_at, @updated_at, 1)
     `);
     stmt.run({
       id: input.id,
@@ -76,11 +88,17 @@ export class MemoryStore {
       type: input.type,
       repo_scope: input.repoScope,
       language: input.language ?? null,
-      ast_anchors: input.astAnchors ? JSON.stringify(input.astAnchors) : null,
+      ast_anchors: input.astAnchors ? JSON.stringify(input.astAnchors) : undefined,
       sources: JSON.stringify(input.sources),
+      files_read: input.filesRead ?? null,
+      files_modified: input.filesModified ?? null,
+      concepts: input.concepts ?? null,
       success_count: input.successCount ?? 0,
       failure_count: input.failureCount ?? 0,
       confidence: input.confidence ?? 0.5,
+      consolidated_from: input.consolidatedFrom ? JSON.stringify(input.consolidatedFrom) : null,
+      consolidation_kind: input.consolidationKind ?? null,
+      consolidation_rationale: input.consolidationRationale ?? null,
       created_at: input.createdAt,
       updated_at: input.updatedAt,
     });
@@ -155,6 +173,28 @@ export class MemoryStore {
       new Date().toISOString(),
       id,
     );
+  }
+
+  deactivateMany(ids: string[]): number {
+    if (ids.length === 0) return 0;
+    const now = new Date().toISOString();
+    const stmt = this.db.prepare("UPDATE memories SET is_active = 0, updated_at = ? WHERE id = ?");
+    let changed = 0;
+    const tx = this.db.transaction((batch: string[]) => {
+      for (const id of batch) {
+        const r = stmt.run(now, id);
+        changed += r.changes;
+      }
+    });
+    tx(ids);
+    return changed;
+  }
+
+  listScopes(): string[] {
+    const rows = this.db.prepare(`
+      SELECT DISTINCT repo_scope FROM memories WHERE is_active = 1 ORDER BY repo_scope
+    `).all() as Array<{ repo_scope: string }>;
+    return rows.map((r) => r.repo_scope);
   }
 
   count(options: { type?: MemoryType; scope?: string } = {}): number {

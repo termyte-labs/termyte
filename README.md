@@ -83,6 +83,7 @@ termyte feedback --memory <id> --outcome success
 | `termyte memories show <id>` | Show memory with feedback stats |
 | `termyte feedback --memory <id> --outcome <success\|failure\|ignored>` | Record outcome |
 | `termyte decay [--dry-run]` | Apply memory decay |
+| `termyte consolidate [--scope <s>] [--dry-run]` | Run the memory consolidation agent (merge / compress / synthesize) |
 | `termyte index [--reindex]` | Index memories for vector search |
 | `termyte sessions list` | List captured sessions |
 | `termyte sessions show <id>` | Show session details |
@@ -121,6 +122,31 @@ default weights:
   w_semantic = 0.4
   w_confidence = 0.3
 ```
+
+## Memory Consolidation (self-correcting)
+
+Memories accumulate over time and naturally drift toward redundancy, contradiction, and over-granularity. Termyte ships with a **consolidation agent** that periodically cleans them up:
+
+```bash
+# Inspect what the agent would do
+termyte consolidate --dry-run
+
+# Apply the changes
+termylate consolidate
+# or for one project:
+termyte consolidate --scope my-app
+```
+
+The agent groups memories by project and asks Gemini to:
+
+- **merge** — two memories that say the same thing in different words → one canonical claim that combines their evidence (success/failure counts are summed)
+- **compress** — one verbose memory → a concise rewrite that keeps the meaning
+- **synthesize** — 2–5 related facts → a higher-level pattern or procedure
+- **keep** — leave the memory alone (the agent returns no action for it)
+
+Originals are preserved (marked `is_active = 0`) for history; the new consolidated memory carries a `consolidated_from` array pointing at the sources. The operation is **idempotent** — running it twice does not double-consolidate.
+
+This is the **self-correcting** part of termyte: the system actively maintains memory quality, not just stores facts.
 
 ## Tech Stack
 

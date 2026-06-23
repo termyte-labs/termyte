@@ -38,6 +38,7 @@ Usage:
   termyte process [--batch <n>]                 Process pending hook messages through Gemini
   termyte hook [--no-process]                   Process hook event from stdin
   termyte plugin install [--global]             Install OpenCode plugin
+  termyte consolidate [--scope <s>] [--dry-run] Run the memory consolidation agent
   termyte stats                                 Show memory statistics`);
 }
 
@@ -239,6 +240,20 @@ async function main(): Promise<number> {
       const dryRun = hasFlag(args, "--dry-run");
       const results = applyDecay(db, { dryRun });
       console.log(JSON.stringify({ dryRun, affected: results.length, results }, null, 2));
+      return 0;
+    }
+
+    if (command === "consolidate") {
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) {
+        console.error("Missing GEMINI_API_KEY environment variable");
+        return 1;
+      }
+      const { runConsolidation } = await import("./consolidation/index.js");
+      const scope = requireArg(args, "--scope");
+      const dryRun = hasFlag(args, "--dry-run");
+      const result = await runConsolidation(db, apiKey, { scope: scope ?? undefined, dryRun });
+      console.log(JSON.stringify(result, null, 2));
       return 0;
     }
 

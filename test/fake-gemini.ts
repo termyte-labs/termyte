@@ -7,6 +7,12 @@ export interface FakeGeminiOptions {
   summaries?: string[];
 }
 
+export type FakeGemini = GeminiClient & {
+  observeToolUseCalls: Array<{ toolName: string; toolInput: unknown; toolResponse: unknown; lastUserMessage?: string }>;
+  embedTextCalls: string[];
+  extractMemoriesCalls: Array<{ trace: string; repoScope: string }>;
+};
+
 const DEFAULT_OBSERVATION_XML = `<?xml version="1.0" encoding="UTF-8"?>
 <observations>
   <observation>
@@ -110,6 +116,10 @@ export function createFakeGemini(options: FakeGeminiOptions = {}): GeminiClient 
       const s = summaries[summaryIndex % summaries.length] ?? "summary";
       summaryIndex++;
       return s;
+    },
+
+    async generateStructured(_systemPrompt, _userPrompt, _schema) {
+      return { actions: [] };
     },
   };
 }
