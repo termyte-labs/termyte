@@ -1,6 +1,5 @@
 import type Database from "better-sqlite3";
 import type { GeminiClient } from "./gemini.js";
-import type { PendingMessage } from "../types.js";
 import { parseXml } from "./parser.js";
 import { classifyOutput } from "./output-classifier.js";
 import { ResponseProcessor } from "./response-processor.js";
@@ -39,6 +38,15 @@ interface PendingMessageRow {
   project: string;
 }
 
+function safeJsonParse(raw: string | null): unknown {
+  if (raw === null || raw === undefined) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return raw;
+  }
+}
+
 export class PendingProcessor {
   constructor(
     private db: Database.Database,
@@ -49,6 +57,9 @@ export class PendingProcessor {
   async processPending(options: PendingProcessorOptions = {}): Promise<ProcessResult> {
     const batchSize = options.batchSize ?? 10;
     const result: ProcessResult = { processed: 0, stored: 0, skipped: 0, errors: 0 };
+
+    // Reset any stuck 'processing' messages
+    this.db.prepare("UPDATE pending_messages SET status = 'pending' WHERE status = 'processing'").run();
 
     const pending = this.db.prepare(`
       SELECT pm.*, s.memory_session_id, s.project
@@ -63,9 +74,12 @@ export class PendingProcessor {
 
     for (const msg of pending) {
       try {
-        await this.processOne(msg, options);
+        const stored = await this.processOne(msg, options);
         result.processed++;
-      } catch (err) {
+        result.stored += stored;
+      } catch {
+        // On error, reset status so it can be retried later
+        this.db.prepare("UPDATE pending_messages SET status = 'pending' WHERE id = ?").run(msg.id);
         result.errors++;
       }
     }
@@ -76,26 +90,29 @@ export class PendingProcessor {
   private async processOne(
     msg: PendingMessageRow,
     options: PendingProcessorOptions,
-  ): Promise<void> {
+  ): Promise<number> {
     this.db.prepare("UPDATE pending_messages SET status = 'processing' WHERE id = ?").run(msg.id);
+
+    const toolInput = safeJsonParse(msg.tool_input);
+    const toolResponse = safeJsonParse(msg.tool_response);
 
     const llmOutput = await this.gemini.observeToolUse(
       msg.tool_name ?? "unknown",
-      msg.tool_input ? JSON.parse(msg.tool_input) : null,
-      msg.tool_response ? JSON.parse(msg.tool_response) : null,
+      toolInput,
+      toolResponse,
       msg.last_user_message ?? undefined,
     );
 
     const outputClass = classifyOutput(llmOutput);
     if (outputClass !== "xml") {
       this.db.prepare("DELETE FROM pending_messages WHERE id = ?").run(msg.id);
-      return;
+      return 0;
     }
 
     const parsed = parseXml(llmOutput);
-    if (!parsed.valid || parsed.observations.length === 0) {
+    if (!parsed.valid || !parsed.observations || parsed.observations.length === 0) {
       this.db.prepare("DELETE FROM pending_messages WHERE id = ?").run(msg.id);
-      return;
+      return 0;
     }
 
     const processor = new ResponseProcessor({
@@ -105,7 +122,7 @@ export class PendingProcessor {
       agentId: options.agentId ?? msg.agent_id ?? undefined,
     });
 
-    const stored = await processor.processObservations({
+    const inserted = await processor.processObservations({
       db: this.db,
       workspaceRoot: this.workspaceRoot,
       contentSessionId: msg.content_session_id,
@@ -117,5 +134,6 @@ export class PendingProcessor {
     });
 
     this.db.prepare("DELETE FROM pending_messages WHERE id = ?").run(msg.id);
+    return inserted.length;
   }
 }

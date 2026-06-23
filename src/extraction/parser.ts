@@ -16,6 +16,12 @@ function extractAllTags(xml: string, tag: string): string[] {
   return results;
 }
 
+function extractFilesFromSection(xml: string, sectionTag: string): string[] {
+  const section = extractTag(xml, sectionTag);
+  if (!section) return [];
+  return extractAllTags(section, "file");
+}
+
 function extractObservations(xml: string): ParsedObservation[] {
   const observationBlocks = extractAllTags(xml, "observation");
   return observationBlocks.map((block) => ({
@@ -25,14 +31,8 @@ function extractObservations(xml: string): ParsedObservation[] {
     facts: extractAllTags(block, "fact"),
     narrative: extractTag(block, "narrative"),
     concepts: extractAllTags(block, "concept"),
-    files_read: extractAllTags(block, "file").filter((_, i, arr) => {
-      const readSection = extractTag(block, "files_read");
-      return readSection ? readSection.includes(arr[i]) : false;
-    }),
-    files_modified: extractAllTags(block, "file").filter((_, i, arr) => {
-      const modSection = extractTag(block, "files_modified");
-      return modSection ? modSection.includes(arr[i]) : false;
-    }),
+    files_read: extractFilesFromSection(block, "files_read"),
+    files_modified: extractFilesFromSection(block, "files_modified"),
   }));
 }
 
@@ -95,6 +95,7 @@ export function parseXml(xml: string): ParseResult {
     summary,
   };
 }
+
 
 export function isXmlClean(text: string): boolean {
   const trimmed = text.trim();

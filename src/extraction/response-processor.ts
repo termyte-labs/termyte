@@ -46,7 +46,7 @@ export class ResponseProcessor {
     const result = insertPending.run(
       session.id,
       hookInput.sessionId,
-      null,
+      hookInput.turnId ?? null,
       hookInput.toolName ?? null,
       hookInput.toolInput ? JSON.stringify(hookInput.toolInput) : null,
       hookInput.toolResponse ? JSON.stringify(hookInput.toolResponse) : null,
@@ -107,8 +107,8 @@ export class ResponseProcessor {
     `);
 
     const upsertFts = db.prepare(`
-      INSERT INTO observations_fts (rowid, title, subtitle, narrative, text, facts, concepts)
-      SELECT id, title, subtitle, narrative, text, facts, concepts FROM observations WHERE id = ?
+      INSERT OR REPLACE INTO observations_fts (rowid, title, subtitle, narrative, text, facts, concepts)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
     `);
 
     for (const obs of observations) {
@@ -141,7 +141,15 @@ export class ResponseProcessor {
 
       if (result.changes > 0) {
         const obsId = Number(result.lastInsertRowid);
-        upsertFts.run(obsId);
+        upsertFts.run(
+          obsId,
+          obs.title ?? "",
+          obs.subtitle ?? "",
+          obs.narrative ?? "",
+          JSON.stringify(obs),
+          obs.facts ? JSON.stringify(obs.facts) : "",
+          obs.concepts ? JSON.stringify(obs.concepts) : "",
+        );
         inserted.push({
           id: obsId,
           memorySessionId: session.memory_session_id,

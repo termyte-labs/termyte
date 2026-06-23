@@ -1,5 +1,5 @@
 import type Database from "better-sqlite3";
-import type { Memory } from "../types.js";
+import type { Memory, MemoryFeedback } from "../types.js";
 import { updateConfidenceOnOutcome } from "./confidence.js";
 
 export interface OutcomeRecord {
@@ -56,4 +56,36 @@ export function recordOutcome(
     confidence: newConfidence,
     updatedAt: now,
   };
+}
+
+export function recordOutcomeAndFeedback(
+  db: Database.Database,
+  input: OutcomeRecord & { outcomeDetail?: string },
+): { memory: Memory | null; feedback: MemoryFeedback } {
+  const memory = recordOutcome(db, input);
+
+  const stmt = db.prepare(`
+    INSERT INTO memory_feedback (memory_id, used_at, context, outcome, outcome_detail, session_id)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `);
+  const result = stmt.run(
+    input.memoryId,
+    new Date().toISOString(),
+    input.context ?? null,
+    input.outcome,
+    input.outcomeDetail ?? null,
+    input.sessionId ?? null,
+  );
+
+  const feedback: MemoryFeedback = {
+    id: Number(result.lastInsertRowid),
+    memoryId: input.memoryId,
+    usedAt: new Date().toISOString(),
+    context: input.context,
+    outcome: input.outcome,
+    outcomeDetail: input.outcomeDetail,
+    sessionId: input.sessionId,
+  };
+
+  return { memory, feedback };
 }

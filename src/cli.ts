@@ -3,16 +3,21 @@ import path from "node:path";
 import { defaultDbPath, openDatabase } from "./db.js";
 import { CaptureEngine } from "./capture/index.js";
 import { createMemoryEngine } from "./memory/index.js";
-import { createGeminiClient } from "./extraction/gemini.js";
+import { recordOutcomeAndFeedback } from "./memory/outcome.js";
+import { createGeminiClient, type GeminiClient } from "./extraction/gemini.js";
 import { createRetrievalEngine } from "./retrieval/index.js";
 import { formatForAgent } from "./retrieval/inject.js";
 import { recordFeedback, getFeedbackStats } from "./feedback/index.js";
-import { applyDecay, deactivateLowConfidence } from "./memory/decay.js";
+import { applyDecay } from "./memory/decay.js";
 import { SessionStore } from "./hook-system/session-store.js";
 import { SessionSearch } from "./hook-system/session-search.js";
 import { ResponseProcessor } from "./extraction/response-processor.js";
 import { PendingProcessor } from "./extraction/pending-processor.js";
+import { getAdapter, detectPlatform } from "./hook-system/adapters.js";
+import { readStdin, buildHookResult } from "./hook-system/hook-io.js";
 import { generateId, nowISO } from "./utils.js";
+import fs from "node:fs";
+import os from "node:os";
 
 function printUsage(): void {
   console.log(`Termyte - Self-correcting memory for coding agents
@@ -31,7 +36,8 @@ Usage:
   termyte sessions list                         List captured sessions
   termyte sessions show <id>                    Show session details
   termyte process [--batch <n>]                 Process pending hook messages through Gemini
-  termyte hook                                  Process hook event from stdin
+  termyte hook [--no-process]                   Process hook event from stdin
+  termyte plugin install [--global]             Install OpenCode plugin
   termyte stats                                 Show memory statistics`);
 }
 
@@ -208,16 +214,24 @@ async function main(): Promise<number> {
         return 1;
       }
 
-      const memoryEngine = createMemoryEngine(db);
-      recordFeedback(db, memoryId, outcome, { context });
-
-      if (outcome === "success") {
-        memoryEngine.recordSuccess(memoryId);
-      } else if (outcome === "failure") {
-        memoryEngine.recordFailure(memoryId);
+      if (outcome === "ignored") {
+        recordFeedback(db, memoryId, outcome, { context });
+        console.log(JSON.stringify({ memoryId, outcome, recorded: true }));
+        return 0;
       }
 
-      console.log(JSON.stringify({ memoryId, outcome, recorded: true }));
+      const result = recordOutcomeAndFeedback(db, {
+        memoryId,
+        sessionId: "cli",
+        outcome,
+        context,
+      });
+      console.log(JSON.stringify({
+        memoryId,
+        outcome,
+        recorded: true,
+        newConfidence: result.memory?.confidence,
+      }));
       return 0;
     }
 
@@ -303,51 +317,142 @@ async function main(): Promise<number> {
       return 1;
     }
 
-    if (command === "hook") {
-      const rawInput = await new Promise<string>((resolve) => {
-        const chunks: Buffer[] = [];
-        process.stdin.on("data", (chunk) => chunks.push(chunk));
-        process.stdin.on("end", () => resolve(Buffer.concat(chunks).toString("utf8").trim()));
-      });
+    if (command === "plugin") {
+      const subcommand = args[1];
+      if (subcommand !== "install") {
+        console.error("Usage: termyte plugin install [--global] [--target <opencode|claude-code>]");
+        return 1;
+      }
 
-      if (!rawInput) {
-        console.log(JSON.stringify({ continue: true, suppressOutput: true }));
+      const target = (requireArg(args, "--target") ?? "opencode") as string;
+      const isGlobal = hasFlag(args, "--global") || hasFlag(args, "-g");
+      const installDir = isGlobal
+        ? path.join(os.homedir(), ".config", "opencode", "plugins")
+        : path.join(cwd, ".opencode", "plugins");
+      fs.mkdirSync(installDir, { recursive: true });
+
+      if (target === "opencode") {
+        const templatePath = path.join(
+          path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Z]:)/, "$1")),
+          "hook-system",
+          "opencode-plugin.template.js",
+        );
+        let template: string;
+        try {
+          template = fs.readFileSync(templatePath, "utf-8");
+        } catch {
+          const distRoot = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Z]:)/, "$1"));
+          const candidates = [
+            path.join(distRoot, "hook-system", "opencode-plugin.template.js"),
+            path.join(distRoot, "..", "src", "hook-system", "opencode-plugin.template.ts"),
+            path.join(process.cwd(), "src", "hook-system", "opencode-plugin.template.ts"),
+          ];
+          let found: string | null = null;
+          for (const c of candidates) {
+            if (fs.existsSync(c)) { found = c; break; }
+          }
+          if (!found) {
+            console.error("Could not locate opencode-plugin.template");
+            return 1;
+          }
+          template = fs.readFileSync(found, "utf-8");
+        }
+        const dest = path.join(installDir, "termyte.ts");
+        fs.writeFileSync(dest, template);
+        console.log(JSON.stringify({
+          installed: true,
+          target: "opencode",
+          location: isGlobal ? "global" : "project",
+          path: dest,
+        }));
         return 0;
       }
 
-      const hookInput = JSON.parse(rawInput);
-      const platform = hookInput.platform ?? "raw";
+      console.error(`Unknown plugin target: ${target}`);
+      return 1;
+    }
+
+    if (command === "hook") {
+      const rawInput = await readStdin();
+      if (!rawInput || typeof rawInput !== "object") {
+        console.log(JSON.stringify(buildHookResult({ hookEventName: "termyte", additionalContext: "" })));
+        return 0;
+      }
+
+      const detectedPlatform = detectPlatform(rawInput);
+      const adapter = getAdapter(detectedPlatform);
+      const normalized = adapter.normalizeInput(rawInput);
       const sessionStore = new SessionStore(db);
       const responseProcessor = new ResponseProcessor({ db, workspaceRoot: cwd });
 
-      const session = sessionStore.getSessionByContentId(hookInput.sessionId);
-      if (!session) {
-        console.log(JSON.stringify({ continue: true, suppressOutput: true }));
+      const event = normalized.hookEvent;
+      const isSessionStart = event === "session_start"
+        || normalized.sessionSource === "startup"
+        || normalized.sessionSource === "resume";
+      const isSessionEnd = event === "session_end"
+        || normalized.sessionSource === "clear"
+        || (normalized.prompt === undefined
+          && normalized.toolName === undefined
+          && normalized.lastAssistantMessage === undefined
+          && normalized.filePath === undefined
+          && normalized.command === undefined
+          && normalized.sessionSource !== "startup");
+
+      if (isSessionStart) {
+        let session = sessionStore.getSessionByContentId(normalized.sessionId);
+        if (!session) {
+          session = sessionStore.createSession({
+            contentSessionId: normalized.sessionId,
+            project,
+            platformSource: detectedPlatform,
+            userPrompt: normalized.prompt,
+          });
+        }
+        console.log(JSON.stringify(buildHookResult({ hookEventName: "session_start", additionalContext: "" })));
         return 0;
       }
 
-      if (hookInput.toolName && hookInput.toolResponse) {
-        await responseProcessor.processToolUse({
-          sessionId: hookInput.sessionId,
-          cwd: hookInput.cwd ?? cwd,
-          toolName: hookInput.toolName,
-          toolInput: hookInput.toolInput,
-          toolResponse: hookInput.toolResponse,
-          prompt: hookInput.prompt,
-          lastAssistantMessage: hookInput.lastAssistantMessage,
-          agentType: hookInput.agentType,
-          agentId: hookInput.agentId,
-        });
+      const session = sessionStore.getSessionByContentId(normalized.sessionId);
+      if (!session) {
+        console.log(JSON.stringify(buildHookResult({ hookEventName: "termyte", additionalContext: "Session not found" })));
+        return 0;
       }
 
-      console.log(JSON.stringify({
-        continue: true,
-        suppressOutput: true,
-        hookSpecificOutput: {
-          hookEventName: "termyte",
-          additionalContext: "",
-        },
-      }));
+      if (event === "user_prompt" || (event === undefined && normalized.prompt)) {
+        await responseProcessor.processUserPrompt(normalized);
+      }
+
+      const isToolEvent = event === "tool_use"
+        || event === "command"
+        || event === "file_edit"
+        || (event === undefined && (normalized.toolName !== undefined || normalized.command !== undefined || normalized.filePath !== undefined));
+      if (isToolEvent && (normalized.toolName !== undefined || normalized.command !== undefined || normalized.filePath !== undefined)) {
+        await responseProcessor.processToolUse(normalized);
+      }
+
+      if (isSessionEnd) {
+        await responseProcessor.processSessionEnd(normalized.sessionId);
+      }
+
+      if (hasFlag(args, "--no-process") === false && process.env.TERMYTE_AUTO_PROCESS !== "0") {
+        const apiKey = process.env.GEMINI_API_KEY;
+        if (apiKey && isToolEvent) {
+          try {
+            const { createGeminiClient } = await import("./extraction/gemini.js");
+            const { PendingProcessor } = await import("./extraction/pending-processor.js");
+            const gemini = createGeminiClient(apiKey);
+            const processor = new PendingProcessor(db, gemini, cwd);
+            await Promise.race([
+              processor.processPending({ batchSize: 3 }),
+              new Promise<void>((resolve) => setTimeout(resolve, 4000)),
+            ]);
+          } catch (err) {
+            console.error("[termyte] inline flush failed:", err instanceof Error ? err.message : String(err));
+          }
+        }
+      }
+
+      console.log(JSON.stringify(buildHookResult({ hookEventName: event ?? "termyte", additionalContext: "" })));
       return 0;
     }
 

@@ -3,6 +3,7 @@ import type { Memory, MemoryType } from "../types.js";
 import { computeConfidence } from "./confidence.js";
 
 interface MemoryRow {
+  rowid?: number;
   id: string;
   claim: string;
   type: string;
@@ -172,16 +173,19 @@ export class MemoryStore {
   }
 
   private syncFts(id: string): void {
-    const row = this.db.prepare("SELECT * FROM memories WHERE id = ?").get(id) as MemoryRow | undefined;
+    const row = this.db.prepare("SELECT rowid, * FROM memories WHERE id = ?").get(id) as (MemoryRow & { rowid: number }) | undefined;
     if (!row) return;
     try {
-      this.db.prepare("DELETE FROM memories_fts WHERE rowid = (SELECT rowid FROM memories WHERE id = ?)").run(id);
+      this.db.prepare("DELETE FROM memories_fts WHERE rowid = ?").run(row.rowid);
       this.db.prepare(`
         INSERT INTO memories_fts(rowid, claim, type, repo_scope, language)
-        SELECT rowid, claim, type, repo_scope, language FROM memories WHERE id = ?
-      `).run(id);
-    } catch {
+        VALUES (?, ?, ?, ?, ?)
+      `).run(row.rowid, row.claim, row.type, row.repo_scope, row.language ?? "");
+    } catch (e) {
       // FTS sync is best-effort
+      if (process.env.TERMYTE_DEBUG_FTS) {
+        console.error("[FTS sync error]", e);
+      }
     }
   }
 }

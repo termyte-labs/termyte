@@ -170,7 +170,6 @@ export function initSchema(db: Database.Database): void {
     db.exec(`
       CREATE VIRTUAL TABLE IF NOT EXISTS observations_fts USING fts5(
         title, subtitle, narrative, text, facts, concepts,
-        content='observations', content_rowid='id',
         tokenize='porter unicode61'
       );
     `);
@@ -182,7 +181,6 @@ export function initSchema(db: Database.Database): void {
     db.exec(`
       CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
         claim, type, repo_scope, language,
-        content='memories', content_rowid='rowid',
         tokenize='porter unicode61'
       );
     `);

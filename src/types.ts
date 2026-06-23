@@ -1,8 +1,18 @@
 export type MemoryType = "fact" | "bugfix" | "procedure" | "convention" | "warning";
 
-export type PlatformSource = "termyte" | "claude-code" | "codex" | "cursor" | "windsurf" | "gemini-cli";
+export type PlatformSource = "termyte" | "claude-code" | "codex" | "cursor" | "windsurf" | "gemini-cli" | "opencode";
 
 export type ActorType = "human" | "agent" | "tool" | "system";
+
+export type HookEventName =
+  | "session_start"
+  | "session_end"
+  | "user_prompt"
+  | "assistant_message"
+  | "tool_use"
+  | "file_edit"
+  | "command"
+  | "unknown";
 
 export type ObservationType =
   | "bugfix"
@@ -37,6 +47,7 @@ export interface NormalizedHookInput {
   sessionId: string;
   cwd: string;
   platform?: string;
+  hookEvent?: HookEventName;
   prompt?: string;
   toolName?: string;
   toolInput?: unknown;
@@ -52,6 +63,9 @@ export interface NormalizedHookInput {
   edits?: unknown[];
   agentId?: string;
   agentType?: string;
+  command?: string;
+  commandExitCode?: number;
+  rawEvent?: string;
 }
 
 export interface HookResult {
@@ -174,9 +188,11 @@ export interface ParsedSummary {
   skip_reason?: string | null;
 }
 
-export type ParseResult =
-  | { valid: true; observations: ParsedObservation[]; summary: ParsedSummary | null }
-  | { valid: false };
+export interface ParseResult {
+  valid: boolean;
+  observations?: ParsedObservation[];
+  summary?: ParsedSummary | null;
+}
 
 export type ObserverOutputClass = "xml" | "idle" | "prose" | "poisoned";
 
