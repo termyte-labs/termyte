@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
 import type { Memory, MemoryType } from "../types.js";
+import { computeConfidence } from "./confidence.js";
 
 interface MemoryRow {
   id: string;
@@ -127,7 +128,7 @@ export class MemoryStore {
   recordSuccess(id: string): void {
     const mem = this.getById(id);
     if (!mem) return;
-    const newConfidence = Math.min(0.99, mem.confidence + 0.1);
+    const newConfidence = computeConfidence(mem.successCount + 1, mem.failureCount);
     const now = new Date().toISOString();
     this.db.prepare(`
       UPDATE memories
@@ -139,7 +140,7 @@ export class MemoryStore {
   recordFailure(id: string): void {
     const mem = this.getById(id);
     if (!mem) return;
-    const newConfidence = Math.max(0.05, mem.confidence - 0.15);
+    const newConfidence = computeConfidence(mem.successCount, mem.failureCount + 1);
     const now = new Date().toISOString();
     this.db.prepare(`
       UPDATE memories

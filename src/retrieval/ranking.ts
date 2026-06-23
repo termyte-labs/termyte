@@ -1,5 +1,5 @@
 import type { Memory, MemoryWithScore, RankingWeights } from "../types.js";
-import { daysSince, clamp } from "../utils.js";
+import { clamp } from "../utils.js";
 
 export function rankMemories(
   keywordResults: Array<{ memory: Memory; score: number }>,
@@ -29,17 +29,12 @@ export function rankMemories(
   for (const [, { memory, keyword, semantic }] of scores) {
     const normalizedKeyword = keyword / maxKeyword;
     const normalizedSemantic = semantic / maxSemantic;
-
     const confidenceFactor = memory.confidence;
-    const freshnessFactor = computeFreshness(memory.lastOutcomeAt ?? memory.updatedAt);
-    const reliabilityFactor = computeReliability(memory.successCount, memory.failureCount);
 
     const combinedScore =
-      weights.keyword * normalizedKeyword +
       weights.semantic * normalizedSemantic +
-      weights.confidence * confidenceFactor +
-      weights.freshness * freshnessFactor +
-      weights.reliability * reliabilityFactor;
+      weights.keyword * normalizedKeyword +
+      weights.confidence * confidenceFactor;
 
     const matchedBecause = normalizedKeyword > normalizedSemantic
       ? `keyword match (score: ${normalizedKeyword.toFixed(2)})`
@@ -56,13 +51,4 @@ export function rankMemories(
 
   results.sort((a, b) => b.score - a.score);
   return results.slice(0, limit);
-}
-
-export function computeFreshness(lastUsed: string): number {
-  const ageDays = daysSince(lastUsed);
-  return Math.exp(-ageDays / 60);
-}
-
-export function computeReliability(successCount: number, failureCount: number): number {
-  return (successCount + 1) / (successCount + failureCount + 2);
 }

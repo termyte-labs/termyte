@@ -5,6 +5,8 @@ export interface GeminiClient {
   embedText(text: string): Promise<number[]>;
   embedBatch(texts: string[]): Promise<number[][]>;
   consolidateMemories(claims: string[]): Promise<ConsolidatedMemoryResult>;
+  observeToolUse(toolName: string, toolInput: unknown, toolResponse: unknown, lastUserMessage?: string): Promise<string>;
+  generateContent(prompt: string): Promise<string>;
 }
 
 export interface ExtractedMemoryResult {
@@ -185,5 +187,31 @@ Return a consolidation result with the merged claims and which original indices 
     };
   }
 
-  return { extractMemories, embedText, embedBatch, consolidateMemories };
+  async function observeToolUse(
+    toolName: string,
+    toolInput: unknown,
+    toolResponse: unknown,
+    lastUserMessage?: string,
+  ): Promise<string> {
+    const { buildObserverPrompt } = await import("./prompts-observer.js");
+    const prompt = buildObserverPrompt(toolName, toolInput, toolResponse, lastUserMessage);
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      config: {
+        systemInstruction: { parts: [{ text: `You are an expert code observer. Your job is to analyze tool call inputs and outputs from a coding session and extract structured observations about what happened. You MUST respond with valid XML in the specified format. Do NOT include any text outside the XML tags.` }] },
+      },
+    });
+    return response.text ?? "";
+  }
+
+  async function generateContent(prompt: string): Promise<string> {
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: prompt,
+    });
+    return response.text ?? "";
+  }
+
+  return { extractMemories, embedText, embedBatch, consolidateMemories, observeToolUse, generateContent };
 }

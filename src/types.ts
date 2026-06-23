@@ -256,16 +256,12 @@ export interface RankingWeights {
   keyword: number;
   semantic: number;
   confidence: number;
-  freshness: number;
-  reliability: number;
 }
 
 export const DEFAULT_RANKING_WEIGHTS: RankingWeights = {
-  keyword: 0.25,
-  semantic: 0.30,
-  confidence: 0.25,
-  freshness: 0.10,
-  reliability: 0.10,
+  keyword: 0.3,
+  semantic: 0.4,
+  confidence: 0.3,
 };
 
 export interface ExtractedMemory {

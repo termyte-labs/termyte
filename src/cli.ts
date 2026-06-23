@@ -11,6 +11,7 @@ import { applyDecay, deactivateLowConfidence } from "./memory/decay.js";
 import { SessionStore } from "./hook-system/session-store.js";
 import { SessionSearch } from "./hook-system/session-search.js";
 import { ResponseProcessor } from "./extraction/response-processor.js";
+import { PendingProcessor } from "./extraction/pending-processor.js";
 import { generateId, nowISO } from "./utils.js";
 
 function printUsage(): void {
@@ -29,6 +30,7 @@ Usage:
   termyte index [--reindex]                     Index memories for vector search
   termyte sessions list                         List captured sessions
   termyte sessions show <id>                    Show session details
+  termyte process [--batch <n>]                 Process pending hook messages through Gemini
   termyte hook                                  Process hook event from stdin
   termyte stats                                 Show memory statistics`);
 }
@@ -223,6 +225,21 @@ async function main(): Promise<number> {
       const dryRun = hasFlag(args, "--dry-run");
       const results = applyDecay(db, { dryRun });
       console.log(JSON.stringify({ dryRun, affected: results.length, results }, null, 2));
+      return 0;
+    }
+
+    if (command === "process") {
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) {
+        console.error("Missing GEMINI_API_KEY environment variable");
+        return 1;
+      }
+
+      const gemini = createGeminiClient(apiKey);
+      const processor = new PendingProcessor(db, gemini, cwd);
+      const batchSizeOpt = requireArg(args, "--batch");
+      const result = await processor.processPending({ batchSize: batchSizeOpt ? parseInt(batchSizeOpt) : 10 });
+      console.log(JSON.stringify(result));
       return 0;
     }
 
