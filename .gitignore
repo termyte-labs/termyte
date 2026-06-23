@@ -1,8 +1,7 @@
-node_modules/
-dist/
-.termyte/
-*.db
-*.db-wal
-*.db-shm
-.env
-.env.*
+node_modules
+dist
+.termyte
+.DS_Store
+*.log
+
+docs/

@@ -9,13 +9,16 @@ interface MemoryRow {
   language: string | null;
   ast_anchors: string | null;
   sources: string;
+  files_read: string | null;
+  files_modified: string | null;
+  concepts: string | null;
   success_count: number;
   failure_count: number;
   confidence: number;
-  last_verified: string | null;
+  last_outcome_at: string | null;
+  last_outcome_type: string | null;
   created_at: string;
   updated_at: string;
-  consolidated_from: string | null;
   is_active: number;
 }
 
@@ -28,13 +31,16 @@ export function rowToMemory(row: MemoryRow): Memory {
     language: row.language ?? undefined,
     astAnchors: row.ast_anchors ? JSON.parse(row.ast_anchors) : undefined,
     sources: JSON.parse(row.sources),
+    filesRead: row.files_read ?? undefined,
+    filesModified: row.files_modified ?? undefined,
+    concepts: row.concepts ?? undefined,
     successCount: row.success_count,
     failureCount: row.failure_count,
     confidence: row.confidence,
-    lastVerified: row.last_verified ?? undefined,
+    lastOutcomeAt: row.last_outcome_at ?? undefined,
+    lastOutcomeType: row.last_outcome_type ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    consolidatedFrom: row.consolidated_from ? JSON.parse(row.consolidated_from) : undefined,
     isActive: row.is_active === 1,
   };
 }
@@ -122,22 +128,24 @@ export class MemoryStore {
     const mem = this.getById(id);
     if (!mem) return;
     const newConfidence = Math.min(0.99, mem.confidence + 0.1);
+    const now = new Date().toISOString();
     this.db.prepare(`
       UPDATE memories
-      SET success_count = success_count + 1, confidence = ?, updated_at = ?, last_verified = ?
+      SET success_count = success_count + 1, confidence = ?, updated_at = ?, last_outcome_at = ?, last_outcome_type = 'success'
       WHERE id = ?
-    `).run(newConfidence, new Date().toISOString(), new Date().toISOString(), id);
+    `).run(newConfidence, now, now, id);
   }
 
   recordFailure(id: string): void {
     const mem = this.getById(id);
     if (!mem) return;
     const newConfidence = Math.max(0.05, mem.confidence - 0.15);
+    const now = new Date().toISOString();
     this.db.prepare(`
       UPDATE memories
-      SET failure_count = failure_count + 1, confidence = ?, updated_at = ?
+      SET failure_count = failure_count + 1, confidence = ?, updated_at = ?, last_outcome_at = ?, last_outcome_type = 'failure'
       WHERE id = ?
-    `).run(newConfidence, new Date().toISOString(), id);
+    `).run(newConfidence, now, now, id);
   }
 
   deactivate(id: string): void {

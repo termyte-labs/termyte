@@ -10,8 +10,9 @@ export interface DecayResult {
 }
 
 export function computeDecayScore(memory: Memory): number {
-  const ageFactor = Math.exp(-(daysSince(memory.lastVerified ?? memory.updatedAt)) / 60);
-  const usageFactor = memory.lastVerified && daysSince(memory.lastVerified) < 30 ? 1.0 : 0.5;
+  const lastUsed = memory.lastOutcomeAt ?? memory.updatedAt;
+  const ageFactor = Math.exp(-daysSince(lastUsed) / 60);
+  const usageFactor = memory.lastOutcomeAt && daysSince(memory.lastOutcomeAt) < 30 ? 1.0 : 0.5;
   return clamp(ageFactor * usageFactor, 0, 1);
 }
 
@@ -24,13 +25,14 @@ export function applyDecay(db: Database.Database, options: { threshold?: number;
     confidence: number;
     success_count: number;
     failure_count: number;
-    last_verified: string | null;
+    last_outcome_at: string | null;
     updated_at: string;
   }>;
 
   for (const mem of memories) {
     const oldConfidence = mem.confidence;
-    const ageDays = daysSince(mem.last_verified ?? mem.updated_at);
+    const lastUsed = mem.last_outcome_at ?? mem.updated_at;
+    const ageDays = daysSince(lastUsed);
     const ageFactor = Math.exp(-ageDays / 60);
     const reliabilityFactor = (mem.success_count + 1) / (mem.success_count + mem.failure_count + 2);
     const newConfidence = clamp(oldConfidence * ageFactor * 0.5 + reliabilityFactor * 0.5, 0.05, 0.99);

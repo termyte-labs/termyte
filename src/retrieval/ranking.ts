@@ -1,4 +1,4 @@
-import type { Memory, MemoryWithScore, RankingWeights, DEFAULT_RANKING_WEIGHTS } from "../types.js";
+import type { Memory, MemoryWithScore, RankingWeights } from "../types.js";
 import { daysSince, clamp } from "../utils.js";
 
 export function rankMemories(
@@ -31,7 +31,7 @@ export function rankMemories(
     const normalizedSemantic = semantic / maxSemantic;
 
     const confidenceFactor = memory.confidence;
-    const freshnessFactor = computeFreshness(memory.lastVerified ?? memory.updatedAt);
+    const freshnessFactor = computeFreshness(memory.lastOutcomeAt ?? memory.updatedAt);
     const reliabilityFactor = computeReliability(memory.successCount, memory.failureCount);
 
     const combinedScore =
@@ -58,8 +58,8 @@ export function rankMemories(
   return results.slice(0, limit);
 }
 
-export function computeFreshness(lastVerified: string): number {
-  const ageDays = daysSince(lastVerified);
+export function computeFreshness(lastUsed: string): number {
+  const ageDays = daysSince(lastUsed);
   return Math.exp(-ageDays / 60);
 }
 

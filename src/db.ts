@@ -27,87 +27,93 @@ export function openDatabase(dbPath: string): DatabaseContext {
 export function initSchema(db: Database.Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS sessions (
-      id TEXT PRIMARY KEY,
-      agent TEXT NOT NULL,
-      workspace_root TEXT NOT NULL,
-      branch TEXT,
-      start_commit TEXT,
-      end_commit TEXT,
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      content_session_id TEXT UNIQUE NOT NULL,
+      memory_session_id TEXT UNIQUE,
+      project TEXT NOT NULL,
+      platform_source TEXT NOT NULL DEFAULT 'termyte',
+      user_prompt TEXT,
       started_at TEXT NOT NULL,
-      ended_at TEXT,
-      status TEXT NOT NULL DEFAULT 'running',
-      summary TEXT
+      started_at_epoch INTEGER NOT NULL,
+      completed_at TEXT,
+      completed_at_epoch INTEGER,
+      status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','completed','failed')),
+      prompt_counter INTEGER DEFAULT 0,
+      custom_title TEXT
     );
+    CREATE INDEX IF NOT EXISTS idx_sessions_content ON sessions(content_session_id);
+    CREATE INDEX IF NOT EXISTS idx_sessions_memory ON sessions(memory_session_id);
+    CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project);
+    CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
+    CREATE INDEX IF NOT EXISTS idx_sessions_started ON sessions(started_at_epoch DESC);
 
-    CREATE TABLE IF NOT EXISTS events (
-      id TEXT PRIMARY KEY,
-      session_id TEXT NOT NULL REFERENCES sessions(id),
-      timestamp TEXT NOT NULL,
-      source TEXT NOT NULL,
-      actor_type TEXT NOT NULL,
-      actor_name TEXT,
-      event_type TEXT NOT NULL,
-      status TEXT NOT NULL,
-      summary TEXT NOT NULL,
-      correlation_id TEXT,
-      confidence REAL DEFAULT 1.0
+    CREATE TABLE IF NOT EXISTS observations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      memory_session_id TEXT NOT NULL,
+      project TEXT NOT NULL,
+      text TEXT,
+      type TEXT NOT NULL,
+      title TEXT,
+      subtitle TEXT,
+      facts TEXT,
+      narrative TEXT,
+      concepts TEXT,
+      files_read TEXT,
+      files_modified TEXT,
+      prompt_number INTEGER,
+      discovery_tokens INTEGER DEFAULT 0,
+      content_hash TEXT,
+      agent_type TEXT,
+      agent_id TEXT,
+      generated_by_model TEXT,
+      relevance_count INTEGER DEFAULT 0,
+      metadata TEXT,
+      created_at TEXT NOT NULL,
+      created_at_epoch INTEGER NOT NULL,
+      UNIQUE(memory_session_id, content_hash)
     );
-    CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id);
-    CREATE INDEX IF NOT EXISTS idx_events_type ON events(event_type);
+    CREATE INDEX IF NOT EXISTS idx_observations_session ON observations(memory_session_id);
+    CREATE INDEX IF NOT EXISTS idx_observations_project ON observations(project);
+    CREATE INDEX IF NOT EXISTS idx_observations_type ON observations(type);
+    CREATE INDEX IF NOT EXISTS idx_observations_created ON observations(created_at_epoch DESC);
+    CREATE INDEX IF NOT EXISTS idx_observations_content_hash ON observations(content_hash, created_at_epoch);
+    CREATE INDEX IF NOT EXISTS idx_observations_agent_type ON observations(agent_type);
+    CREATE INDEX IF NOT EXISTS idx_observations_agent_id ON observations(agent_id);
 
-    CREATE TABLE IF NOT EXISTS raw_payloads (
-      event_id TEXT PRIMARY KEY REFERENCES events(id),
-      raw_json TEXT,
-      raw_text TEXT,
-      redacted INTEGER NOT NULL DEFAULT 0,
-      schema_version INTEGER NOT NULL DEFAULT 1
-    );
-
-    CREATE TABLE IF NOT EXISTS command_events (
-      event_id TEXT PRIMARY KEY REFERENCES events(id),
-      command TEXT NOT NULL,
-      shell TEXT,
+    CREATE TABLE IF NOT EXISTS pending_messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_db_id INTEGER NOT NULL,
+      content_session_id TEXT NOT NULL,
+      tool_use_id TEXT,
+      message_type TEXT NOT NULL CHECK(message_type IN ('observation','summarize')),
+      tool_name TEXT,
+      tool_input TEXT,
+      tool_response TEXT,
       cwd TEXT,
-      exit_code INTEGER,
-      stdout_excerpt TEXT,
-      stderr_excerpt TEXT,
-      duration_ms INTEGER,
-      semantic_id TEXT
+      last_user_message TEXT,
+      last_assistant_message TEXT,
+      prompt_number INTEGER,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','processing')),
+      created_at_epoch INTEGER NOT NULL,
+      agent_type TEXT,
+      agent_id TEXT
     );
+    CREATE INDEX IF NOT EXISTS idx_pending_session ON pending_messages(session_db_id);
+    CREATE INDEX IF NOT EXISTS idx_pending_status ON pending_messages(status);
+    CREATE INDEX IF NOT EXISTS idx_pending_content ON pending_messages(content_session_id);
 
-    CREATE TABLE IF NOT EXISTS file_touches (
-      event_id TEXT PRIMARY KEY REFERENCES events(id),
-      path TEXT NOT NULL,
-      operation TEXT NOT NULL,
-      before_hash TEXT,
-      after_hash TEXT,
-      lines_added INTEGER,
-      lines_removed INTEGER,
-      diff_excerpt TEXT,
-      ast_anchors TEXT
+    CREATE TABLE IF NOT EXISTS user_prompts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      content_session_id TEXT NOT NULL,
+      prompt_number INTEGER NOT NULL,
+      prompt_text TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      created_at_epoch INTEGER NOT NULL
     );
-
-    CREATE TABLE IF NOT EXISTS failures (
-      id TEXT PRIMARY KEY,
-      session_id TEXT NOT NULL REFERENCES sessions(id),
-      event_id TEXT REFERENCES events(id),
-      fingerprint TEXT NOT NULL,
-      category TEXT NOT NULL,
-      message TEXT NOT NULL,
-      failing_file TEXT,
-      failing_test TEXT,
-      command TEXT,
-      first_seen_at TEXT NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_failures_fingerprint ON failures(fingerprint);
-    CREATE INDEX IF NOT EXISTS idx_failures_session ON failures(session_id);
-
-    CREATE TABLE IF NOT EXISTS event_links (
-      from_event_id TEXT NOT NULL REFERENCES events(id),
-      to_event_id TEXT NOT NULL REFERENCES events(id),
-      relation TEXT NOT NULL,
-      PRIMARY KEY (from_event_id, to_event_id, relation)
-    );
+    CREATE INDEX IF NOT EXISTS idx_prompts_session ON user_prompts(content_session_id);
+    CREATE INDEX IF NOT EXISTS idx_prompts_created ON user_prompts(created_at_epoch DESC);
+    CREATE INDEX IF NOT EXISTS idx_prompts_number ON user_prompts(prompt_number);
+    CREATE INDEX IF NOT EXISTS idx_prompts_lookup ON user_prompts(content_session_id, prompt_number);
 
     CREATE TABLE IF NOT EXISTS memories (
       id TEXT PRIMARY KEY,
@@ -117,13 +123,17 @@ export function initSchema(db: Database.Database): void {
       language TEXT,
       ast_anchors TEXT,
       sources TEXT NOT NULL DEFAULT '[]',
+      files_read TEXT,
+      files_modified TEXT,
+      concepts TEXT,
+      embedding BLOB,
       success_count INTEGER NOT NULL DEFAULT 0,
       failure_count INTEGER NOT NULL DEFAULT 0,
       confidence REAL NOT NULL DEFAULT 0.5,
-      last_verified TEXT,
+      last_outcome_at TEXT,
+      last_outcome_type TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
-      consolidated_from TEXT,
       is_active INTEGER NOT NULL DEFAULT 1
     );
     CREATE INDEX IF NOT EXISTS idx_memories_type ON memories(type);
@@ -137,7 +147,7 @@ export function initSchema(db: Database.Database): void {
       context TEXT,
       outcome TEXT NOT NULL,
       outcome_detail TEXT,
-      session_id TEXT REFERENCES sessions(id)
+      session_id TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_feedback_memory ON memory_feedback(memory_id);
 
@@ -158,13 +168,21 @@ export function initSchema(db: Database.Database): void {
 
   try {
     db.exec(`
+      CREATE VIRTUAL TABLE IF NOT EXISTS observations_fts USING fts5(
+        title, subtitle, narrative, text, facts, concepts,
+        content='observations', content_rowid='id',
+        tokenize='porter unicode61'
+      );
+    `);
+  } catch {
+    // FTS5 table may already exist
+  }
+
+  try {
+    db.exec(`
       CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
-        claim,
-        type,
-        repo_scope,
-        language,
-        content='memories',
-        content_rowid='rowid',
+        claim, type, repo_scope, language,
+        content='memories', content_rowid='rowid',
         tokenize='porter unicode61'
       );
     `);

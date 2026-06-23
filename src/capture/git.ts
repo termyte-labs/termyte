@@ -1,5 +1,4 @@
 import { execSync } from "node:child_process";
-import type { CaptureEngine } from "./index.js";
 
 export interface GitDiffResult {
   files: Array<{
@@ -58,40 +57,4 @@ export function captureGitStatus(workspaceRoot: string): string {
   } catch {
     return "";
   }
-}
-
-export function recordGitEvents(
-  capture: CaptureEngine,
-  sessionId: string,
-  workspaceRoot: string,
-): string[] {
-  const eventIds: string[] = [];
-
-  const diff = captureGitDiff(workspaceRoot);
-  if (diff) {
-    const event = capture.recordEvent({
-      sessionId,
-      source: "git",
-      actorType: "agent",
-      eventType: "git_operation",
-      summary: `Git diff: ${diff.files.length} files changed on branch ${diff.branch}`,
-      rawPayload: { diff: diff.diff.slice(0, 5000), files: diff.files },
-    });
-    eventIds.push(event.id);
-  }
-
-  const status = captureGitStatus(workspaceRoot);
-  if (status) {
-    const event = capture.recordEvent({
-      sessionId,
-      source: "git",
-      actorType: "agent",
-      eventType: "git_operation",
-      summary: `Git status: ${status.split("\n").length} changed files`,
-      rawPayload: { status },
-    });
-    eventIds.push(event.id);
-  }
-
-  return eventIds;
 }

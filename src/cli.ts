@@ -3,13 +3,14 @@ import path from "node:path";
 import { defaultDbPath, openDatabase } from "./db.js";
 import { CaptureEngine } from "./capture/index.js";
 import { createMemoryEngine } from "./memory/index.js";
-import { createGeminiClient, type GeminiClient } from "./extraction/gemini.js";
-import { extractMemoriesFromTrace, buildTraceSummary } from "./extraction/index.js";
+import { createGeminiClient } from "./extraction/gemini.js";
 import { createRetrievalEngine } from "./retrieval/index.js";
-import { buildInjectionContext, formatForAgent } from "./retrieval/inject.js";
+import { formatForAgent } from "./retrieval/inject.js";
 import { recordFeedback, getFeedbackStats } from "./feedback/index.js";
 import { applyDecay, deactivateLowConfidence } from "./memory/decay.js";
-import { recordGitEvents } from "./capture/git.js";
+import { SessionStore } from "./hook-system/session-store.js";
+import { SessionSearch } from "./hook-system/session-search.js";
+import { ResponseProcessor } from "./extraction/response-processor.js";
 import { generateId, nowISO } from "./utils.js";
 
 function printUsage(): void {
@@ -17,9 +18,8 @@ function printUsage(): void {
 
 Usage:
   termyte init                                  Initialize .termyte/ directory
-  termyte capture start --agent <name>          Start a session capture
+  termyte capture start [--session <id>]        Start a session capture
   termyte capture end --session <id>            End session and extract memories
-  termyte capture event --session <id> --type <type> --summary <text>
   termyte search "<query>" [--scope <scope>]    Search memories
   termyte inject --task "<task>" [--scope <s>]  Generate context for agent
   termyte memories list [--type <type>]         List stored memories
@@ -29,6 +29,7 @@ Usage:
   termyte index [--reindex]                     Index memories for vector search
   termyte sessions list                         List captured sessions
   termyte sessions show <id>                    Show session details
+  termyte hook                                  Process hook event from stdin
   termyte stats                                 Show memory statistics`);
 }
 
@@ -54,6 +55,7 @@ async function main(): Promise<number> {
   const cwd = process.cwd();
   const dbPath = defaultDbPath(cwd);
   const { db } = openDatabase(dbPath);
+  const project = path.basename(cwd);
 
   try {
     if (command === "init") {
@@ -67,88 +69,30 @@ async function main(): Promise<number> {
       const capture = new CaptureEngine(db);
 
       if (subcommand === "start") {
-        const agent = requireArg(args, "--agent") ?? "unknown";
-        const branch = requireArg(args, "--branch");
-        const session = capture.startSession(agent, cwd, branch);
-        console.log(JSON.stringify({ sessionId: session.id, agent: session.agent, startedAt: session.startedAt }));
-        return 0;
-      }
-
-      if (subcommand === "end") {
-        const sessionId = requireArg(args, "--session");
-        if (!sessionId) {
-          console.error("Missing --session <id>");
-          return 1;
-        }
-
-        const apiKey = process.env.GEMINI_API_KEY;
-        if (!apiKey) {
-          console.error("Missing GEMINI_API_KEY environment variable");
-          return 1;
-        }
-
-        const gemini = createGeminiClient(apiKey);
-        const events = capture.getEvents(sessionId);
-        const session = capture.getSession(sessionId);
-
-        if (events.length === 0) {
-          capture.endSession(sessionId, "completed", "No events recorded");
-          console.log(JSON.stringify({ sessionId, eventsExtracted: 0, memoriesExtracted: 0 }));
-          return 0;
-        }
-
-        const trace = buildTraceSummary(events);
-        const sourceIds = events.map((e) => e.id);
-        const repoScope = path.basename(cwd);
-
-        const extraction = await extractMemoriesFromTrace(gemini, trace, repoScope, sourceIds);
-
-        const memoryEngine = createMemoryEngine(db);
-        const retrieval = createRetrievalEngine(db, gemini);
-        let createdCount = 0;
-
-        for (const extracted of extraction.memories) {
-          memoryEngine.createMemory({
-            claim: extracted.claim,
-            type: extracted.type,
-            repoScope,
-            language: extracted.language,
-            sources: extracted.sources,
-          });
-          createdCount++;
-        }
-
-        capture.endSession(sessionId, "completed", `Extracted ${createdCount} memories`);
-
+        const contentSessionId = requireArg(args, "--session");
+        const session = capture.startSession(project, "termyte", undefined, contentSessionId);
         console.log(JSON.stringify({
-          sessionId,
-          eventsExtracted: events.length,
-          memoriesExtracted: createdCount,
-          repoScope,
+          contentSessionId: session.contentSessionId,
+          memorySessionId: session.memorySessionId,
+          project: session.project,
+          startedAt: session.startedAt,
         }));
         return 0;
       }
 
-      if (subcommand === "event") {
-        const sessionId = requireArg(args, "--session");
-        const eventType = requireArg(args, "--type") ?? "summary";
-        const summary = requireArg(args, "--summary");
-        if (!sessionId || !summary) {
-          console.error("Usage: termyte capture event --session <id> --type <type> --summary <text>");
+      if (subcommand === "end") {
+        const contentSessionId = requireArg(args, "--session");
+        if (!contentSessionId) {
+          console.error("Missing --session <id>");
           return 1;
         }
-        const event = capture.recordEvent({
-          sessionId,
-          source: "cli",
-          actorType: "agent",
-          eventType: eventType as never,
-          summary,
-        });
-        console.log(JSON.stringify({ eventId: event.id }));
+
+        capture.endSession(contentSessionId, "completed");
+        console.log(JSON.stringify({ contentSessionId, status: "completed" }));
         return 0;
       }
 
-      console.error("Usage: termyte capture start|end|event");
+      console.error("Usage: termyte capture start|end");
       return 1;
     }
 
@@ -304,32 +248,90 @@ async function main(): Promise<number> {
 
     if (command === "sessions") {
       const subcommand = args[1];
-      const capture = new CaptureEngine(db);
+      const sessionStore = new SessionStore(db);
+      const sessionSearch = new SessionSearch(db);
 
       if (subcommand === "list") {
-        const sessions = capture.listSessions(20);
-        console.log(JSON.stringify(sessions, null, 2));
+        const sessions = sessionStore.listSessions({ limit: 20 });
+        console.log(JSON.stringify(sessions.map((s) => ({
+          contentSessionId: s.contentSessionId,
+          memorySessionId: s.memorySessionId,
+          project: s.project,
+          platformSource: s.platformSource,
+          status: s.status,
+          promptCounter: s.promptCounter,
+          startedAt: s.startedAt,
+          completedAt: s.completedAt,
+        })), null, 2));
         return 0;
       }
 
       if (subcommand === "show") {
-        const id = args[2];
-        if (!id) {
-          console.error("Usage: termyte sessions show <id>");
+        const contentSessionId = args[2];
+        if (!contentSessionId) {
+          console.error("Usage: termyte sessions show <content_session_id>");
           return 1;
         }
-        const session = capture.getSession(id);
+        const session = sessionStore.getSessionByContentId(contentSessionId);
         if (!session) {
-          console.error(`Session not found: ${id}`);
+          console.error(`Session not found: ${contentSessionId}`);
           return 1;
         }
-        const events = capture.getEvents(id);
-        console.log(JSON.stringify({ session, events }, null, 2));
+        const observations = sessionSearch.getObservationsForSession(session.memorySessionId!);
+        console.log(JSON.stringify({ session, observationCount: observations.length }, null, 2));
         return 0;
       }
 
       console.error("Usage: termyte sessions list|show");
       return 1;
+    }
+
+    if (command === "hook") {
+      const rawInput = await new Promise<string>((resolve) => {
+        const chunks: Buffer[] = [];
+        process.stdin.on("data", (chunk) => chunks.push(chunk));
+        process.stdin.on("end", () => resolve(Buffer.concat(chunks).toString("utf8").trim()));
+      });
+
+      if (!rawInput) {
+        console.log(JSON.stringify({ continue: true, suppressOutput: true }));
+        return 0;
+      }
+
+      const hookInput = JSON.parse(rawInput);
+      const platform = hookInput.platform ?? "raw";
+      const sessionStore = new SessionStore(db);
+      const responseProcessor = new ResponseProcessor({ db, workspaceRoot: cwd });
+
+      const session = sessionStore.getSessionByContentId(hookInput.sessionId);
+      if (!session) {
+        console.log(JSON.stringify({ continue: true, suppressOutput: true }));
+        return 0;
+      }
+
+      if (hookInput.toolName && hookInput.toolResponse) {
+        await responseProcessor.processToolUse({
+          sessionId: hookInput.sessionId,
+          cwd: hookInput.cwd ?? cwd,
+          toolName: hookInput.toolName,
+          toolInput: hookInput.toolInput,
+          toolResponse: hookInput.toolResponse,
+          prompt: hookInput.prompt,
+          lastAssistantMessage: hookInput.lastAssistantMessage,
+          agentType: hookInput.agentType,
+          agentId: hookInput.agentId,
+        });
+      }
+
+      console.log(JSON.stringify({
+        continue: true,
+        suppressOutput: true,
+        hookSpecificOutput: {
+          hookEventName: "termyte",
+          additionalContext: "",
+        },
+      }));
+      return 0;
     }
 
     if (command === "stats") {
@@ -341,9 +343,14 @@ async function main(): Promise<number> {
       const conventions = memoryEngine.countMemories({ type: "convention" });
       const warnings = memoryEngine.countMemories({ type: "warning" });
 
+      const sessionCount = db.prepare("SELECT COUNT(*) as cnt FROM sessions").get() as { cnt: number };
+      const observationCount = db.prepare("SELECT COUNT(*) as cnt FROM observations").get() as { cnt: number };
+
       console.log(JSON.stringify({
         total,
         byType: { facts, bugfixes, procedures, conventions, warnings },
+        sessions: sessionCount.cnt,
+        observations: observationCount.cnt,
         databasePath: dbPath,
       }, null, 2));
       return 0;

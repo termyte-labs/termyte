@@ -1,101 +1,186 @@
 export type MemoryType = "fact" | "bugfix" | "procedure" | "convention" | "warning";
 
-export type EventSource = "hook" | "mcp" | "cli" | "git" | "watcher" | "manual";
+export type PlatformSource = "termyte" | "claude-code" | "codex" | "cursor" | "windsurf" | "gemini-cli";
 
 export type ActorType = "human" | "agent" | "tool" | "system";
 
-export type EventType =
-  | "prompt"
-  | "tool_call"
-  | "command"
-  | "file_read"
-  | "file_write"
-  | "file_delete"
-  | "git_operation"
-  | "test_run"
-  | "build_run"
-  | "approval"
-  | "error"
-  | "verification"
-  | "summary";
+export type ObservationType =
+  | "bugfix"
+  | "discovery"
+  | "decision"
+  | "refactor"
+  | "optimization"
+  | "test"
+  | "documentation"
+  | "configuration"
+  | "dependency"
+  | "security"
+  | "performance"
+  | "architecture"
+  | "investigation";
 
 export type EventStatus = "started" | "succeeded" | "failed" | "blocked" | "unknown";
 
-export type SessionStatus = "running" | "completed" | "failed" | "interrupted";
+export type SessionStatus = "active" | "completed" | "failed";
 
-export type FailureCategory =
-  | "test"
-  | "build"
-  | "typecheck"
-  | "runtime"
-  | "dependency"
-  | "auth"
-  | "database"
-  | "deployment"
-  | "unknown";
+export type PendingMessageType = "observation" | "summarize";
 
-export type FileOperation = "read" | "write" | "patch" | "delete" | "rename";
+export type PendingMessageStatus = "pending" | "processing";
 
 export type FeedbackOutcome = "success" | "failure" | "ignored";
 
-export interface Session {
-  id: string;
-  agent: string;
-  workspaceRoot: string;
-  branch?: string;
-  startCommit?: string;
-  endCommit?: string;
-  startedAt: string;
-  endedAt?: string;
-  status: SessionStatus;
-  summary?: string;
-}
+export type FileOperation = "read" | "write" | "patch" | "delete" | "rename";
 
-export interface Event {
-  id: string;
+// --- Hook System Types ---
+
+export interface NormalizedHookInput {
   sessionId: string;
-  timestamp: string;
-  source: EventSource;
-  actorType: ActorType;
-  actorName?: string;
-  eventType: EventType;
-  status: EventStatus;
-  summary: string;
-  correlationId?: string;
-  confidence: number;
+  cwd: string;
+  platform?: string;
+  prompt?: string;
+  toolName?: string;
+  toolInput?: unknown;
+  toolResponse?: unknown;
+  transcriptPath?: string;
+  lastAssistantMessage?: string;
+  turnId?: string;
+  stopHookActive?: boolean;
+  permissionMode?: string;
+  model?: string;
+  sessionSource?: "startup" | "resume" | "clear";
+  filePath?: string;
+  edits?: unknown[];
+  agentId?: string;
+  agentType?: string;
 }
 
-export interface RawEventPayload {
-  eventId: string;
-  rawJson?: string;
-  rawText?: string;
-  redacted: boolean;
-  schemaVersion: number;
-}
-
-export interface CommandEvent {
-  eventId: string;
-  command: string;
-  shell?: string;
-  cwd?: string;
+export interface HookResult {
+  continue?: boolean;
+  suppressOutput?: boolean;
+  hookSpecificOutput?: {
+    hookEventName: string;
+    additionalContext?: string;
+    permissionDecision?: "allow" | "deny";
+    permissionDecisionReason?: string;
+    updatedInput?: Record<string, unknown>;
+  };
+  systemMessage?: string;
+  decision?: "block" | "approve";
+  reason?: string;
   exitCode?: number;
-  stdoutExcerpt?: string;
-  stderrExcerpt?: string;
-  durationMs?: number;
-  semanticId?: string;
 }
 
-export interface FileTouch {
-  eventId: string;
-  path: string;
-  operation: FileOperation;
-  beforeHash?: string;
-  afterHash?: string;
-  linesAdded?: number;
-  linesRemoved?: number;
-  diffExcerpt?: string;
-  astAnchors?: ASTAnchor[];
+export interface PlatformAdapter {
+  normalizeInput(raw: unknown): NormalizedHookInput;
+  formatOutput(result: HookResult): unknown;
 }
+
+export interface EventHandler {
+  execute(input: NormalizedHookInput): Promise<HookResult>;
+}
+
+// --- Storage Types ---
+
+export interface Session {
+  id: number;
+  contentSessionId: string;
+  memorySessionId?: string;
+  project: string;
+  platformSource: PlatformSource;
+  userPrompt?: string;
+  startedAt: string;
+  startedAtEpoch: number;
+  completedAt?: string;
+  completedAtEpoch?: number;
+  status: SessionStatus;
+  promptCounter: number;
+  customTitle?: string;
+}
+
+export interface Observation {
+  id: number;
+  memorySessionId: string;
+  project: string;
+  text?: string;
+  type: string;
+  title?: string;
+  subtitle?: string;
+  facts?: string;
+  narrative?: string;
+  concepts?: string;
+  filesRead?: string;
+  filesModified?: string;
+  promptNumber?: number;
+  discoveryTokens: number;
+  contentHash?: string;
+  agentType?: string;
+  agentId?: string;
+  generatedByModel?: string;
+  relevanceCount: number;
+  metadata?: string;
+  createdAt: string;
+  createdAtEpoch: number;
+}
+
+export interface PendingMessage {
+  id: number;
+  sessionDbId: number;
+  contentSessionId: string;
+  toolUseId?: string;
+  messageType: PendingMessageType;
+  toolName?: string;
+  toolInput?: string;
+  toolResponse?: string;
+  cwd?: string;
+  lastUserMessage?: string;
+  lastAssistantMessage?: string;
+  promptNumber?: number;
+  status: PendingMessageStatus;
+  createdAtEpoch: number;
+  agentType?: string;
+  agentId?: string;
+}
+
+export interface UserPrompt {
+  id: number;
+  contentSessionId: string;
+  promptNumber: number;
+  promptText: string;
+  createdAt: string;
+  createdAtEpoch: number;
+}
+
+// --- Extraction Types ---
+
+export interface ParsedObservation {
+  type: string;
+  title: string | null;
+  subtitle: string | null;
+  facts: string[];
+  narrative: string | null;
+  concepts: string[];
+  files_read: string[];
+  files_modified: string[];
+}
+
+export interface ParsedSummary {
+  request: string | null;
+  investigated: string | null;
+  learned: string | null;
+  completed: string | null;
+  next_steps: string | null;
+  notes: string | null;
+  skipped?: boolean;
+  skip_reason?: string | null;
+}
+
+export type ParseResult =
+  | { valid: true; observations: ParsedObservation[]; summary: ParsedSummary | null }
+  | { valid: false };
+
+export type ObserverOutputClass = "xml" | "idle" | "prose" | "poisoned";
+
+// --- Existing Types (kept) ---
 
 export interface ASTAnchor {
   kind: string;
@@ -106,25 +191,6 @@ export interface ASTAnchor {
   language: string;
 }
 
-export interface Failure {
-  id: string;
-  sessionId: string;
-  eventId?: string;
-  fingerprint: string;
-  category: FailureCategory;
-  message: string;
-  failingFile?: string;
-  failingTest?: string;
-  command?: string;
-  firstSeenAt: string;
-}
-
-export interface EventLink {
-  fromEventId: string;
-  toEventId: string;
-  relation: "caused" | "followed_by" | "modified" | "read_before" | "failed_in" | "fixed_by" | "verified_by";
-}
-
 export interface Memory {
   id: string;
   claim: string;
@@ -133,13 +199,19 @@ export interface Memory {
   language?: string;
   astAnchors?: ASTAnchor[];
   sources: string[];
+  filesRead?: string;
+  filesModified?: string;
+  concepts?: string;
+  embedding?: Buffer;
   successCount: number;
   failureCount: number;
   confidence: number;
   lastVerified?: string;
+  lastOutcomeAt?: string;
+  lastOutcomeType?: string;
   createdAt: string;
   updatedAt: string;
-  consolidatedFrom?: string[];
+  consolidatedFrom?: unknown;
   isActive: boolean;
 }
 
@@ -180,24 +252,6 @@ export interface SearchResult {
   totalCount: number;
 }
 
-export interface CaptureEvent {
-  sessionId: string;
-  source: EventSource;
-  actorType: ActorType;
-  actorName?: string;
-  eventType: EventType;
-  summary: string;
-  rawPayload?: unknown;
-}
-
-export interface ExtractedMemory {
-  claim: string;
-  type: MemoryType;
-  language?: string;
-  astAnchors?: ASTAnchor[];
-  sources: string[];
-}
-
 export interface RankingWeights {
   keyword: number;
   semantic: number;
@@ -208,8 +262,16 @@ export interface RankingWeights {
 
 export const DEFAULT_RANKING_WEIGHTS: RankingWeights = {
   keyword: 0.25,
-  semantic: 0.35,
-  confidence: 0.2,
-  freshness: 0.1,
-  reliability: 0.1,
+  semantic: 0.30,
+  confidence: 0.25,
+  freshness: 0.10,
+  reliability: 0.10,
 };
+
+export interface ExtractedMemory {
+  claim: string;
+  type: MemoryType;
+  language?: string;
+  astAnchors?: ASTAnchor[];
+  sources: string[];
+}

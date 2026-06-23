@@ -1,178 +1,76 @@
 import type Database from "better-sqlite3";
-import type { Session, Event, CaptureEvent, EventStatus, SessionStatus } from "../types.js";
-import { generateId, nowISO } from "../utils.js";
+import type { Session, Observation, PlatformSource, SessionStatus } from "../types.js";
+import { nowISO } from "../utils.js";
+import { SessionStore } from "../hook-system/session-store.js";
 
 export class CaptureEngine {
-  constructor(private readonly db: Database.Database) {}
+  private sessionStore: SessionStore;
 
-  startSession(agent: string, workspaceRoot: string, branch?: string): Session {
-    const id = generateId();
-    const now = nowISO();
-    this.db.prepare(`
-      INSERT INTO sessions (id, agent, workspace_root, branch, started_at, status)
-      VALUES (?, ?, ?, ?, ?, 'running')
-    `).run(id, agent, workspaceRoot, branch ?? null, now);
-    return { id, agent, workspaceRoot, branch, startedAt: now, status: "running" };
+  constructor(private readonly db: Database.Database) {
+    this.sessionStore = new SessionStore(db);
   }
 
-  endSession(sessionId: string, status: SessionStatus = "completed", summary?: string): void {
-    this.db.prepare(`
-      UPDATE sessions SET ended_at = ?, status = ?, summary = ? WHERE id = ?
-    `).run(nowISO(), status, summary ?? null, sessionId);
-  }
-
-  recordEvent(input: CaptureEvent): Event {
-    const id = generateId();
-    const now = nowISO();
-    this.db.prepare(`
-      INSERT INTO events (id, session_id, timestamp, source, actor_type, actor_name, event_type, status, summary, confidence)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1.0)
-    `).run(id, input.sessionId, now, input.source, input.actorType, input.actorName ?? null, input.eventType, "succeeded" satisfies EventStatus, input.summary);
-
-    if (input.rawPayload !== undefined) {
-      this.db.prepare(`
-        INSERT INTO raw_payloads (event_id, raw_json, redacted, schema_version)
-        VALUES (?, ?, 0, 1)
-      `).run(id, JSON.stringify(input.rawPayload));
-    }
-
-    return {
-      id,
-      sessionId: input.sessionId,
-      timestamp: now,
-      source: input.source,
-      actorType: input.actorType,
-      actorName: input.actorName,
-      eventType: input.eventType,
-      status: "succeeded",
-      summary: input.summary,
-      confidence: 1.0,
-    };
-  }
-
-  recordCommandEvent(
-    sessionId: string,
-    command: string,
-    options: {
-      shell?: string;
-      cwd?: string;
-      exitCode?: number;
-      stdout?: string;
-      stderr?: string;
-      durationMs?: number;
-      semanticId?: string;
-    } = {},
-  ): Event {
-    const event = this.recordEvent({
-      sessionId,
-      source: "cli",
-      actorType: "agent",
-      eventType: "command",
-      summary: command,
+  startSession(
+    project: string,
+    platformSource: PlatformSource = "termyte",
+    userPrompt?: string,
+    contentSessionId?: string,
+  ): Session {
+    return this.sessionStore.createSession({
+      contentSessionId,
+      project,
+      platformSource,
+      userPrompt,
     });
-
-    this.db.prepare(`
-      INSERT INTO command_events (event_id, command, shell, cwd, exit_code, stdout_excerpt, stderr_excerpt, duration_ms, semantic_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      event.id,
-      command,
-      options.shell ?? null,
-      options.cwd ?? null,
-      options.exitCode ?? null,
-      options.stdout ? options.stdout.slice(0, 1000) : null,
-      options.stderr ? options.stderr.slice(0, 1000) : null,
-      options.durationMs ?? null,
-      options.semanticId ?? null,
-    );
-
-    return event;
   }
 
-  getEvents(sessionId: string): Event[] {
-    const rows = this.db.prepare(`
-      SELECT id, session_id, timestamp, source, actor_type, actor_name, event_type, status, summary, correlation_id, confidence
-      FROM events WHERE session_id = ? ORDER BY timestamp
-    `).all(sessionId) as Array<{
-      id: string;
-      session_id: string;
-      timestamp: string;
-      source: string;
-      actor_type: string;
-      actor_name: string | null;
-      event_type: string;
-      status: string;
-      summary: string;
-      correlation_id: string | null;
-      confidence: number;
-    }>;
-    return rows.map((r) => ({
-      id: r.id,
-      sessionId: r.session_id,
-      timestamp: r.timestamp,
-      source: r.source as Event["source"],
-      actorType: r.actor_type as Event["actorType"],
-      actorName: r.actor_name ?? undefined,
-      eventType: r.event_type as Event["eventType"],
-      status: r.status as Event["status"],
-      summary: r.summary,
-      correlationId: r.correlation_id ?? undefined,
-      confidence: r.confidence,
-    }));
+  endSession(contentSessionId: string, status: SessionStatus = "completed"): void {
+    const now = nowISO();
+    const nowEpoch = Date.now();
+    this.db.prepare(
+      "UPDATE sessions SET status = ?, completed_at = ?, completed_at_epoch = ? WHERE content_session_id = ?"
+    ).run(status, now, nowEpoch, contentSessionId);
   }
 
-  getSession(id: string): Session | null {
-    const row = this.db.prepare("SELECT * FROM sessions WHERE id = ?").get(id) as {
-      id: string;
-      agent: string;
-      workspace_root: string;
-      branch: string | null;
-      start_commit: string | null;
-      end_commit: string | null;
-      started_at: string;
-      ended_at: string | null;
-      status: string;
-      summary: string | null;
-    } | undefined;
-    if (!row) return null;
+  getObservations(memorySessionId: string): Observation[] {
+    const rows = this.db.prepare(
+      "SELECT * FROM observations WHERE memory_session_id = ? ORDER BY created_at_epoch ASC"
+    ).all(memorySessionId) as any[];
+    return rows.map(this.rowToObservation);
+  }
+
+  getSession(contentSessionId: string): Session | null {
+    return this.sessionStore.getSessionByContentId(contentSessionId);
+  }
+
+  listSessions(limit = 20, project?: string): Session[] {
+    return this.sessionStore.listSessions({ limit, project });
+  }
+
+  private rowToObservation(row: any): Observation {
     return {
       id: row.id,
-      agent: row.agent,
-      workspaceRoot: row.workspace_root,
-      branch: row.branch ?? undefined,
-      startCommit: row.start_commit ?? undefined,
-      endCommit: row.end_commit ?? undefined,
-      startedAt: row.started_at,
-      endedAt: row.ended_at ?? undefined,
-      status: row.status as SessionStatus,
-      summary: row.summary ?? undefined,
+      memorySessionId: row.memory_session_id,
+      project: row.project,
+      text: row.text,
+      type: row.type,
+      title: row.title,
+      subtitle: row.subtitle,
+      facts: row.facts,
+      narrative: row.narrative,
+      concepts: row.concepts,
+      filesRead: row.files_read,
+      filesModified: row.files_modified,
+      promptNumber: row.prompt_number,
+      discoveryTokens: row.discovery_tokens,
+      contentHash: row.content_hash,
+      agentType: row.agent_type,
+      agentId: row.agent_id,
+      generatedByModel: row.generated_by_model,
+      relevanceCount: row.relevance_count,
+      metadata: row.metadata,
+      createdAt: row.created_at,
+      createdAtEpoch: row.created_at_epoch,
     };
-  }
-
-  listSessions(limit = 20): Session[] {
-    const rows = this.db.prepare("SELECT * FROM sessions ORDER BY started_at DESC LIMIT ?").all(limit) as Array<{
-      id: string;
-      agent: string;
-      workspace_root: string;
-      branch: string | null;
-      start_commit: string | null;
-      end_commit: string | null;
-      started_at: string;
-      ended_at: string | null;
-      status: string;
-      summary: string | null;
-    }>;
-    return rows.map((r) => ({
-      id: r.id,
-      agent: r.agent,
-      workspaceRoot: r.workspace_root,
-      branch: r.branch ?? undefined,
-      startCommit: r.start_commit ?? undefined,
-      endCommit: r.end_commit ?? undefined,
-      startedAt: r.started_at,
-      endedAt: r.ended_at ?? undefined,
-      status: r.status as SessionStatus,
-      summary: r.summary ?? undefined,
-    }));
   }
 }

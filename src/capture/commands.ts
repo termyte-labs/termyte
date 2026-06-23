@@ -1,6 +1,4 @@
 import { execSync } from "node:child_process";
-import type { CaptureEngine } from "./index.js";
-import { redactSecrets } from "../utils.js";
 
 export interface RunCommandOptions {
   cwd?: string;
@@ -41,30 +39,4 @@ export function runCommand(command: string, options: RunCommandOptions = {}): Co
       durationMs: Date.now() - start,
     };
   }
-}
-
-export function recordCommandExecution(
-  capture: CaptureEngine,
-  sessionId: string,
-  command: string,
-  result: CommandResult,
-): string {
-  const event = capture.recordCommandEvent(sessionId, command, {
-    exitCode: result.exitCode,
-    stdout: result.stdout,
-    stderr: result.stderr,
-    durationMs: result.durationMs,
-  });
-  return event.id;
-}
-
-export function runAndRecordCommand(
-  capture: CaptureEngine,
-  sessionId: string,
-  command: string,
-  options: RunCommandOptions = {},
-): CommandResult {
-  const result = runCommand(command, options);
-  recordCommandExecution(capture, sessionId, command, result);
-  return result;
 }

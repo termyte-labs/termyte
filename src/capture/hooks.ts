@@ -1,5 +1,5 @@
 import type Database from "better-sqlite3";
-import type { Event } from "../types.js";
+import type { NormalizedHookInput, ObservationType } from "../types.js";
 
 interface HookPayload {
   tool_name?: string;
@@ -18,9 +18,9 @@ export function normalizeHookEvent(
   phase: "pre" | "post",
   payload: HookPayload,
 ): {
-  eventType: Event["eventType"];
+  eventType: string;
   summary: string;
-  status: Event["status"];
+  status: string;
   rawPayload: HookPayload;
 } {
   const toolName = payload.tool_name ?? "unknown";

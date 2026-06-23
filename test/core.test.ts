@@ -15,7 +15,12 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  fs.rmSync(tmpDir, { recursive: true, force: true });
+  // Note: On Windows, SQLite WAL files may still be locked briefly after close
+  try {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  } catch {
+    // Ignore cleanup errors on Windows
+  }
 });
 
 describe("Database", () => {
@@ -25,7 +30,8 @@ describe("Database", () => {
     const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as Array<{ name: string }>;
     const tableNames = tables.map((t) => t.name);
     expect(tableNames).toContain("sessions");
-    expect(tableNames).toContain("events");
+    expect(tableNames).toContain("observations");
+    expect(tableNames).toContain("pending_messages");
     expect(tableNames).toContain("memories");
     expect(tableNames).toContain("memory_feedback");
     expect(tableNames).toContain("procedures");
@@ -38,38 +44,14 @@ describe("CaptureEngine", () => {
     const { db } = openDatabase(dbPath);
     const capture = new CaptureEngine(db);
 
-    const session = capture.startSession("claude", tmpDir, "main");
-    expect(session.id).toBeDefined();
-    expect(session.agent).toBe("claude");
-    expect(session.status).toBe("running");
+    const session = capture.startSession("test-project", "termyte");
+    expect(session.contentSessionId).toBeDefined();
+    expect(session.memorySessionId).toBeDefined();
+    expect(session.status).toBe("active");
 
-    capture.endSession(session.id, "completed", "Test session");
-    const retrieved = capture.getSession(session.id);
+    capture.endSession(session.contentSessionId, "completed");
+    const retrieved = capture.getSession(session.contentSessionId);
     expect(retrieved?.status).toBe("completed");
-    expect(retrieved?.summary).toBe("Test session");
-
-    closeDatabase({ db, dbPath });
-  });
-
-  it("records events", () => {
-    const { db } = openDatabase(dbPath);
-    const capture = new CaptureEngine(db);
-
-    const session = capture.startSession("claude", tmpDir);
-    const event = capture.recordEvent({
-      sessionId: session.id,
-      source: "cli",
-      actorType: "agent",
-      eventType: "command",
-      summary: "npm test",
-    });
-
-    expect(event.id).toBeDefined();
-    expect(event.summary).toBe("npm test");
-
-    const events = capture.getEvents(session.id);
-    expect(events).toHaveLength(1);
-    expect(events[0].summary).toBe("npm test");
 
     closeDatabase({ db, dbPath });
   });
@@ -159,7 +141,7 @@ describe("Decay", () => {
       successCount: 5,
       failureCount: 0,
       confidence: 0.9,
-      lastVerified: now,
+      lastOutcomeAt: now,
       createdAt: now,
       updatedAt: now,
       isActive: true,
@@ -168,7 +150,7 @@ describe("Decay", () => {
     const staleMemory = {
       ...freshMemory,
       id: "2",
-      lastVerified: old,
+      lastOutcomeAt: old,
       updatedAt: old,
     };
 
