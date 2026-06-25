@@ -16,8 +16,6 @@ export { buildSystemPrompt, buildObservationPrompt, buildConsolidationPrompt, bu
 
 export {
   type EmbeddingsProvider,
-  type OpenAIEmbeddingsConfig,
-  OpenAIEmbeddingsProvider,
   NoOpEmbeddingsProvider,
 } from "./retrieval/embeddings.js";
 export { LocalEmbeddingsProvider, detectRepoId, detectWorkspaceRoot, type LocalEmbeddingsConfig, type LocalModelId } from "./retrieval/local-embeddings.js";
@@ -51,7 +49,8 @@ export { loadConfig, type TermyteConfig } from "./cli/config.js";
 import { Store } from "./storage/store.js";
 import { Observer } from "./observer/pipeline.js";
 import { OpenAICompatibleProvider, type OpenAIProviderConfig } from "./observer/openai-provider.js";
-import { OpenAIEmbeddingsProvider, NoOpEmbeddingsProvider, type OpenAIEmbeddingsConfig } from "./retrieval/embeddings.js";
+import { NoOpEmbeddingsProvider } from "./retrieval/embeddings.js";
+import { LocalEmbeddingsProvider, type LocalModelId } from "./retrieval/local-embeddings.js";
 import { FTSSearch } from "./retrieval/fts.js";
 import { VectorSearch } from "./retrieval/vector.js";
 import { HybridSearch } from "./retrieval/hybrid.js";
@@ -61,7 +60,12 @@ import { HookRunner } from "./hooks/runner.js";
 export interface TermyteOptions {
   dbPath?: string;
   llm: OpenAIProviderConfig;
-  embeddings?: OpenAIEmbeddingsConfig;
+  /**
+   * Local embedding model. Default: "nomic-embed" (Nomic Embed Text v1.5,
+   * 768 dims, runs locally via @xenova/transformers — no API calls).
+   * Pass `model: null` to disable embeddings (FTS-only retrieval).
+   */
+  embeddings?: { model: LocalModelId | null };
 }
 
 export interface TermyteInstance {
@@ -76,8 +80,8 @@ export interface TermyteInstance {
 export function createTermyte(options: TermyteOptions): TermyteInstance {
   const store = new Store(options.dbPath ?? "./termyte.db");
   const llm = new OpenAICompatibleProvider(options.llm);
-  const embeddings = options.embeddings
-    ? new OpenAIEmbeddingsProvider(options.embeddings)
+  const embeddings = options.embeddings?.model
+    ? new LocalEmbeddingsProvider({ model: options.embeddings.model })
     : new NoOpEmbeddingsProvider();
   const observer = new Observer({ store, llm, embeddings });
   const fts = new FTSSearch(store);

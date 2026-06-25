@@ -3,7 +3,7 @@ import { Store } from "../storage/store.js";
 import { FTSSearch } from "../retrieval/fts.js";
 import { VectorSearch } from "../retrieval/vector.js";
 import { HybridSearch } from "../retrieval/hybrid.js";
-import { OpenAIEmbeddingsProvider, NoOpEmbeddingsProvider } from "../retrieval/embeddings.js";
+import { LocalEmbeddingsProvider } from "../retrieval/local-embeddings.js";
 import { ContextBuilder } from "../context/builder.js";
 
 export async function contextCommand(options: {
@@ -16,9 +16,7 @@ export async function contextCommand(options: {
   const store = new Store(config.dbPath);
   const fts = new FTSSearch(store);
   const vector = new VectorSearch(store);
-  const embeddings = config.embeddings
-    ? new OpenAIEmbeddingsProvider(config.embeddings)
-    : new NoOpEmbeddingsProvider();
+  const embeddings = new LocalEmbeddingsProvider({ model: config.embeddings.model });
   const search = new HybridSearch({ fts, vector, embeddings });
   const builder = new ContextBuilder(store, search);
 

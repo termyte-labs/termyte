@@ -1,15 +1,22 @@
 import type { OpenAIProviderConfig } from "../observer/openai-provider.js";
-import type { OpenAIEmbeddingsConfig } from "../retrieval/embeddings.js";
+import type { LocalModelId } from "../retrieval/local-embeddings.js";
 
 export interface TermyteConfig {
   dbPath: string;
   llm: OpenAIProviderConfig;
-  embeddings?: OpenAIEmbeddingsConfig;
+  /**
+   * Which local embedding model to use. Default: "nomic-embed" (Nomic Embed
+   * Text v1.5, 768 dims). Models are downloaded once and cached locally by
+   * @xenova/transformers — no API calls.
+   */
+  embeddings: { model: LocalModelId };
 }
 
 /**
- * Load configuration from environment variables. All values have sensible
- * defaults; only the LLM and embedding API keys are required at runtime.
+ * Load configuration from environment variables.
+ *
+ * Embeddings are always local (ONNX via @xenova/transformers). Only the LLM
+ * API key is required at runtime, and only when the observer is invoked.
  */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): TermyteConfig {
   const baseUrl = env.TERMYTE_LLM_BASE_URL ?? env.OPENAI_BASE_URL ?? "https://api.openai.com/v1";
@@ -22,20 +29,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): TermyteConfig 
     model,
   };
 
-  const embKey = env.TERMYTE_EMBED_API_KEY ?? env.OPENAI_API_KEY;
-  const embeddings: OpenAIEmbeddingsConfig | undefined = embKey
-    ? {
-        baseUrl:
-          env.TERMYTE_EMBED_BASE_URL ?? env.OPENAI_BASE_URL ?? "https://api.openai.com/v1",
-        apiKey: embKey,
-        model: env.TERMYTE_EMBED_MODEL ?? "text-embedding-3-small",
-        dimensions: parseInt(env.TERMYTE_EMBED_DIMENSIONS ?? "1536", 10) || 1536,
-      }
-    : undefined;
+  const localModelRaw = (env.TERMYTE_EMBED_MODEL_LOCAL ?? "nomic-embed").toLowerCase();
+  const localModel: LocalModelId = localModelRaw === "bge-small" ? "bge-small" : "nomic-embed";
 
   return {
     dbPath: env.TERMYTE_DB ?? "./termyte.db",
     llm,
-    embeddings,
+    embeddings: { model: localModel },
   };
 }

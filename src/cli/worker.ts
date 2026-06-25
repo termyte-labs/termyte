@@ -10,16 +10,14 @@ import { loadConfig } from "./config.js";
 import { Store } from "../storage/store.js";
 import { Observer } from "../observer/pipeline.js";
 import { OpenAICompatibleProvider } from "../observer/openai-provider.js";
-import { OpenAIEmbeddingsProvider, NoOpEmbeddingsProvider } from "../retrieval/embeddings.js";
+import { LocalEmbeddingsProvider } from "../retrieval/local-embeddings.js";
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   const config = loadConfig();
   const store = new Store(config.dbPath);
   const llm = new OpenAICompatibleProvider(config.llm);
-  const embeddings = config.embeddings
-    ? new OpenAIEmbeddingsProvider(config.embeddings)
-    : new NoOpEmbeddingsProvider();
+  const embeddings = new LocalEmbeddingsProvider({ model: config.embeddings.model });
   const observer = new Observer({ store, llm, embeddings });
 
   try {
