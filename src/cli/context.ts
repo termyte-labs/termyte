@@ -1,10 +1,3 @@
-/**
- * `termyte context [--project <p>] [--query <q>] [--limit <n>]`
- *
- * Renders a project-level context block: a recent summary (if any) plus
- * a list of memories. When `--query` is supplied, the memories are
- * selected by hybrid search; otherwise the most-recent N are returned.
- */
 import { loadConfig } from "./config.js";
 import { Store } from "../storage/store.js";
 import { FTSSearch } from "../retrieval/fts.js";
@@ -14,9 +7,10 @@ import { OpenAIEmbeddingsProvider, NoOpEmbeddingsProvider } from "../retrieval/e
 import { ContextBuilder } from "../context/builder.js";
 
 export async function contextCommand(options: {
-  project?: string;
+  repo_id?: string;
   query?: string;
   limit?: number;
+  currentFiles?: string[];
 }): Promise<void> {
   const config = loadConfig();
   const store = new Store(config.dbPath);
@@ -29,11 +23,11 @@ export async function contextCommand(options: {
   const builder = new ContextBuilder(store, search);
 
   try {
-    const project = options.project ?? "default";
     const result = await builder.build({
-      project,
+      repo_id: options.repo_id,
       query: options.query,
       maxMemories: options.limit ?? 50,
+      currentFiles: options.currentFiles,
     });
     process.stdout.write(result.text + "\n");
   } finally {

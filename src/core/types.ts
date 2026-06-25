@@ -1,15 +1,16 @@
 /**
  * Core types for the Termyte memory layer.
  *
- * The architecture is:
- *   Agent Events (raw, per-platform)
- *     -> Traces (common format, stored raw in `traces` table)
- *     -> Observer (LLM-based extraction)
- *     -> Memories (structured, stored in `memories` table)
- *     -> Retrieval (FTS + vector + hybrid)
+ * Architecture: Trace → Observation → Memory
  *
- * This file declares the in-memory and storage types. The SQL schema lives
- * in `src/storage/migrations.ts`.
+ *   Agent Events (raw, per-platform)
+ *     → Traces (immutable, stored raw in `traces` table)
+ *     → Observer stage 1 (LLM: traces → observations)
+ *     → Observer stage 2 (LLM: observations → memories)
+ *     → Retrieval (FTS + vector + hybrid)
+ *
+ * Raw traces are never discarded. Observations are derived from traces.
+ * Memories are derived from observations. Full provenance chain.
  */
 
 export type EventType =
@@ -21,15 +22,18 @@ export type EventType =
 
 export type Platform = "claude-code" | "codex" | "opencode" | "cursor";
 
+/** Memory types per MVP spec. */
 export type MemoryType =
   | "bugfix"
-  | "feature"
-  | "refactor"
-  | "change"
-  | "discovery"
-  | "decision";
+  | "convention"
+  | "warning"
+  | "procedure"
+  | "fact";
 
-/** Common trace shape, written to the `traces` table. */
+/** Observation types (same as memory types). */
+export type ObservationType = MemoryType;
+
+/** Common trace shape, written to the `traces` table. Immutable. */
 export interface Trace {
   id: number;
   session_id: string;
@@ -51,24 +55,51 @@ export interface Session {
   id: number;
   session_id: string;
   project: string;
+  repo_id: string | null;
+  workspace_root: string | null;
   started_at: number;
   ended_at: number | null;
 }
 
-/** Memory row, written to the `memories` table. */
+/**
+ * Observation row, written to the `observations` table.
+ * Extracted from one or more traces by the observer.
+ */
+export interface Observation {
+  id: number;
+  session_id: string;
+  repo_id: string;
+  workspace_root: string;
+  type: ObservationType;
+  title: string;
+  description: string | null;
+  files_read: string[];
+  files_modified: string[];
+  commands_executed: string[];
+  source_trace_ids: number[];
+  created_at: number;
+  processed_at: number | null;
+}
+
+/**
+ * Memory row, written to the `memories` table.
+ * Consolidated from observations across sessions.
+ */
 export interface Memory {
   id: number;
   session_id: string;
+  repo_id: string;
+  workspace_root: string;
   type: MemoryType;
   title: string;
-  subtitle: string | null;
-  facts: string[];
-  narrative: string | null;
-  concepts: string[];
+  description: string | null;
   files_read: string[];
   files_modified: string[];
+  /** Observation IDs that contributed to this memory. */
+  source_observation_ids: number[];
+  /** Trace IDs that contributed (transitive provenance). */
+  source_trace_ids: number[];
   created_at: number;
-  /** Float32 vector, optional. Stored as a BLOB and decoded lazily. */
   embedding: Float32Array | null;
 }
 
@@ -76,11 +107,10 @@ export interface Memory {
 export interface Summary {
   id: number;
   session_id: string;
-  request: string | null;
-  investigated: string | null;
-  learned: string | null;
-  completed: string | null;
-  next_steps: string | null;
-  notes: string | null;
+  repo_id: string;
+  workspace_root: string;
+  summary: string | null;
+  key_changes: string[] | null;
+  key_learnings: string[] | null;
   created_at: number;
 }

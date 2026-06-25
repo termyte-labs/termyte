@@ -6,10 +6,7 @@ describe("parseAgentXml", () => {
     const xml = `<observation>
       <type>bugfix</type>
       <title>Auth fails with trailing space</title>
-      <subtitle>Token has whitespace</subtitle>
-      <facts><fact>Reproduction: token with trailing space</fact><fact>Fix: trim before use</fact></facts>
-      <narrative>Auth path now trims tokens</narrative>
-      <concepts><concept>problem-solution</concept></concepts>
+      <description>Tokens had trailing spaces causing auth failures. Fixed by trimming.</description>
       <files_read><file>src/auth/token.ts</file></files_read>
       <files_modified><file>src/auth/token.ts</file></files_modified>
     </observation>`;
@@ -20,25 +17,20 @@ describe("parseAgentXml", () => {
     const obs = result.observations[0]!;
     expect(obs.type).toBe("bugfix");
     expect(obs.title).toBe("Auth fails with trailing space");
-    expect(obs.subtitle).toBe("Token has whitespace");
-    expect(obs.facts).toEqual([
-      "Reproduction: token with trailing space",
-      "Fix: trim before use",
-    ]);
-    expect(obs.narrative).toBe("Auth path now trims tokens");
-    expect(obs.concepts).toEqual(["problem-solution"]);
+    expect(obs.description).toBe("Tokens had trailing spaces causing auth failures. Fixed by trimming.");
     expect(obs.files_read).toEqual(["src/auth/token.ts"]);
     expect(obs.files_modified).toEqual(["src/auth/token.ts"]);
   });
 
   it("parses multiple observations", () => {
     const xml = `<observation>
-      <type>discovery</type>
+      <type>fact</type>
       <title>First</title>
     </observation>
     <observation>
-      <type>decision</type>
+      <type>procedure</type>
       <title>Second</title>
+      <description>How to deploy</description>
     </observation>`;
     const result = parseAgentXml(xml);
     expect(result.valid).toBe(true);
@@ -48,7 +40,7 @@ describe("parseAgentXml", () => {
     expect(result.observations[1]!.title).toBe("Second");
   });
 
-  it("falls back to discovery for invalid type", () => {
+  it("falls back to fact for invalid type", () => {
     const xml = `<observation>
       <type>not-a-real-type</type>
       <title>Fallback</title>
@@ -56,39 +48,25 @@ describe("parseAgentXml", () => {
     const result = parseAgentXml(xml);
     expect(result.valid).toBe(true);
     if (!result.valid) return;
-    expect(result.observations[0]!.type).toBe("discovery");
+    expect(result.observations[0]!.type).toBe("fact");
   });
 
-  it("strips the observation type from concepts", () => {
-    const xml = `<observation>
-      <type>discovery</type>
-      <title>t</title>
-      <concepts><concept>discovery</concept><concept>how-it-works</concept></concepts>
-    </observation>`;
-    const result = parseAgentXml(xml);
-    expect(result.valid).toBe(true);
-    if (!result.valid) return;
-    expect(result.observations[0]!.concepts).toEqual(["how-it-works"]);
+  it("accepts all valid types", () => {
+    for (const t of ["bugfix", "convention", "warning", "procedure", "fact"]) {
+      const xml = `<observation><type>${t}</type><title>x</title></observation>`;
+      const result = parseAgentXml(xml);
+      expect(result.valid).toBe(true);
+      if (!result.valid) continue;
+      expect(result.observations[0]!.type).toBe(t);
+    }
   });
 
-  it("drops unknown concepts", () => {
+  it("drops empty observations (no title, no description)", () => {
     const xml = `<observation>
-      <type>discovery</type>
-      <title>t</title>
-      <concepts><concept>how-it-works</concept><concept>mystery</concept></concepts>
-    </observation>`;
-    const result = parseAgentXml(xml);
-    expect(result.valid).toBe(true);
-    if (!result.valid) return;
-    expect(result.observations[0]!.concepts).toEqual(["how-it-works"]);
-  });
-
-  it("drops empty observations (no title, narrative, facts, concepts)", () => {
-    const xml = `<observation>
-      <type>discovery</type>
+      <type>fact</type>
     </observation>
     <observation>
-      <type>discovery</type>
+      <type>fact</type>
       <title>Real</title>
     </observation>`;
     const result = parseAgentXml(xml);
@@ -100,30 +78,32 @@ describe("parseAgentXml", () => {
 
   it("parses a summary", () => {
     const xml = `<summary>
-      <request>Fix login bug</request>
-      <investigated>Token validation</investigated>
-      <learned>Tokens have whitespace</learned>
-      <completed>Trim before use</completed>
-      <next_steps>Add tests</next_steps>
-      <notes>Edge case</notes>
+      <summary_text>Fixed the login bug by trimming auth tokens.</summary_text>
+      <key_changes>
+        <change>Trim tokens in auth middleware</change>
+        <change>Added token validation tests</change>
+      </key_changes>
+      <key_learnings>
+        <learning>External IdP tokens may contain whitespace</learning>
+      </key_learnings>
     </summary>`;
     const result = parseAgentXml(xml);
     expect(result.valid).toBe(true);
     if (!result.valid) return;
     expect(result.summary).not.toBeNull();
-    expect(result.summary!.request).toBe("Fix login bug");
-    expect(result.summary!.next_steps).toBe("Add tests");
+    expect(result.summary!.summary_text).toBe("Fixed the login bug by trimming auth tokens.");
+    expect(result.summary!.key_changes).toEqual(["Trim tokens in auth middleware", "Added token validation tests"]);
+    expect(result.summary!.key_learnings).toEqual(["External IdP tokens may contain whitespace"]);
   });
 
   it("parses a skip_summary as a valid empty response", () => {
-    const xml = `<skip_summary reason="trivial" />`;
+    const xml = `<skip_summary />`;
     const result = parseAgentXml(xml);
     expect(result.valid).toBe(true);
     if (!result.valid) return;
     expect(result.observations).toHaveLength(0);
     expect(result.summary).not.toBeNull();
     expect(result.summary!.skipped).toBe(true);
-    expect(result.summary!.skip_reason).toBe("trivial");
   });
 
   it("returns invalid for non-XML text", () => {
@@ -138,7 +118,7 @@ describe("parseAgentXml", () => {
   });
 
   it("strips code fences", () => {
-    const xml = "```xml\n<observation>\n<type>bugfix</type>\n<title>fenced</title>\n</observation>\n```";
+    const xml = "```xml\n<observation>\n<type>bugfix</type>\n<title>fenced</title>\n<description>desc</description>\n</observation>\n```";
     const result = parseAgentXml(xml);
     expect(result.valid).toBe(true);
     if (!result.valid) return;

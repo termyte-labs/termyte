@@ -4,17 +4,13 @@ import type { Platform } from "../core/types.js";
 import { adapterFor } from "../capture/index.js";
 import { Ingestor } from "../capture/ingest.js";
 import type { PlatformAdapter, NormalizedEvent } from "../capture/adapter.js";
+import { detectRepoId, detectWorkspaceRoot } from "../retrieval/local-embeddings.js";
 
 export interface HookRunnerConfig {
   store: Store;
   observer?: Observer;
 }
 
-/**
- * Wire adapters to the ingestor and the in-process observer.
- *
- * Used by `src/cli/hook.ts` (the per-event hook binary) and tests.
- */
 export class HookRunner {
   private store: Store;
   private observer?: Observer;
@@ -33,7 +29,6 @@ export class HookRunner {
     };
   }
 
-  /** Process a single raw event payload from a platform. */
   async processRaw(platform: Platform, raw: unknown): Promise<boolean> {
     const adapter = this.adapters[platform];
     const event = adapter.normalize(raw);
@@ -42,18 +37,19 @@ export class HookRunner {
     return true;
   }
 
-  /** Process a single normalized event. Upserts session, writes trace, kicks observer. */
   async processEvent(event: NormalizedEvent): Promise<void> {
-    // Derive a project name from cwd if we can.
     if (event.cwd) {
       const project = deriveProjectName(event.cwd);
-      this.store.upsertSession(event.session_id, project);
+      const repo_id = detectRepoId(event.cwd);
+      const workspace_root = detectWorkspaceRoot(event.cwd);
+      this.store.upsertSession(event.session_id, project, repo_id, workspace_root);
+    } else {
+      this.store.upsertSession(event.session_id, "unknown");
     }
     const trace = this.ingestor.ingest(event);
     if (this.observer) this.observer.enqueue(trace);
   }
 
-  /** Read JSON from stdin, process it for the given platform. */
   async processStdin(platform: Platform): Promise<boolean> {
     const raw = await readStdin();
     if (!raw.trim()) return false;
@@ -72,7 +68,6 @@ async function readStdin(): Promise<string> {
   });
 }
 
-/** Project name: use the last path segment of cwd. */
 function deriveProjectName(cwd: string): string {
   const parts = cwd.split(/[\\/]/).filter(Boolean);
   return parts[parts.length - 1] ?? cwd;

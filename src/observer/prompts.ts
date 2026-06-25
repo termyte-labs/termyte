@@ -1,128 +1,73 @@
 /**
- * System prompt + per-trace prompt builder for the observer LLM.
+ * System prompt + per-trace / per-observation prompt builders for Termyte.
  *
- * Ported from claude-mem `src/sdk/prompts.ts`. The wording is the same
- * because the parser enforces the same grammar. A model that produced
- * correct observations for claude-mem will produce correct observations
- * for Termyte.
+ * Two-stage pipeline:
+ *   1. Observation extraction: trace → <observation> XML
+ *   2. Memory consolidation: observations → <observation> XML (memory)
  */
 
 export const VALID_TYPES = [
   "bugfix",
-  "feature",
-  "refactor",
-  "change",
-  "discovery",
-  "decision",
+  "convention",
+  "warning",
+  "procedure",
+  "fact",
 ] as const;
 
-export const VALID_CONCEPTS = [
-  "how-it-works",
-  "why-it-exists",
-  "what-changed",
-  "problem-solution",
-  "gotcha",
-  "pattern",
-  "trade-off",
-] as const;
-
-const SYSTEM_IDENTITY = `You are a Termyte observer, a specialized tool for creating searchable memory FOR FUTURE AGENT SESSIONS.
-
-CRITICAL: Record what was LEARNED, BUILT, FIXED, DEPLOYED, or CONFIGURED — not what you (the observer) are doing.
-
-You do not have access to tools. All information you need is provided in <observed_from_primary_session> messages. Create observations from what you observe; no investigation needed.`;
+const SYSTEM_IDENTITY = `You are a Termyte observer. Your job is to extract durable technical knowledge from agent tool executions. You do not have access to tools. Create structured observations from the traces provided to you.`;
 
 const RECORDING_FOCUS = `WHAT TO RECORD
-Focus on durable technical signal:
-- What the system NOW DOES differently (new capabilities)
-- What shipped to users/production (features, fixes, configs, docs)
-- Changes in technical domains (auth, data, UI, infra, DevOps, docs)
-- Concrete debugging or investigative findings from logs, traces, queue state, database rows, and code-path inspection
+Focus on durable technical signal that is useful for future sessions:
+- Bugfixes: what was broken and how it was fixed
+- Conventions: project-specific patterns, naming, structure rules
+- Warnings: pitfalls, footguns, things to avoid
+- Procedures: multi-step processes for common tasks
+- Facts: objective information about the codebase
 
-Use verbs like: implemented, fixed, deployed, configured, migrated, optimized, added, refactored, discovered, confirmed, traced`;
+Use specific details: filenames, function names, error messages, config values.`;
 
 const SKIP_GUIDANCE = `WHEN TO SKIP
-Skip routine operations:
-- Empty status checks
+Skip operations with no durable signal:
+- Empty status checks or simple listings
 - Package installations with no errors
-- Simple file listings with no follow-on finding
-- Repetitive operations you've already documented
-- File research that comes back empty or not found
+- Trivial file reads that return nothing
+- Repetitive operations already documented
 
-If you skip, return an empty response. Do not explain the skip in prose.`;
+If nothing durable is found, return a single self-closing <skip_summary /> tag.`;
 
-const TYPE_GUIDANCE = `**type**: MUST be EXACTLY one of these 6 options (no other values allowed):
+const TYPE_GUIDANCE = `**type**: EXACTLY one of:
   - bugfix: something was broken, now fixed
-  - feature: new capability or functionality added
-  - refactor: code restructured, behavior unchanged
-  - change: generic modification (docs, config, misc)
-  - discovery: learning about existing system
-  - decision: architectural/design choice with rationale`;
-
-const CONCEPT_GUIDANCE = `**concepts**: 2-5 knowledge-type categories. MUST use ONLY these exact keywords:
-  - how-it-works: understanding mechanisms
-  - why-it-exists: purpose or rationale
-  - what-changed: modifications made
-  - problem-solution: issues and their fixes
-  - gotcha: traps or edge cases
-  - pattern: reusable approach
-  - trade-off: pros/cons of a decision
-
-IMPORTANT: Do NOT include the observation type (change/discovery/decision) as a concept.
-Types and concepts are separate dimensions.`;
-
-const FIELD_GUIDANCE = `**facts**: Concise, self-contained statements
-  Each fact is ONE piece of information
-  No pronouns — each fact must stand alone
-  Include specific details: filenames, functions, values
-
-**files**: All files touched (full paths from project root)`;
+  - convention: project-specific pattern, naming rule, or structure convention
+  - warning: pitfall, footgun, or thing to avoid
+  - procedure: multi-step process for a common task
+  - fact: objective information about the codebase`;
 
 const OUTPUT_FORMAT = `<observation>
-  <type>[ bugfix | feature | refactor | change | discovery | decision ]</type>
-  <title>...</title>
-  <subtitle>...</subtitle>
-  <facts>
-    <fact>...</fact>
-    <fact>...</fact>
-  </facts>
-  <narrative>...</narrative>
-  <concepts>
-    <concept>...</concept>
-    <concept>...</concept>
-  </concepts>
+  <type>[ bugfix | convention | warning | procedure | fact ]</type>
+  <title>One-line summary</title>
+  <description>Multi-line detailed explanation</description>
   <files_read>
-    <file>...</file>
+    <file>path/to/file</file>
   </files_read>
   <files_modified>
-    <file>...</file>
+    <file>path/to/file</file>
   </files_modified>
 </observation>`;
 
-const FOOTER = `IMPORTANT! Do not output anything other than the observation content formatted in the XML structure above. All other output is ignored by the system.
-
-Never reference yourself or your own actions. If there is nothing durable to record, return a single self-closing <skip_summary /> tag and nothing else.`;
+const FOOTER = `IMPORTANT! Output ONLY the XML above. No prose, no explanations, no markdown. If nothing to record, output <skip_summary /> alone.`;
 
 export function buildSystemPrompt(): string {
   return [
-    SYSTEM_IDENTITY,
-    "",
-    RECORDING_FOCUS,
-    "",
-    SKIP_GUIDANCE,
-    "",
-    TYPE_GUIDANCE,
-    "",
-    CONCEPT_GUIDANCE,
-    "",
-    FIELD_GUIDANCE,
-    "",
-    "OUTPUT FORMAT",
-    "Output observations using this XML structure:",
-    "",
-    OUTPUT_FORMAT,
-    "",
-    FOOTER,
+    SYSTEM_IDENTITY, "", RECORDING_FOCUS, "", SKIP_GUIDANCE, "",
+    TYPE_GUIDANCE, "", "OUTPUT FORMAT", OUTPUT_FORMAT, "", FOOTER,
+  ].join("\n");
+}
+
+const CONSOLIDATION_SYSTEM = `You are a Termyte memory consolidator. Your job is to combine related observations into consolidated, deduplicated memories. Merge observations that describe the same thing. Produce concise, standalone memories that will be useful for future agent sessions.`;
+
+export function buildConsolidationSystemPrompt(): string {
+  return [
+    CONSOLIDATION_SYSTEM, "", TYPE_GUIDANCE, "", "OUTPUT FORMAT", OUTPUT_FORMAT, "", FOOTER,
   ].join("\n");
 }
 
@@ -135,54 +80,84 @@ export interface TraceForPrompt {
 }
 
 export function buildObservationPrompt(trace: TraceForPrompt): string {
-  return [
-    "<observed_from_primary_session>",
-    `  <what_happened>${escape(trace.tool_name || "unknown")}</what_happened>`,
-    `  <occurred_at>${new Date(trace.timestamp).toISOString()}</occurred_at>`,
-    trace.cwd ? `  <working_directory>${escape(trace.cwd)}</working_directory>` : "",
-    `  <parameters>${escape(serialize(trace.tool_input))}</parameters>`,
-    `  <outcome>${escape(serialize(trace.tool_output))}</outcome>`,
-    "</observed_from_primary_session>",
+  const lines = [
+    "<observed_tool_execution>",
+    `  <tool>${escape(trace.tool_name || "unknown")}</tool>`,
+    `  <time>${new Date(trace.timestamp).toISOString()}</time>`,
+    trace.cwd ? `  <directory>${escape(trace.cwd)}</directory>` : "",
+    trace.tool_input != null ? `  <input>${escape(serialize(trace.tool_input))}</input>` : "",
+    trace.tool_output != null ? `  <output>${escape(serialize(trace.tool_output))}</output>` : "",
+    "</observed_tool_execution>",
     "",
-    "Return one or more <observation>...</observation> blocks, or a single self-closing <skip_summary /> if there is nothing durable to record. Never reply with prose.",
-  ].filter(Boolean).join("\n");
+    "Extract observations from this tool execution. Return <observation> blocks or <skip_summary />.",
+  ];
+  return lines.filter(Boolean).join("\n");
 }
 
-export interface SummaryForPrompt {
-  request: string | null;
+/**
+ * Build a prompt that consolidates multiple observations into memories.
+ */
+export function buildConsolidationPrompt(
+  observations: { id: number; title: string; description: string | null; type: string; files_read: string[]; files_modified: string[] }[]
+): string {
+  const blocks = observations.map(obs => [
+    `<observation_summary id="${obs.id}" type="${obs.type}">`,
+    `  <title>${escape(obs.title)}</title>`,
+    obs.description ? `  <description>${escape(obs.description)}</description>` : "",
+    obs.files_read.length > 0 ? `  <files_read>${obs.files_read.join(", ")}</files_read>` : "",
+    obs.files_modified.length > 0 ? `  <files_modified>${obs.files_modified.join(", ")}</files_modified>` : "",
+    `</observation_summary>`,
+  ].filter(Boolean).join("\n")).join("\n");
+
+  return [
+    "Consolidate the following observations into durable memories.",
+    "Merge observations about the same thing. Remove duplicates.",
+    "Each memory must be self-contained and useful for future sessions.",
+    "",
+    blocks,
+    "",
+    "Return consolidated <observation> blocks or <skip_summary /> if nothing to consolidate.",
+  ].join("\n");
+}
+
+export interface SessionForPrompt {
+  user_prompts: string[];
   final_response: string | null;
+  files_modified: string[];
 }
 
-export function buildSummaryPrompt(input: SummaryForPrompt): string {
+export function buildSummaryPrompt(input: SessionForPrompt): string {
   return [
-    "--- PROGRESS SUMMARY ---",
-    "Generate a summary of the agent session that just ended.",
+    "--- SESSION SUMMARY ---",
+    "Generate a summary of this completed agent session.",
     "",
-    `User's original request: ${input.request ?? "(unknown)"}`,
+    "User prompts during this session:",
+    ...input.user_prompts.map(p => `- ${p}`),
     "",
-    "The agent's final response:",
-    input.final_response ?? "(none)",
+    input.final_response ? `Final response: ${input.final_response}` : "",
     "",
     "Respond in this XML format:",
     "<summary>",
-    "  <request>[Short title capturing the user's request]</request>",
-    "  <investigated>[What was explored?]</investigated>",
-    "  <learned>[What was learned about how things work?]</learned>",
-    "  <completed>[What work has been completed?]</completed>",
-    "  <next_steps>[What's next in the session?]</next_steps>",
-    "  <notes>[Additional insights]</notes>",
+    "  <summary_text>What happened in this session? One paragraph.</summary_text>",
+    "  <key_changes>",
+    "    <change>What was changed</change>",
+    "  </key_changes>",
+    "  <key_learnings>",
+    "    <learning>What was learned</learning>",
+    "  </key_learnings>",
     "</summary>",
     "",
-    "IMPORTANT: Output ONLY the <summary>...</summary> block, nothing else.",
-  ].join("\n");
+    "IMPORTANT: Output ONLY the <summary> block, nothing else.",
+  ].filter(Boolean).join("\n");
 }
 
 function serialize(v: unknown): string {
   if (v === null || v === undefined) return "";
   try {
-    return JSON.stringify(v, null, 2);
+    const s = JSON.stringify(v, null, 2);
+    return s.length > 8000 ? s.slice(0, 8000) + "\n...(truncated)" : s;
   } catch {
-    return String(v);
+    return String(v).slice(0, 8000);
   }
 }
 

@@ -1,17 +1,13 @@
 import type { Store } from "../storage/store.js";
-import type { Memory } from "../core/types.js";
+import type { Memory, MemoryType } from "../core/types.js";
 
 export interface FTSSearchOptions {
   query: string;
-  project?: string;
+  repo_id?: string;
   limit?: number;
   type?: string;
 }
 
-/**
- * Full-text search over the `memories_fts` FTS5 mirror. Returns memories
- * ranked by FTS5 rank.
- */
 export class FTSSearch {
   constructor(private store: Store) {}
 
@@ -22,9 +18,9 @@ export class FTSSearch {
     const params: any[] = [ftsQuery];
     const where: string[] = ["memories_fts MATCH ?"];
 
-    if (options.project) {
-      where.push("s.project = ?");
-      params.push(options.project);
+    if (options.repo_id) {
+      where.push("m.repo_id = ?");
+      params.push(options.repo_id);
     }
     if (options.type) {
       where.push("m.type = ?");
@@ -34,28 +30,13 @@ export class FTSSearch {
     const limit = options.limit ?? 20;
     params.push(limit);
 
-    const sql = options.project
-      ? `
-        SELECT m.id, m.session_id, m.type, m.title, m.subtitle, m.facts,
-               m.narrative, m.concepts, m.files_read, m.files_modified,
-               m.created_at, m.embedding
-        FROM memories m
-        INNER JOIN memories_fts fts ON fts.rowid = m.id
-        INNER JOIN sessions s ON s.session_id = m.session_id
-        WHERE ${where.join(" AND ")}
-        ORDER BY rank
-        LIMIT ?
-      `
-      : `
-        SELECT m.id, m.session_id, m.type, m.title, m.subtitle, m.facts,
-               m.narrative, m.concepts, m.files_read, m.files_modified,
-               m.created_at, m.embedding
-        FROM memories m
-        INNER JOIN memories_fts fts ON fts.rowid = m.id
-        WHERE ${where.join(" AND ")}
-        ORDER BY rank
-        LIMIT ?
-      `;
+    const sql = `
+      SELECT m.* FROM memories m
+      INNER JOIN memories_fts fts ON fts.rowid = m.id
+      WHERE ${where.join(" AND ")}
+      ORDER BY rank
+      LIMIT ?
+    `;
 
     const rows = this.store.getDB().prepare(sql).all(...params) as any[];
     return rows.map(mapMemoryRow);
@@ -81,24 +62,21 @@ function mapMemoryRow(row: any): Memory {
   return {
     id: row.id,
     session_id: row.session_id,
-    type: row.type,
+    repo_id: row.repo_id,
+    workspace_root: row.workspace_root,
+    type: row.type as MemoryType,
     title: row.title,
-    subtitle: row.subtitle,
-    facts: parseJSON(row.facts, []),
-    narrative: row.narrative,
-    concepts: parseJSON(row.concepts, []),
-    files_read: parseJSON(row.files_read, []),
-    files_modified: parseJSON(row.files_modified, []),
+    description: row.description,
+    files_read: parseJSON<string[]>(row.files_read, []),
+    files_modified: parseJSON<string[]>(row.files_modified, []),
+    source_observation_ids: parseJSON<number[]>(row.source_observation_ids, []),
+    source_trace_ids: parseJSON<number[]>(row.source_trace_ids, []),
     created_at: row.created_at,
     embedding,
   };
 }
 
-function parseJSON<T>(s: string, fallback: T): T {
+function parseJSON<T>(s: string | null | undefined, fallback: T): T {
   if (!s) return fallback;
-  try {
-    return JSON.parse(s) as T;
-  } catch {
-    return fallback;
-  }
+  try { return JSON.parse(s) as T; } catch { return fallback; }
 }

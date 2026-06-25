@@ -3,9 +3,8 @@ import { Store } from "../src/storage/store.js";
 import { FTSSearch } from "../src/retrieval/fts.js";
 import { VectorSearch } from "../src/retrieval/vector.js";
 import { HybridSearch, type HybridSearchResult } from "../src/retrieval/hybrid.js";
-import { OpenAIEmbeddingsProvider, NoOpEmbeddingsProvider, type EmbeddingsProvider } from "../src/retrieval/embeddings.js";
-import { openDatabase, closeDatabase, type DatabaseContext } from "../src/storage/connection.js";
-import type { Memory } from "../src/core/types.js";
+import { NoOpEmbeddingsProvider, type EmbeddingsProvider } from "../src/retrieval/embeddings.js";
+import { openDatabase, type DatabaseContext } from "../src/storage/connection.js";
 
 let ctx: DatabaseContext;
 
@@ -13,12 +12,9 @@ beforeEach(() => {
   ctx = openDatabase(":memory:");
 });
 
-/** Deterministic in-memory embedding provider for tests. */
 class FixedEmbeddings implements EmbeddingsProvider {
   readonly dimensions: number;
-  // text -> embedding
   private table: Map<string, Float32Array>;
-  private counter = 0;
 
   constructor(dims = 4) {
     this.dimensions = dims;
@@ -32,7 +28,6 @@ class FixedEmbeddings implements EmbeddingsProvider {
   async embed(text: string): Promise<Float32Array> {
     const cached = this.table.get(text);
     if (cached) return cached;
-    // Deterministic pseudo-embedding from the text: hash-derived, L2-normalized.
     const v = new Float32Array(this.dimensions);
     let h = 2166136261;
     for (let i = 0; i < text.length; i++) {
@@ -54,43 +49,40 @@ class FixedEmbeddings implements EmbeddingsProvider {
 }
 
 function seedMemories(store: Store): void {
-  store.upsertSession("s1", "demo");
+  store.upsertSession("s1", "demo", "repo-1", "/workspace");
   store.insertMemory({
-    session_id: "s1",
+    session_id: "s1", repo_id: "repo-1", workspace_root: "/workspace",
     type: "bugfix",
     title: "Auth token whitespace",
-    subtitle: "tokens have trailing spaces",
-    facts: ["tokens have whitespace", "trim before use"],
-    narrative: "The auth path now trims tokens before validation.",
-    concepts: ["problem-solution", "gotcha"],
+    description: "Tokens had trailing spaces. The auth path now trims tokens before validation.",
     files_read: ["src/auth/token.ts"],
     files_modified: ["src/auth/token.ts"],
+    source_observation_ids: [1],
+    source_trace_ids: [10],
     created_at: Date.now(),
     embedding: null,
   });
   store.insertMemory({
-    session_id: "s1",
-    type: "feature",
+    session_id: "s1", repo_id: "repo-1", workspace_root: "/workspace",
+    type: "convention",
     title: "Added login rate limiting",
-    subtitle: "limit failed attempts",
-    facts: ["5 attempts per minute per IP"],
-    narrative: "A new rate limiter sits in front of the auth handler.",
-    concepts: ["pattern"],
+    description: "A new rate limiter sits in front of the auth handler. 5 attempts per minute per IP.",
     files_read: [],
     files_modified: ["src/auth/middleware.ts", "src/auth/rate-limit.ts"],
+    source_observation_ids: [2],
+    source_trace_ids: [11],
     created_at: Date.now() - 1000,
     embedding: null,
   });
   store.insertMemory({
-    session_id: "s1",
-    type: "discovery",
+    session_id: "s1", repo_id: "repo-1", workspace_root: "/workspace",
+    type: "fact",
     title: "Database indexes need rebalancing",
-    subtitle: "hot index bloat",
-    facts: ["the users.email index is 4x larger than expected"],
-    narrative: "After 6 months of growth the email index bloats query plans.",
-    concepts: ["how-it-works"],
+    description: "After 6 months of growth the email index bloats query plans. The users.email index is 4x larger than expected.",
     files_read: [],
     files_modified: [],
+    source_observation_ids: [3],
+    source_trace_ids: [12],
     created_at: Date.now() - 2000,
     embedding: null,
   });
@@ -107,7 +99,7 @@ describe("FTSSearch", () => {
     store.close();
   });
 
-  it("returns no results for nonsense queries (no FTS hit)", () => {
+  it("returns no results for nonsense queries", () => {
     const store = new Store(ctx);
     seedMemories(store);
     const fts = new FTSSearch(store);
@@ -116,39 +108,25 @@ describe("FTSSearch", () => {
     store.close();
   });
 
-  it("filters by project", () => {
+  it("filters by repo_id", () => {
     const store = new Store(ctx);
-    store.upsertSession("s1", "alpha");
-    store.upsertSession("s2", "beta");
+    store.upsertSession("s1", "alpha", "repo-a", "/wa");
+    store.upsertSession("s2", "beta", "repo-b", "/wb");
     store.insertMemory({
-      session_id: "s1",
-      type: "discovery",
-      title: "alpha memory",
-      subtitle: null,
-      facts: [],
-      narrative: null,
-      concepts: [],
-      files_read: [],
-      files_modified: [],
-      created_at: 1,
-      embedding: null,
+      session_id: "s1", repo_id: "repo-a", workspace_root: "/wa",
+      type: "fact", title: "alpha memory", description: "something memorable from alpha",
+      files_read: [], files_modified: [], source_observation_ids: [], source_trace_ids: [],
+      created_at: 1, embedding: null,
     });
     store.insertMemory({
-      session_id: "s2",
-      type: "discovery",
-      title: "beta memory",
-      subtitle: null,
-      facts: [],
-      narrative: null,
-      concepts: [],
-      files_read: [],
-      files_modified: [],
-      created_at: 1,
-      embedding: null,
+      session_id: "s2", repo_id: "repo-b", workspace_root: "/wb",
+      type: "fact", title: "beta memory", description: "something memorable from beta",
+      files_read: [], files_modified: [], source_observation_ids: [], source_trace_ids: [],
+      created_at: 1, embedding: null,
     });
     const fts = new FTSSearch(store);
-    expect(fts.search({ query: "memory", project: "alpha" })[0]!.title).toBe("alpha memory");
-    expect(fts.search({ query: "memory", project: "beta" })[0]!.title).toBe("beta memory");
+    expect(fts.search({ query: "memory", repo_id: "repo-a" })[0]!.title).toBe("alpha memory");
+    expect(fts.search({ query: "memory", repo_id: "repo-b" })[0]!.title).toBe("beta memory");
     store.close();
   });
 });
@@ -158,9 +136,6 @@ describe("VectorSearch", () => {
     const store = new Store(ctx);
     seedMemories(store);
     const embeddings = new FixedEmbeddings();
-    // Build a query vector that exactly matches one of the seeded memory
-    // titles. With identical vectors, cosine similarity is 1.0, and the
-    // matching memory is the top hit.
     const q = await embeddings.embed("Auth token whitespace");
     const e2 = await embeddings.embed("Added login rate limiting");
     const e3 = await embeddings.embed("Database indexes need rebalancing");
@@ -173,7 +148,6 @@ describe("VectorSearch", () => {
     const v = new VectorSearch(store);
     const results = v.search({ query: q, limit: 10 });
     expect(results.length).toBeGreaterThan(0);
-    // Top result must be the auth token memory.
     expect(results[0]!.memory.title).toBe("Auth token whitespace");
     expect(results[0]!.score).toBeCloseTo(1.0, 5);
     store.close();
@@ -183,8 +157,6 @@ describe("VectorSearch", () => {
     const store = new Store(ctx);
     seedMemories(store);
     const embeddings = new FixedEmbeddings();
-    // Make two memories have orthogonal-ish embeddings by using unrelated
-    // hash seeds, then verify the search ranks by cosine.
     const baseV = await embeddings.embed("base");
     const e1 = new Float32Array([1, 0, 0, 0]);
     const e2 = new Float32Array([0, 1, 0, 0]);
@@ -197,16 +169,9 @@ describe("VectorSearch", () => {
     const v = new VectorSearch(store);
     const results = v.search({ query: baseV, limit: 3 });
     expect(results.length).toBe(3);
-    // All scores should be in [-1, 1] and the top hit should be a real
-    // match (not negative).
-    for (const r of results) {
-      expect(r.score).toBeGreaterThanOrEqual(-1);
-      expect(r.score).toBeLessThanOrEqual(1);
-    }
-    // Top hit should be one of the three (any order, since "base" doesn't
-    // exactly match any title).
-    expect(["Auth token whitespace", "Added login rate limiting", "Database indexes need rebalancing"])
-      .toContain(results[0]!.memory.title);
+    const top = results[0]!;
+    const rest = results.slice(1);
+    expect(rest.every((r) => r.score <= top.score)).toBe(true);
     store.close();
   });
 
@@ -214,9 +179,38 @@ describe("VectorSearch", () => {
     const store = new Store(ctx);
     seedMemories(store);
     const v = new VectorSearch(store);
-    const q = new Float32Array([1, 0, 0, 0]);
-    const results = v.search({ query: q });
+    const results = v.search({ query: new Float32Array([0, 0, 0, 0]), limit: 10 });
     expect(results.length).toBe(0);
+    store.close();
+  });
+
+  it("boosts memories with file overlap", async () => {
+    const store = new Store(ctx);
+    store.upsertSession("s1", "demo", "repo-1", "/w");
+    store.insertMemory({
+      session_id: "s1", repo_id: "repo-1", workspace_root: "/w",
+      type: "bugfix", title: "Fixed auth", description: "auth fix",
+      files_read: [], files_modified: ["src/auth/token.ts"],
+      source_observation_ids: [], source_trace_ids: [],
+      created_at: Date.now(), embedding: new Float32Array([0, 1, 0, 0]),
+    });
+    store.insertMemory({
+      session_id: "s1", repo_id: "repo-1", workspace_root: "/w",
+      type: "bugfix", title: "Fixed DB", description: "db fix",
+      files_read: [], files_modified: ["src/db/query.ts"],
+      source_observation_ids: [], source_trace_ids: [],
+      created_at: Date.now(), embedding: new Float32Array([0, 1, 0, 0]),
+    });
+    const v = new VectorSearch(store);
+    const query = new Float32Array([0, 1, 0, 0]);
+    // Without file boost, both score identically.
+    const noBoost = v.search({ query, limit: 2 });
+    expect(noBoost[0]!.score).toBeCloseTo(noBoost[1]!.score, 5);
+
+    // With file boost, the auth memory should rank higher.
+    const boosted = v.search({ query, limit: 2, currentFiles: ["src/auth/token.ts"] });
+    expect(boosted[0]!.memory.title).toBe("Fixed auth");
+    expect(boosted[0]!.score).toBeGreaterThan(boosted[1]!.score);
     store.close();
   });
 });
@@ -226,39 +220,31 @@ describe("HybridSearch", () => {
     const store = new Store(ctx);
     seedMemories(store);
     const embeddings = new FixedEmbeddings();
-    // Pre-compute embeddings for the seeded memories.
+    const q = await embeddings.embed("auth token");
     for (const m of store.getRecentMemories(100)) {
-      const v = await embeddings.embed(m.title);
-      store.updateMemoryEmbedding(m.id, v);
+      if (m.title === "Auth token whitespace") store.updateMemoryEmbedding(m.id, q);
     }
     const fts = new FTSSearch(store);
-    const vec = new VectorSearch(store);
-    const hybrid = new HybridSearch({ fts, vector: vec, embeddings });
-    const results: HybridSearchResult[] = await hybrid.search({
-      query: "auth token whitespace",
-      limit: 10,
-    });
+    const vector = new VectorSearch(store);
+    const search = new HybridSearch({ fts, vector, embeddings });
+    const results = await search.search({ query: "auth token" });
     expect(results.length).toBeGreaterThan(0);
-    // Combined score must be positive for any result present.
-    for (const r of results) {
-      expect(r.combined_score).toBeGreaterThan(0);
-    }
+    expect(results[0]!.memory.title).toContain("Auth");
     store.close();
   });
 
   it("degrades to FTS-only when embeddings throw", async () => {
     const store = new Store(ctx);
     seedMemories(store);
-    const fts = new FTSSearch(store);
-    const vec = new VectorSearch(store);
-    // A broken embeddings provider.
-    const broken: EmbeddingsProvider = {
-      dimensions: 0,
-      async embed(): Promise<Float32Array> { throw new Error("nope"); },
-      async embedBatch(): Promise<Float32Array[]> { throw new Error("nope"); },
+    const badEmbed: EmbeddingsProvider = {
+      dimensions: 4,
+      async embed(): Promise<Float32Array> { throw new Error("down"); },
+      async embedBatch(): Promise<Float32Array[]> { throw new Error("down"); },
     };
-    const hybrid = new HybridSearch({ fts, vector: vec, embeddings: broken });
-    const results = await hybrid.search({ query: "auth", limit: 10 });
+    const fts = new FTSSearch(store);
+    const vector = new VectorSearch(store);
+    const search = new HybridSearch({ fts, vector, embeddings: badEmbed });
+    const results = await search.search({ query: "auth token" });
     expect(results.length).toBeGreaterThan(0);
     store.close();
   });

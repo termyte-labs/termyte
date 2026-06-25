@@ -3,10 +3,12 @@ import type { Memory } from "../core/types.js";
 
 export interface VectorSearchOptions {
   query: Float32Array;
-  project?: string;
+  repo_id?: string;
   limit?: number;
   type?: string;
   recencyWindowMs?: number;
+  /** Files in the current task for file-aware boosting. */
+  currentFiles?: string[];
 }
 
 export interface VectorSearchResult {
@@ -17,34 +19,46 @@ export interface VectorSearchResult {
 /**
  * Semantic vector search via cosine similarity.
  *
- * Vectors are stored on the `memories` row and loaded in full on each
- * query. For larger corpora a real vector index is required; this is
- * out of scope per the spec.
+ * Vectors are stored as BLOBs on the `memories` row. Loaded in full
+ * on each query; adequate for MVP-scale corpora.
  */
 export class VectorSearch {
   constructor(private store: Store) {}
 
   search(options: VectorSearchOptions): VectorSearchResult[] {
-    const all = this.store.getAllMemoriesWithEmbeddings(options.project);
+    const all = this.store.getAllMemoriesWithEmbeddings(options.repo_id);
     if (all.length === 0) return [];
 
     const cutoff = options.recencyWindowMs
       ? Date.now() - options.recencyWindowMs
       : null;
 
+    const currentFileSet = new Set(options.currentFiles ?? []);
+
     const filtered = all.filter((m) => {
       if (!m.embedding) return false;
       if (options.type && m.type !== options.type) return false;
       if (cutoff !== null && m.created_at < cutoff) return false;
+      if (options.repo_id && m.repo_id !== options.repo_id) return false;
       return true;
     });
 
     if (filtered.length === 0) return [];
 
-    const scored: VectorSearchResult[] = filtered.map((m) => ({
-      memory: m,
-      score: cosineSimilarity(options.query, m.embedding!),
-    }));
+    const scored: VectorSearchResult[] = filtered.map((m) => {
+      let score = cosineSimilarity(options.query, m.embedding!);
+
+      // File-aware boosting: boost memories whose files overlap with
+      // the files in the current task (15% per overlapping file).
+      if (currentFileSet.size > 0) {
+        let overlap = 0;
+        for (const f of m.files_read) if (currentFileSet.has(f)) overlap++;
+        for (const f of m.files_modified) if (currentFileSet.has(f)) overlap++;
+        if (overlap > 0) score *= (1 + overlap * 0.15);
+      }
+
+      return { memory: m, score };
+    });
 
     scored.sort((a, b) => b.score - a.score);
     return scored.slice(0, options.limit ?? 20);
@@ -53,12 +67,9 @@ export class VectorSearch {
 
 function cosineSimilarity(a: Float32Array, b: Float32Array): number {
   if (a.length !== b.length) return 0;
-  let dot = 0;
-  let na = 0;
-  let nb = 0;
+  let dot = 0, na = 0, nb = 0;
   for (let i = 0; i < a.length; i++) {
-    const ai = a[i]!;
-    const bi = b[i]!;
+    const ai = a[i]!, bi = b[i]!;
     dot += ai * bi;
     na += ai * ai;
     nb += bi * bi;
