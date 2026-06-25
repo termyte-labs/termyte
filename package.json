@@ -1,25 +1,18 @@
 {
   "name": "termyte",
   "version": "0.1.0",
-  "description": "A self-correcting memory system for coding agents",
+  "description": "Memory layer for coding agents",
   "type": "module",
   "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/termyte-labs/termyte.git"
-  },
-  "keywords": [
-    "ai-agents",
-    "memory",
-    "coding-agents",
-    "self-correcting",
-    "local-first"
-  ],
   "engines": {
     "node": ">=20"
   },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "bin": {
-    "termyte": "dist/cli.js"
+    "termyte": "dist/cli/index.js",
+    "termyte-hook": "dist/cli/hook.js",
+    "termyte-worker": "dist/cli/worker.js"
   },
   "files": [
     "dist",
@@ -27,27 +20,17 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json && node scripts/copy-assets.mjs",
-    "dev": "tsx src/cli.ts",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@google/genai": "^1.1.0",
-    "better-sqlite3": "^11.9.1",
-    "sqlite-vec": "^0.1.6",
-    "tree-sitter": "^0.25.0",
-    "tree-sitter-typescript": "^0.23.0",
-    "tree-sitter-javascript": "^0.23.0",
-    "tree-sitter-python": "^0.23.0",
-    "tree-sitter-go": "^0.23.0",
-    "tree-sitter-rust": "^0.23.0",
-    "tree-sitter-java": "^0.23.0"
+    "better-sqlite3": "^11.9.1"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^22.15.21",
-    "tsx": "^4.20.5",
     "typescript": "^5.8.3",
     "vitest": "^3.2.4"
   }

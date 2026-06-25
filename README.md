@@ -1,222 +1,125 @@
 # Termyte
 
-A self-correcting memory system for coding agents.
-
-Termyte gives AI coding assistants persistent, validated memories of past actions, fixes, and patterns — so agents "know what they did last time" and avoid repeated mistakes.
-
-## How It Works
-
-```
-OpenCode session
-   ↓
-Hook (termyte hook)
-   ↓
-Pending messages  →  inline Gemini extraction  →  Observations
-                                                    ↓
-Memories  ←  confidence 0.5  ──  used by agent  ──  2/3
-   ↓                                              (Bayesian update)
-Hybrid search (FTS5 + vector) ranked by similarity × confidence × freshness × reliability
-   ↓
-Injected into next agent context
-```
-
-1. **Capture** — OpenCode plugin forwards every event (tool calls, file edits, commands, prompts) to `termyte hook` via stdin
-2. **Extract** — Inline Gemini call converts raw events into structured observations (XML format)
-3. **Store** — SQLite with FTS5 (keyword) and vec0 (vector) indexes
-4. **Retrieve** — Hybrid search ranked by `keyword × semantic × confidence`
-5. **Self-Correct** — Track outcomes; successful memories gain confidence, failures lose it
-6. **Outcome** — `termyte feedback --memory <id> --outcome success|failure|ignored`
-
-Confidence formula (Bayesian):
-
-```text
-(successes + 1) / (successes + failures + 2)
-```
-
-## Install
-
-```bash
-npm install -g termyte
-```
-
-Requires Node.js 20+ and a Gemini API key.
-
-## Quickstart
-
-```bash
-# 1. Init termyte in your project
-cd your-project
-termyte init
-export GEMINI_API_KEY=your-key-here
-
-# 2. Install the OpenCode plugin
-termyte plugin install
-# (use --global for ~/.config/opencode/plugins/)
-
-# 3. Use OpenCode as normal. Termyte auto-captures every event.
-
-# 4. Search memories
-termyte search "auth test failure"
-
-# 5. Inject memories into agent context
-termyte inject --task "fix the login bug"
-
-# 6. List captured memories
-termyte memories list
-termyte memories show <id>
-
-# 7. Record an outcome
-termyte feedback --memory <id> --outcome success
-```
-
-## CLI Commands
-
-| Command | Description |
-|---------|-------------|
-| `termyte init` | Initialize `.termyte/` directory |
-| `termyte plugin install [--global]` | Install the OpenCode plugin (`.opencode/plugins/termyte.ts`) |
-| `termyte capture start [--session <id>]` | Start a session capture |
-| `termyte capture end --session <id>` | End session |
-| `termyte search "<query>" [--scope <scope>]` | Search memories (hybrid FTS5 + vector) |
-| `termyte inject --task "<task>" [--scope <s>]` | Generate context block for agents |
-| `termyte memories list [--type <type>]` | List stored memories |
-| `termyte memories show <id>` | Show memory with feedback stats |
-| `termyte feedback --memory <id> --outcome <success\|failure\|ignored>` | Record outcome |
-| `termyte decay [--dry-run]` | Apply memory decay |
-| `termyte consolidate [--scope <s>] [--dry-run]` | Run the memory consolidation agent (merge / compress / synthesize) |
-| `termyte index [--reindex]` | Index memories for vector search |
-| `termyte sessions list` | List captured sessions |
-| `termyte sessions show <id>` | Show session details |
-| `termyte process [--batch <n>]` | Manually flush pending hook messages |
-| `termyte hook [--no-process]` | Internal: read hook payload from stdin |
-| `termyte stats` | Show memory statistics |
-
-## Memory Schema
-
-Each memory is an evidence-backed claim:
-
-```json
-{
-  "id": "uuid",
-  "claim": "Auth tests fail when middleware config is stale",
-  "type": "bugfix",
-  "repoScope": "my-project",
-  "language": "typescript",
-  "sources": ["observation-uuid", ...],
-  "successCount": 5,
-  "failureCount": 2,
-  "confidence": 0.71,
-  "lastOutcomeAt": "2026-06-20T00:00:00Z"
-}
-```
-
-Memory types: `fact`, `bugfix`, `procedure`, `convention`, `warning`
-
-## Ranking Formula
-
-```text
-score = w_keyword × keyword_score + w_semantic × semantic_score + w_confidence × confidence
-
-default weights:
-  w_keyword = 0.3
-  w_semantic = 0.4
-  w_confidence = 0.3
-```
-
-## Memory Consolidation (self-correcting)
-
-Memories accumulate over time and naturally drift toward redundancy, contradiction, and over-granularity. Termyte ships with a **consolidation agent** that periodically cleans them up:
-
-```bash
-# Inspect what the agent would do
-termyte consolidate --dry-run
-
-# Apply the changes
-termylate consolidate
-# or for one project:
-termyte consolidate --scope my-app
-```
-
-The agent groups memories by project and asks Gemini to:
-
-- **merge** — two memories that say the same thing in different words → one canonical claim that combines their evidence (success/failure counts are summed)
-- **compress** — one verbose memory → a concise rewrite that keeps the meaning
-- **synthesize** — 2–5 related facts → a higher-level pattern or procedure
-- **keep** — leave the memory alone (the agent returns no action for it)
-
-Originals are preserved (marked `is_active = 0`) for history; the new consolidated memory carries a `consolidated_from` array pointing at the sources. The operation is **idempotent** — running it twice does not double-consolidate.
-
-This is the **self-correcting** part of termyte: the system actively maintains memory quality, not just stores facts.
-
-## Tech Stack
-
-- **Storage**: SQLite (better-sqlite3) with FTS5 + sqlite-vec
-- **LLM**: Gemini 2.5 Flash (extraction) + gemini-embedding-2 (embeddings)
-- **Adapter**: OpenCode plugin + 6 other platform adapters (claude-code, codex, cursor, windsurf, gemini-cli, raw)
-- **Language**: TypeScript
+A memory layer for coding agents. Port of claude-mem's core architecture
+(trace → observer → memory → retrieval) stripped of every feature that
+isn't load-bearing for an MVP.
 
 ## Architecture
 
 ```
-src/
-├── cli.ts                          # CLI entry point
-├── db.ts                           # Database schema
-├── types.ts                        # TypeScript interfaces
-├── capture/                        # Session capture
-│   ├── index.ts                    # CaptureEngine
-│   ├── hooks.ts                    # Hook normalization
-│   ├── git.ts                      # Git utilities
-│   └── commands.ts                 # Command utilities
-├── extraction/                     # Gemini LLM extraction
-│   ├── gemini.ts                   # Gemini client
-│   ├── parser.ts                   # XML parser
-│   ├── output-classifier.ts        # LLM output classification
-│   ├── response-processor.ts       # Observation writer
-│   ├── pending-processor.ts        # Batch LLM processor
-│   ├── prompts.ts                  # Memory extraction prompts
-│   ├── prompts-observer.ts         # Observation prompt
-│   └── index.ts                    # Extraction entry
-├── memory/                         # Memory storage & confidence
-│   ├── schema.ts                   # MemoryStore (CRUD + FTS sync)
-│   ├── index.ts                    # MemoryEngine
-│   ├── confidence.ts               # Bayesian scoring
-│   ├── outcome.ts                  # Outcome recording
-│   └── decay.ts                    # Memory decay
-├── retrieval/                      # Hybrid search & ranking
-│   ├── fts.ts                      # FTS5 keyword search
-│   ├── vector.ts                   # Vector search
-│   ├── ranking.ts                  # Weighted ranking
-│   ├── inject.ts                   # Context block builder
-│   └── index.ts                    # RetrievalEngine
-├── feedback/                       # Outcome tracking
-├── hook-system/                    # Hook event handling
-│   ├── adapters.ts                 # 7 platform adapters (incl. OpenCode)
-│   ├── index.ts                    # Hook command entry
-│   ├── hook-io.ts                  # I/O utilities
-│   ├── logger.ts                   # Logging
-│   ├── session-store.ts            # Session CRUD
-│   ├── session-search.ts           # FTS observation search
-│   └── opencode-plugin.template.ts # OpenCode plugin (auto-installed)
-└── ast/                            # Tree-sitter AST anchors
+   Agent Event
+     -> Platform Adapter (claude-code | codex | opencode | cursor)
+     -> Normalized trace (in-memory)
+     -> Ingestor (raw trace -> SQLite)
+     -> Observer (LLM: traces -> XML -> memory)
+     -> Memory (SQLite)
+     -> Retrieval (FTS + vector + RRF)
 ```
+
+The five stages are strict: nothing reaches `memories` that didn't
+come from the observer; nothing reaches the LLM that didn't come from
+`traces`. The agent never sees the database directly.
+
+## Storage
+
+Four tables. Nothing else.
+
+```sql
+sessions(id, session_id, project, started_at, ended_at)
+traces(id, session_id, timestamp, event_type, tool_name, tool_input,
+       tool_output, files_read, files_modified, user_prompt,
+       final_response, processed_at)
+memories(id, session_id, type, title, subtitle, facts, narrative,
+        concepts, files_read, files_modified, created_at, embedding)
+summaries(id, session_id, request, investigated, learned, completed,
+         next_steps, notes, created_at)
+```
+
+`traces.processed_at` is operational state: the observer sets it after
+generating memories. This makes the observer crash-safe — a process
+that dies mid-batch leaves the trace unprocessed and the next pass
+picks it up.
+
+`memories.embedding` is a BLOB of raw Float32 bytes; one cosine
+similarity pass over in-memory vectors. No external vector DB.
+
+A FTS5 mirror of `memories` is created alongside the tables and kept
+in sync via triggers.
+
+## CLI
+
+```bash
+# Hook entry: reads JSON from stdin, ingests, waits for the observer
+# to drain, exits. The agent's hook system calls this.
+termyte-hook <claude-code|codex|opencode|cursor>
+
+# Standalone observer: processes unprocessed traces and exits.
+termyte-worker [--once]
+
+# Search and context rendering for humans / future agent prompts.
+termyte search <query> [--project p] [--limit n] [--json]
+termyte context [--project p] [--query q] [--limit n]
+```
+
+## Configuration
+
+| Env var | Default | Purpose |
+|---|---|---|
+| `TERMYTE_DB` | `./termyte.db` | SQLite file path (use `:memory:` for tests) |
+| `TERMYTE_LLM_BASE_URL` | `https://api.openai.com/v1` | OpenAI-compatible base URL |
+| `TERMYTE_LLM_API_KEY` | (none) | LLM API key — required for the observer |
+| `TERMYTE_LLM_MODEL` | `gpt-4o-mini` | Model used for observation extraction |
+| `TERMYTE_EMBED_BASE_URL` | same as LLM | Embeddings endpoint base URL |
+| `TERMYTE_EMBED_API_KEY` | falls back to `OPENAI_API_KEY` | Embeddings API key |
+| `TERMYTE_EMBED_MODEL` | `text-embedding-3-small` | Embeddings model |
+| `TERMYTE_EMBED_DIMENSIONS` | `1536` | Embedding vector size |
+
+The LLM and embeddings endpoints can point at any OpenAI-compatible
+service: OpenAI, Ollama, LM Studio, vLLM, etc. If no embedding API
+is configured, semantic search is disabled and `termyte search`
+degrades to FTS-only.
+
+## Hook wiring (Claude Code example)
+
+```json
+{
+  "hooks": {
+    "SessionStart":     [{ "type": "command", "command": "termyte-hook claude-code" }],
+    "UserPromptSubmit": [{ "type": "command", "command": "termyte-hook claude-code" }],
+    "PostToolUse":      [{ "type": "command", "command": "termyte-hook claude-code" }],
+    "Stop":             [{ "type": "command", "command": "termyte-hook claude-code" }]
+  }
+}
+```
+
+Other agents have equivalent hook configurations. The payload shape
+is whatever the agent sends on stdin; the adapter normalizes it.
 
 ## Tests
 
 ```bash
+npm install
 npm test
 ```
 
-34 tests, all passing. Includes:
-- 29 unit tests (database, confidence, decay, outcome, ranking, XML parser, output classifier)
-- 5 e2e tests (full hook → pending → observations → memories → retrieval → outcome loop)
+The test suite uses vitest with an in-memory SQLite store. The
+observer tests use a `MockLLM` that returns canned XML; the retrieval
+tests use a deterministic `FixedEmbeddings` provider. No network
+calls, no live LLM, no live embeddings.
 
-## Roadmap
+## What this is not
 
-- **Phase 1 (Done)**: Capture + Store + Basic Retrieval
-- **Phase 2 (Done)**: Self-Correction (outcome tracking, confidence updates)
-- **Phase 3 (Done)**: OpenCode integration + e2e pipeline
-- **Phase 4 (Future)**: Memory decay tuning, additional platform adapters
+This MVP does not include — by design — any of:
 
-## License
+- Confidence scoring or Bayesian updates
+- Memory freshness or decay
+- Self-correcting memory, verification, or feedback loops
+- Memory consolidation workers
+- Multi-agent coordination
+- Chroma / vector DB sync
+- Team/project multi-tenancy beyond a single `project` column
+- Authentication, dashboards, notifications
+- Server-side multi-tenant runtime
 
-MIT
+The architecture supports adding these later. They are out of scope
+per the spec.

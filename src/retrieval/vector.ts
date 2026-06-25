@@ -1,88 +1,68 @@
-import type Database from "better-sqlite3";
-import type { Memory } from "../types.js";
-import { rowToMemory } from "../memory/schema.js";
+import type { Store } from "../storage/store.js";
+import type { Memory } from "../core/types.js";
 
-export interface VectorResult {
+export interface VectorSearchOptions {
+  query: Float32Array;
+  project?: string;
+  limit?: number;
+  type?: string;
+  recencyWindowMs?: number;
+}
+
+export interface VectorSearchResult {
   memory: Memory;
-  distance: number;
   score: number;
 }
 
-function serializeFloat32(vector: number[]): Buffer {
-  const buffer = Buffer.alloc(vector.length * 4);
-  for (let i = 0; i < vector.length; i++) {
-    buffer.writeFloatLE(vector[i], i * 4);
-  }
-  return buffer;
-}
+/**
+ * Semantic vector search via cosine similarity.
+ *
+ * Vectors are stored on the `memories` row and loaded in full on each
+ * query. For larger corpora a real vector index is required; this is
+ * out of scope per the spec.
+ */
+export class VectorSearch {
+  constructor(private store: Store) {}
 
-export function storeEmbedding(
-  db: Database.Database,
-  memoryId: string,
-  embedding: number[],
-): void {
-  const buffer = serializeFloat32(embedding);
-  try {
-    db.prepare(`
-      INSERT OR REPLACE INTO memory_embeddings (memory_id, embedding)
-      VALUES (?, ?)
-    `).run(memoryId, buffer);
-  } catch {
-    // If vec0 table doesn't exist, try creating it and retrying
-    try {
-      db.exec(`
-        CREATE VIRTUAL TABLE IF NOT EXISTS memory_embeddings USING vec0(
-          memory_id TEXT PRIMARY KEY,
-          embedding float[768],
-          distance_metric=cosine
-        )
-      `);
-      db.prepare("INSERT OR REPLACE INTO memory_embeddings (memory_id, embedding) VALUES (?, ?)").run(memoryId, buffer);
-    } catch {
-      // Vector storage is optional
-    }
-  }
-}
+  search(options: VectorSearchOptions): VectorSearchResult[] {
+    const all = this.store.getAllMemoriesWithEmbeddings(options.project);
+    if (all.length === 0) return [];
 
-export function vectorSearch(
-  db: Database.Database,
-  queryEmbedding: number[],
-  limit: number = 20,
-): VectorResult[] {
-  const buffer = serializeFloat32(queryEmbedding);
+    const cutoff = options.recencyWindowMs
+      ? Date.now() - options.recencyWindowMs
+      : null;
 
-  try {
-    const results = db.prepare(`
-      SELECT memory_id, distance
-      FROM memory_embeddings
-      WHERE embedding MATCH ?
-      AND k = ?
-      ORDER BY distance
-    `).all(buffer, limit) as Array<{ memory_id: string; distance: number }>;
+    const filtered = all.filter((m) => {
+      if (!m.embedding) return false;
+      if (options.type && m.type !== options.type) return false;
+      if (cutoff !== null && m.created_at < cutoff) return false;
+      return true;
+    });
 
-    return results.map((r) => {
-      const row = db.prepare("SELECT * FROM memories WHERE id = ?").get(r.memory_id);
-      if (!row) return null;
-      const memory = rowToMemory(row as Parameters<typeof rowToMemory>[0]);
-      // Cosine distance: lower is better, convert to score (0-1, higher is better)
-      const score = Math.max(0, 1 - r.distance);
-      return { memory, distance: r.distance, score };
-    }).filter((r): r is VectorResult => r !== null);
-  } catch {
-    return [];
+    if (filtered.length === 0) return [];
+
+    const scored: VectorSearchResult[] = filtered.map((m) => ({
+      memory: m,
+      score: cosineSimilarity(options.query, m.embedding!),
+    }));
+
+    scored.sort((a, b) => b.score - a.score);
+    return scored.slice(0, options.limit ?? 20);
   }
 }
 
-export function ensureVectorTable(db: Database.Database): void {
-  try {
-    db.exec(`
-      CREATE VIRTUAL TABLE IF NOT EXISTS memory_embeddings USING vec0(
-        memory_id TEXT PRIMARY KEY,
-        embedding float[768],
-        distance_metric=cosine
-      )
-    `);
-  } catch {
-    // Table may already exist or sqlite-vec not loaded
+function cosineSimilarity(a: Float32Array, b: Float32Array): number {
+  if (a.length !== b.length) return 0;
+  let dot = 0;
+  let na = 0;
+  let nb = 0;
+  for (let i = 0; i < a.length; i++) {
+    const ai = a[i]!;
+    const bi = b[i]!;
+    dot += ai * bi;
+    na += ai * ai;
+    nb += bi * bi;
   }
+  const denom = Math.sqrt(na) * Math.sqrt(nb);
+  return denom === 0 ? 0 : dot / denom;
 }

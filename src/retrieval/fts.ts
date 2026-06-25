@@ -1,54 +1,104 @@
-import type Database from "better-sqlite3";
-import type { Memory } from "../types.js";
-import { rowToMemory } from "../memory/schema.js";
+import type { Store } from "../storage/store.js";
+import type { Memory } from "../core/types.js";
 
-interface FtsResult {
-  rowid: number;
-  rank: number;
+export interface FTSSearchOptions {
+  query: string;
+  project?: string;
+  limit?: number;
+  type?: string;
 }
 
-export interface KeywordResult {
-  memory: Memory;
-  score: number;
+/**
+ * Full-text search over the `memories_fts` FTS5 mirror. Returns memories
+ * ranked by FTS5 rank.
+ */
+export class FTSSearch {
+  constructor(private store: Store) {}
+
+  search(options: FTSSearchOptions): Memory[] {
+    const ftsQuery = buildFTSQuery(options.query);
+    if (!ftsQuery) return [];
+
+    const params: any[] = [ftsQuery];
+    const where: string[] = ["memories_fts MATCH ?"];
+
+    if (options.project) {
+      where.push("s.project = ?");
+      params.push(options.project);
+    }
+    if (options.type) {
+      where.push("m.type = ?");
+      params.push(options.type);
+    }
+
+    const limit = options.limit ?? 20;
+    params.push(limit);
+
+    const sql = options.project
+      ? `
+        SELECT m.id, m.session_id, m.type, m.title, m.subtitle, m.facts,
+               m.narrative, m.concepts, m.files_read, m.files_modified,
+               m.created_at, m.embedding
+        FROM memories m
+        INNER JOIN memories_fts fts ON fts.rowid = m.id
+        INNER JOIN sessions s ON s.session_id = m.session_id
+        WHERE ${where.join(" AND ")}
+        ORDER BY rank
+        LIMIT ?
+      `
+      : `
+        SELECT m.id, m.session_id, m.type, m.title, m.subtitle, m.facts,
+               m.narrative, m.concepts, m.files_read, m.files_modified,
+               m.created_at, m.embedding
+        FROM memories m
+        INNER JOIN memories_fts fts ON fts.rowid = m.id
+        WHERE ${where.join(" AND ")}
+        ORDER BY rank
+        LIMIT ?
+      `;
+
+    const rows = this.store.getDB().prepare(sql).all(...params) as any[];
+    return rows.map(mapMemoryRow);
+  }
 }
 
-function toFtsQuery(query: string): string {
-  const cleaned = query.replace(/[^\w\s]/g, " ").trim();
-  if (!cleaned) return "";
-  const terms = cleaned.split(/\s+/).filter(Boolean);
-  return terms.map((t) => `"${t}"*`).join(" OR ");
+function buildFTSQuery(query: string): string {
+  return query
+    .normalize("NFKC")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((t) => `"${t.replace(/"/g, '""')}"`)
+    .join(" ");
 }
 
-export function keywordSearch(
-  db: Database.Database,
-  query: string,
-  limit: number = 20,
-): KeywordResult[] {
-  if (!query.trim()) return [];
+function mapMemoryRow(row: any): Memory {
+  let embedding: Float32Array | null = null;
+  if (row.embedding) {
+    const buf = row.embedding as Buffer;
+    embedding = new Float32Array(buf.buffer, buf.byteOffset, buf.byteLength / 4);
+  }
+  return {
+    id: row.id,
+    session_id: row.session_id,
+    type: row.type,
+    title: row.title,
+    subtitle: row.subtitle,
+    facts: parseJSON(row.facts, []),
+    narrative: row.narrative,
+    concepts: parseJSON(row.concepts, []),
+    files_read: parseJSON(row.files_read, []),
+    files_modified: parseJSON(row.files_modified, []),
+    created_at: row.created_at,
+    embedding,
+  };
+}
 
-  const ftsQuery = toFtsQuery(query);
-  if (!ftsQuery) return [];
-
+function parseJSON<T>(s: string, fallback: T): T {
+  if (!s) return fallback;
   try {
-    const ftsResults = db.prepare(`
-      SELECT rowid, rank FROM memories_fts
-      WHERE memories_fts MATCH ?
-      ORDER BY rank
-      LIMIT ?
-    `).all(ftsQuery, limit * 2) as FtsResult[];
-
-    if (ftsResults.length === 0) return [];
-
-    const maxRank = Math.max(...ftsResults.map((r) => Math.abs(r.rank)), 1);
-
-    return ftsResults.map((r) => {
-      const row = db.prepare("SELECT * FROM memories WHERE rowid = ?").get(r.rowid) as Record<string, unknown> | undefined;
-      if (!row) return null;
-      const memory = rowToMemory(row as any);
-      const normalizedScore = 1 - Math.abs(r.rank) / maxRank;
-      return { memory, score: Math.max(0, normalizedScore) };
-    }).filter((r): r is KeywordResult => r !== null);
+    return JSON.parse(s) as T;
   } catch {
-    return [];
+    return fallback;
   }
 }
