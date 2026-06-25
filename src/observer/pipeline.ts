@@ -71,9 +71,7 @@ export class Observer {
     this.scheduled = true;
     setImmediate(() => {
       this.scheduled = false;
-      this.inFlight = this.drainOnce().catch((err) => {
-        console.error("observer error:", err instanceof Error ? err.message : String(err));
-      });
+      this.inFlight = this.drainOnce();
     });
   }
 
@@ -84,10 +82,14 @@ export class Observer {
   }
 
   private async drainOnce(): Promise<void> {
-    if (this.queue.length === 0) return;
-    const trace = this.queue.shift()!;
-    await this.processTraceToObservation(trace);
-    if (this.queue.length > 0) await this.drainOnce();
+    while (this.queue.length > 0) {
+      const trace = this.queue.shift()!;
+      try {
+        await this.processTraceToObservation(trace);
+      } catch (err) {
+        console.error("observer error:", err instanceof Error ? err.message : String(err));
+      }
+    }
   }
 
   /** Stage 1: Extract observations from a single trace. */

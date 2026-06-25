@@ -75,10 +75,24 @@ describe("HookRunner", () => {
   it("handles each of the four adapters", async () => {
     const store = new Store(ctx);
     const llm = new MockLLM();
-    llm.setResponse(`<observation>
+    llm.setResponses([
+      `<observation>
       <type>bugfix</type>
       <title>Adapter test</title>
-    </observation>`);
+    </observation>`,
+      `<observation>
+      <type>bugfix</type>
+      <title>Adapter test</title>
+    </observation>`,
+      `<observation>
+      <type>bugfix</type>
+      <title>Adapter test</title>
+    </observation>`,
+      `<observation>
+      <type>bugfix</type>
+      <title>Adapter test</title>
+    </observation>`,
+    ]);
     const observer = new Observer({ store, llm });
     const runner = new HookRunner({ store, observer });
 

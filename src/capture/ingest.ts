@@ -4,9 +4,12 @@ import type { NormalizedEvent } from "./adapter.js";
 import { extractFilesFromEvent } from "./files.js";
 
 /**
- * Convert a normalized event into a trace, upsert the session, and
- * insert the trace row. Returns the persisted trace (with its assigned
- * id).
+ * Convert a normalized event into a trace and insert the trace row.
+ * Returns the persisted trace (with its assigned id).
+ *
+ * Note: The caller (HookRunner) is responsible for upserting the session
+ * row before calling ingest. This avoids overwriting the session project
+ * with "unknown".
  */
 export class Ingestor {
   constructor(private store: Store) {}
@@ -23,9 +26,6 @@ export class Ingestor {
       files_read = files_read ?? (f.read.length > 0 ? f.read : null);
       files_modified = files_modified ?? (f.modified.length > 0 ? f.modified : null);
     }
-
-    // Ensure the session row exists.
-    this.store.upsertSession(event.session_id, "unknown");
 
     const trace = this.store.insertTrace({
       session_id: event.session_id,

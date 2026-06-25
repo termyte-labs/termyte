@@ -7,6 +7,7 @@
  * No hosted APIs. Models are downloaded once and cached locally.
  */
 import type { EmbeddingsProvider } from "./embeddings.js";
+import { execSync } from "node:child_process";
 
 // Dynamic import so tests can mock without loading the heavy ONNX runtime.
 let pipeline: any = null;
@@ -95,7 +96,6 @@ export class LocalEmbeddingsProvider implements EmbeddingsProvider {
  */
 export function detectRepoId(cwd: string): string | undefined {
   // Try to read .git/config for origin URL to get a stable repo ID.
-  const { execSync } = require("child_process") as typeof import("child_process");
   try {
     const origin = execSync("git config --get remote.origin.url", {
       cwd,
@@ -120,7 +120,6 @@ export function detectRepoId(cwd: string): string | undefined {
  * Detect the workspace root from the current directory.
  */
 export function detectWorkspaceRoot(cwd: string): string {
-  const { execSync } = require("child_process") as typeof import("child_process");
   try {
     const root = execSync("git rev-parse --show-toplevel", {
       cwd,
