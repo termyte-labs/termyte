@@ -1,13 +1,20 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { Store } from "../src/storage/store.js";
 import { Observer } from "../src/observer/pipeline.js";
 import { openDatabase, type DatabaseContext } from "../src/storage/connection.js";
 import { MockLLM } from "./mock-llm.js";
 
 let ctx: DatabaseContext;
+let store: Store | null = null;
+let observer: Observer | null = null;
 
 beforeEach(() => {
   ctx = openDatabase(":memory:");
+});
+
+afterEach(() => {
+  if (observer) { observer.destroy(); observer = null; }
+  if (store) { store.close(); store = null; }
 });
 
 describe("Observer", () => {

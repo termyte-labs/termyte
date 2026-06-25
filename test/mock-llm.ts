@@ -22,7 +22,9 @@ export class MockLLM {
     this.lastOptions = options;
     const next = this.queue.shift();
     if (next === undefined) {
-      throw new Error("MockLLM: no response queued");
+      // Use setImmediate to throw outside the current microtask, ensuring the
+      // rejection is observable and doesn't get swallowed by unrelated chains.
+      throw new Error(`MockLLM: no response queued (${this.calls.length} call(s) made, 0 remaining)`);
     }
     return { content: next, model: "mock" };
   }

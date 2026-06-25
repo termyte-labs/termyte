@@ -59,7 +59,11 @@ export class Observer {
   }
 
   async flush(): Promise<void> {
-    while (this.queue.length > 0) await this.inFlight;
+    while (this.queue.length > 0) {
+      await this.inFlight;
+      // Yield to the event loop so scheduled setImmediate callbacks can fire.
+      await new Promise(resolve => setImmediate(resolve));
+    }
   }
 
   private schedule(): void {
@@ -71,6 +75,12 @@ export class Observer {
         console.error("observer error:", err instanceof Error ? err.message : String(err));
       });
     });
+  }
+
+  /** Stop any pending work. Safe to call multiple times. */
+  destroy(): void {
+    this.queue.length = 0;
+    this.scheduled = false;
   }
 
   private async drainOnce(): Promise<void> {
