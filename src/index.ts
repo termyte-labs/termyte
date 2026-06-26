@@ -45,6 +45,7 @@ export { HookRunner, type HookRunnerConfig } from "./hooks/runner.js";
 export { ContextBuilder, renderContext, renderHybridResults, type ContextInput, type ContextOutput } from "./context/builder.js";
 
 export { loadConfig, type TermyteConfig } from "./cli/config.js";
+export { runMcpServer } from "./mcp/server.js";
 
 import { Store } from "./storage/store.js";
 import { Observer } from "./observer/pipeline.js";

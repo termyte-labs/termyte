@@ -1,7 +1,3 @@
-import type { PlatformAdapter, NormalizedEvent } from "./adapter.js";
-import type { EventType } from "../core/types.js";
-import { extractFilesFromEvent } from "./files.js";
-
 /**
  * Claude Code hook payload adapter.
  *
@@ -12,6 +8,15 @@ import { extractFilesFromEvent } from "./files.js";
  * See claude-mem `src/cli/adapters/claude-code.ts:8-26` for the
  * upstream reference.
  */
+import type { PlatformAdapter, NormalizedEvent, HookResult } from "./adapter.js";
+import type { EventType } from "../core/types.js";
+import { isObject, pickString } from "./util.js";
+import { AdapterRejectedInput, isValidCwd } from "./errors.js";
+
+const MAX_AGENT_FIELD_LEN = 128;
+const pickAgentField = (v: unknown): string | undefined =>
+  typeof v === "string" && v.length > 0 && v.length <= MAX_AGENT_FIELD_LEN ? v : undefined;
+
 export class ClaudeCodeAdapter implements PlatformAdapter {
   readonly name = "claude-code" as const;
 
@@ -25,7 +30,11 @@ export class ClaudeCodeAdapter implements PlatformAdapter {
     const timestamp = typeof r["timestamp"] === "number"
       ? (r["timestamp"] as number)
       : Date.now();
-    const cwd = pickString(r, ["cwd"]) ?? null;
+
+    const cwd = pickString(r, ["cwd"]) ?? process.cwd();
+    if (!isValidCwd(cwd)) {
+      throw new AdapterRejectedInput("invalid_cwd");
+    }
 
     const tool_name = pickString(r, ["tool_name", "toolName"]);
     const tool_input = (r["tool_input"] ?? r["toolInput"]) ?? null;
@@ -52,14 +61,6 @@ export class ClaudeCodeAdapter implements PlatformAdapter {
       return null;
     }
 
-    let files_read: string[] | null = null;
-    let files_modified: string[] | null = null;
-    if (tool_name) {
-      const f = extractFilesFromEvent(tool_name, tool_input, tool_output);
-      files_read = f.read.length > 0 ? f.read : null;
-      files_modified = f.modified.length > 0 ? f.modified : null;
-    }
-
     return {
       session_id,
       timestamp,
@@ -67,27 +68,22 @@ export class ClaudeCodeAdapter implements PlatformAdapter {
       tool_name,
       tool_input,
       tool_output,
-      files_read,
-      files_modified,
+      files_read: null,
+      files_modified: null,
       user_prompt,
       final_response,
       cwd,
     };
   }
-}
 
-function isObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
-}
-
-function pickString(o: Record<string, unknown>, keys: string[]): string | null {
-  for (const k of keys) {
-    const v = o[k];
-    if (typeof v === "string" && v.length > 0) return v;
+  formatOutput(result: HookResult): unknown {
+    if (result.hookSpecificOutput) {
+      const out: Record<string, unknown> = { hookSpecificOutput: result.hookSpecificOutput };
+      if (result.systemMessage) out.systemMessage = result.systemMessage;
+      return out;
+    }
+    const out: Record<string, unknown> = {};
+    if (result.systemMessage) out.systemMessage = result.systemMessage;
+    return out;
   }
-  // Some agents pass undefined explicitly, treat as null.
-  for (const k of keys) {
-    if (k in o) return null;
-  }
-  return null;
 }

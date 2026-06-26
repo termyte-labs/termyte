@@ -47,6 +47,18 @@ export class Store {
     ).run(Date.now(), session_id);
   }
 
+  getRecentSessions(limit = 20): Session[] {
+    const rows = this.ctx.db.prepare(
+      `SELECT id, session_id, project, repo_id, workspace_root, started_at, ended_at
+       FROM sessions ORDER BY started_at DESC LIMIT ?`
+    ).all(limit) as any[];
+    return rows.map((row) => ({
+      id: row.id, session_id: row.session_id, project: row.project,
+      repo_id: row.repo_id, workspace_root: row.workspace_root,
+      started_at: row.started_at, ended_at: row.ended_at,
+    }));
+  }
+
   // ---------- traces ----------
 
   insertTrace(trace: Omit<Trace, "id" | "processed_at">): Trace {

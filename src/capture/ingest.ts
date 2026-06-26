@@ -27,6 +27,17 @@ export class Ingestor {
       files_modified = files_modified ?? (f.modified.length > 0 ? f.modified : null);
     }
 
+    // Merge any pre-extracted file paths carried on the event (e.g. Codex
+    // sets `tool_input.filePaths` after running shell-quote on the Bash
+    // command). Only read-side files; the event itself owns modifications.
+    if (event.tool_name === "Bash" && event.tool_input && typeof event.tool_input === "object") {
+      const pre = (event.tool_input as Record<string, unknown>)["filePaths"];
+      if (Array.isArray(pre) && (files_read === null || files_read.length === 0)) {
+        const list = pre.filter((p): p is string => typeof p === "string" && p.length > 0);
+        if (list.length > 0) files_read = list;
+      }
+    }
+
     const trace = this.store.insertTrace({
       session_id: event.session_id,
       timestamp: event.timestamp,

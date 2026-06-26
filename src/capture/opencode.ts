@@ -1,19 +1,20 @@
-import type { PlatformAdapter, NormalizedEvent } from "./adapter.js";
-import type { EventType } from "../core/types.js";
-import { extractFilesFromEvent } from "./files.js";
-import { isObject, pickString } from "./util.js";
-
 /**
  * OpenCode plugin payload adapter.
  *
  * The OpenCode plugin emits an event payload on the request from one of
  * the bound hooks (`tool.execute.after`, `chat.message`,
- * `experimental.session.compacting`, plus the `event` bus). Field
- * names follow OpenCode's hook API: `sessionID`, `tool`, `args`,
- * `output`, `directory`, plus `event` and `message` for the bus.
+ * `experimental.session.compacting`, plus the `event` bus). Field names
+ * follow OpenCode's hook API: `sessionID`, `tool`, `args`, `output`,
+ * `directory`, plus `event` and `message` for the bus.
  *
  * See claude-mem `src/integrations/opencode-plugin/index.ts:185-298`.
  */
+import type { PlatformAdapter, NormalizedEvent, HookResult } from "./adapter.js";
+import type { EventType } from "../core/types.js";
+import { isObject, pickString } from "./util.js";
+import { AdapterRejectedInput, isValidCwd } from "./errors.js";
+import { passthroughFormatOutput } from "./adapter.js";
+
 export class OpenCodeAdapter implements PlatformAdapter {
   readonly name = "opencode" as const;
 
@@ -27,7 +28,11 @@ export class OpenCodeAdapter implements PlatformAdapter {
     const timestamp = typeof r["timestamp"] === "number"
       ? (r["timestamp"] as number)
       : Date.now();
-    const cwd = pickString(r, ["directory", "cwd"]) ?? null;
+
+    const cwd = pickString(r, ["directory", "cwd"]) ?? process.cwd();
+    if (!isValidCwd(cwd)) {
+      throw new AdapterRejectedInput("invalid_cwd");
+    }
 
     const tool_name = pickString(r, ["tool", "tool_name"]);
     const tool_input = r["args"] ?? r["tool_input"] ?? null;
@@ -66,14 +71,6 @@ export class OpenCodeAdapter implements PlatformAdapter {
       return null;
     }
 
-    let files_read: string[] | null = null;
-    let files_modified: string[] | null = null;
-    if (tool_name) {
-      const f = extractFilesFromEvent(tool_name, tool_input, tool_output);
-      files_read = f.read.length > 0 ? f.read : null;
-      files_modified = f.modified.length > 0 ? f.modified : null;
-    }
-
     return {
       session_id,
       timestamp,
@@ -81,11 +78,15 @@ export class OpenCodeAdapter implements PlatformAdapter {
       tool_name,
       tool_input,
       tool_output,
-      files_read,
-      files_modified,
+      files_read: null,
+      files_modified: null,
       user_prompt,
       final_response,
       cwd,
     };
+  }
+
+  formatOutput(result: HookResult): unknown {
+    return passthroughFormatOutput(result);
   }
 }

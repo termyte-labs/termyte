@@ -3,7 +3,8 @@ import type { Observer } from "../observer/pipeline.js";
 import type { Platform } from "../core/types.js";
 import { adapterFor } from "../capture/index.js";
 import { Ingestor } from "../capture/ingest.js";
-import type { PlatformAdapter, NormalizedEvent } from "../capture/adapter.js";
+import type { PlatformAdapter, NormalizedEvent, HookResult } from "../capture/adapter.js";
+import { AdapterRejectedInput } from "../capture/errors.js";
 import { detectRepoId, detectWorkspaceRoot } from "../retrieval/local-embeddings.js";
 
 export interface HookRunnerConfig {
@@ -26,28 +27,65 @@ export class HookRunner {
       "codex": adapterFor("codex"),
       "opencode": adapterFor("opencode"),
       "cursor": adapterFor("cursor"),
+      "gemini-cli": adapterFor("gemini-cli"),
+      "windsurf": adapterFor("windsurf"),
+      "raw": adapterFor("raw"),
     };
   }
 
+  /**
+   * Normalize a raw payload and ingest it. Returns true on success, false
+   * if the adapter produced null (unparseable input) or threw
+   * AdapterRejectedInput. Other errors propagate.
+   */
   async processRaw(platform: Platform, raw: unknown): Promise<boolean> {
     const adapter = this.adapters[platform];
-    const event = adapter.normalize(raw);
+    let event: NormalizedEvent | null;
+    try {
+      event = adapter.normalize(raw);
+    } catch (err) {
+      if (err instanceof AdapterRejectedInput) {
+        process.stderr.write(`termyte: ${err.reason}\n`);
+        return false;
+      }
+      throw err;
+    }
     if (!event) return false;
     await this.processEvent(event);
     return true;
   }
 
   async processEvent(event: NormalizedEvent): Promise<void> {
-    if (event.cwd) {
-      const project = deriveProjectName(event.cwd);
-      const repo_id = detectRepoId(event.cwd);
-      const workspace_root = detectWorkspaceRoot(event.cwd);
-      this.store.upsertSession(event.session_id, project, repo_id, workspace_root);
-    } else {
-      this.store.upsertSession(event.session_id, "unknown");
-    }
+    const project = deriveProjectName(event.cwd);
+    const repo_id = detectRepoId(event.cwd);
+    const workspace_root = detectWorkspaceRoot(event.cwd);
+    this.store.upsertSession(event.session_id, project, repo_id, workspace_root);
     const trace = this.ingestor.ingest(event);
     if (this.observer) this.observer.enqueue(trace);
+  }
+
+  /**
+   * Process a hook event, returning the result the agent should receive.
+   * Used by event-handler dispatch in the CLI to inject context, deny
+   * tool calls, etc.
+   */
+  async processForResult(platform: Platform, raw: unknown): Promise<{
+    handled: boolean;
+    output: unknown;
+  }> {
+    const adapter = this.adapters[platform];
+    let event: NormalizedEvent | null;
+    try {
+      event = adapter.normalize(raw);
+    } catch (err) {
+      if (err instanceof AdapterRejectedInput) {
+        return { handled: false, output: { continue: true, suppressOutput: true } };
+      }
+      throw err;
+    }
+    if (!event) return { handled: false, output: { continue: true } };
+    await this.processEvent(event);
+    return { handled: true, output: adapter.formatOutput({ continue: true }) };
   }
 
   async processStdin(platform: Platform): Promise<boolean> {
@@ -55,6 +93,11 @@ export class HookRunner {
     if (!raw.trim()) return false;
     const parsed = JSON.parse(raw);
     return await this.processRaw(platform, parsed);
+  }
+
+  /** Format a HookResult through the platform's adapter envelope. */
+  formatFor(platform: Platform, result: HookResult): unknown {
+    return this.adapters[platform].formatOutput(result);
   }
 }
 

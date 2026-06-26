@@ -9,12 +9,16 @@
  *   trace     <id>     [--json]
  *   session   <id>     [--json]
  *   sessions           [--limit n]
+ *   install   <platform> [--target user|project]
+ *   mcp                (stdio server for MCP-capable IDEs)
  *   help
  */
 import { searchCommand } from "./search.js";
 import { contextCommand } from "./context.js";
 import { loadConfig } from "./config.js";
 import { Store } from "../storage/store.js";
+import { installFor, listSupportedPlatforms } from "../integrations/installers/index.js";
+import { runMcpServer } from "../mcp/server.js";
 
 const USAGE = `termyte - memory layer for coding agents
 
@@ -26,7 +30,12 @@ Usage:
   termyte trace     <id>     [--json]
   termyte session   <id>     [--json]
   termyte sessions           [--limit n]
+  termyte install   <platform> [--target user|project]
+  termyte mcp                (stdio MCP server)
   termyte help
+
+Supported install platforms:
+  ${listSupportedPlatforms().join(", ")}
 `;
 
 function parseArgs(argv: string[]): { positional: string[]; opts: Record<string, string | boolean> } {
@@ -113,6 +122,22 @@ async function main(): Promise<void> {
         const limit = typeof opts["limit"] === "string" ? parseInt(opts["limit"], 10) : 20;
         await listSessionsCommand(limit);
         break;
+      }
+      case "install": {
+        const platform = positional[0];
+        if (!platform) {
+          process.stdout.write(`Supported platforms: ${listSupportedPlatforms().join(", ")}\n`);
+          process.exit(0);
+        }
+        const target = typeof opts["target"] === "string"
+          ? (opts["target"] as "user" | "project")
+          : "user";
+        const code = installFor(platform, { target });
+        process.exit(code);
+      }
+      case "mcp": {
+        await runMcpServer();
+        process.exit(0);
       }
       default:
         process.stderr.write(`unknown command: ${command}\n\n${USAGE}`);

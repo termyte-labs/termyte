@@ -1,15 +1,19 @@
+/**
+ * PlatformAdapter — the single contract every agent-specific parser
+ * implements. `normalize` converts the agent's raw hook payload into the
+ * shared `NormalizedEvent`; `formatOutput` converts an outgoing `HookResult`
+ * into the agent's response envelope (Claude Code reads stdout JSON, Cursor
+ * reads its own shape, etc.).
+ *
+ * The interface is intentionally minimal so the runner and downstream
+ * pipeline can stay platform-agnostic.
+ */
+
 import type { EventType, Platform } from "../core/types.js";
 
-/**
- * The common trace format.
- *
- * Every agent's raw hook payload is normalized to this shape by an
- * adapter. Nothing else in Termyte touches raw event payloads.
- */
+/** Common trace shape, written to the `traces` table. */
 export interface NormalizedEvent {
-  /** External session id (whatever the agent calls it). */
   session_id: string;
-  /** Event time in milliseconds since epoch. */
   timestamp: number;
   event_type: EventType;
   tool_name: string | null;
@@ -20,11 +24,38 @@ export interface NormalizedEvent {
   user_prompt: string | null;
   final_response: string | null;
   /** Working directory at the time of the event. Not persisted in the trace. */
-  cwd: string | null;
+  cwd: string;
+}
+
+/** Hook output envelope — what an adapter returns to the agent. */
+export interface HookResult {
+  continue?: boolean;
+  suppressOutput?: boolean;
+  systemMessage?: string;
+  /** Per-event extras the agent protocol understands. */
+  hookSpecificOutput?: {
+    hookEventName: string;
+    additionalContext?: string;
+    permissionDecision?: "allow" | "deny";
+    permissionDecisionReason?: string;
+    updatedInput?: Record<string, unknown>;
+  };
+  decision?: "block" | "approve";
+  reason?: string;
 }
 
 export interface PlatformAdapter {
   readonly name: Platform;
   /** Convert a raw hook payload to the common trace format. */
   normalize(raw: unknown): NormalizedEvent | null;
+  /** Convert a HookResult into the agent's response envelope. */
+  formatOutput(result: HookResult): unknown;
+}
+
+/**
+ * Default output envelope for agents that just need `{continue:true}`.
+ * Used by raw, windsurf, etc.
+ */
+export function passthroughFormatOutput(result: HookResult): unknown {
+  return { continue: result.continue ?? true };
 }

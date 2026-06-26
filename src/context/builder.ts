@@ -96,7 +96,7 @@ export function renderContext(
   return lines.join("\n").trimEnd() + "\n";
 }
 
-function renderMemory(m: Memory): string {
+export function renderMemory(m: Memory): string {
   const parts: string[] = [];
   parts.push(`### [${m.type}] ${m.title}`);
   if (m.description) parts.push(m.description);

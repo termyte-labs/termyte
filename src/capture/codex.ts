@@ -1,17 +1,20 @@
-import type { PlatformAdapter, NormalizedEvent } from "./adapter.js";
-import type { EventType } from "../core/types.js";
-import { extractFilesFromEvent } from "./files.js";
-import { isObject, pickString } from "./util.js";
-
 /**
  * Codex CLI hook payload adapter.
  *
  * Codex native hooks emit a JSON object with the same shape as Claude
  * Code's, plus an optional `hook_event_name` field that names the event
- * (SessionStart, UserPromptSubmit, PostToolUse, etc.).
+ * (SessionStart, UserPromptSubmit, PostToolUse, etc.) and bash commands
+ * that are parsed for actual file paths.
  *
- * See claude-mem `src/cli/adapters/codex.ts:59-103`.
+ * See claude-mem `src/cli/adapters/codex.ts:59-103` and
+ * `src/cli/adapters/codex-file-context.ts`.
  */
+import type { PlatformAdapter, NormalizedEvent, HookResult } from "./adapter.js";
+import type { EventType } from "../core/types.js";
+import { isObject, pickString } from "./util.js";
+import { extractCodexFilePaths } from "./codex-file-context.js";
+import { AdapterRejectedInput, isValidCwd } from "./errors.js";
+
 export class CodexAdapter implements PlatformAdapter {
   readonly name = "codex" as const;
 
@@ -25,11 +28,25 @@ export class CodexAdapter implements PlatformAdapter {
     const timestamp = typeof r["timestamp"] === "number"
       ? (r["timestamp"] as number)
       : Date.now();
-    const cwd = pickString(r, ["cwd"]) ?? null;
+
+    const cwd = pickString(r, ["cwd"]) ?? process.cwd();
+    if (!isValidCwd(cwd)) {
+      throw new AdapterRejectedInput("invalid_cwd");
+    }
 
     const tool_name = pickString(r, ["tool_name", "toolName"]);
-    const tool_input = (r["tool_input"] ?? r["toolInput"]) ?? null;
+    let tool_input = (r["tool_input"] ?? r["toolInput"]) ?? null;
     const tool_output = r["tool_response"] ?? r["tool_output"] ?? r["toolOutput"] ?? null;
+
+    // Codex PreToolUse on Bash: try to extract real file paths from the
+    // shell command via shell-quote. Only paths that exist on disk are
+    // returned; the original tool_input is left untouched for the agent.
+    if (pickString(r, ["hook_event_name"]) === "PreToolUse" && tool_name === "Bash") {
+      const paths = extractCodexFilePaths(tool_name, tool_input, cwd);
+      if (paths.length > 0 && isObject(tool_input)) {
+        tool_input = { ...(tool_input as Record<string, unknown>), filePaths: paths };
+      }
+    }
 
     let event_type: EventType;
     let user_prompt: string | null = null;
@@ -51,14 +68,6 @@ export class CodexAdapter implements PlatformAdapter {
       return null;
     }
 
-    let files_read: string[] | null = null;
-    let files_modified: string[] | null = null;
-    if (tool_name) {
-      const f = extractFilesFromEvent(tool_name, tool_input, tool_output);
-      files_read = f.read.length > 0 ? f.read : null;
-      files_modified = f.modified.length > 0 ? f.modified : null;
-    }
-
     return {
       session_id,
       timestamp,
@@ -66,11 +75,41 @@ export class CodexAdapter implements PlatformAdapter {
       tool_name,
       tool_input,
       tool_output,
-      files_read,
-      files_modified,
+      files_read: null,
+      files_modified: null,
       user_prompt,
       final_response,
       cwd,
     };
+  }
+
+  formatOutput(result: HookResult): unknown {
+    const out: Record<string, unknown> = {};
+    if (result.continue !== undefined) out.continue = result.continue;
+    if (result.systemMessage) out.systemMessage = result.systemMessage;
+    if (result.decision === "block") out.decision = "block";
+    if (result.reason) out.reason = result.reason;
+
+    const hookSpecific = result.hookSpecificOutput;
+    const eventName = hookSpecific?.hookEventName;
+    if (!hookSpecific || !eventName || eventName === "Stop") return out;
+
+    const specific: Record<string, unknown> = { hookEventName: eventName };
+    if (hookSpecific.additionalContext) {
+      specific.additionalContext = hookSpecific.additionalContext;
+    }
+    if (eventName === "PreToolUse") {
+      if (hookSpecific.permissionDecision === "deny") {
+        specific.permissionDecision = "deny";
+        if (hookSpecific.permissionDecisionReason) {
+          specific.permissionDecisionReason = hookSpecific.permissionDecisionReason;
+        }
+      }
+      if (hookSpecific.updatedInput) {
+        specific.updatedInput = hookSpecific.updatedInput;
+      }
+    }
+    out.hookSpecificOutput = specific;
+    return out;
   }
 }

@@ -72,35 +72,25 @@ describe("HookRunner", () => {
     store.close();
   });
 
-  it("handles each of the four adapters", async () => {
+  it("handles each of the adapters", async () => {
     const store = new Store(ctx);
     const llm = new MockLLM();
-    llm.setResponses([
-      `<observation>
+    const obs = `<observation>
       <type>bugfix</type>
       <title>Adapter test</title>
-    </observation>`,
-      `<observation>
-      <type>bugfix</type>
-      <title>Adapter test</title>
-    </observation>`,
-      `<observation>
-      <type>bugfix</type>
-      <title>Adapter test</title>
-    </observation>`,
-      `<observation>
-      <type>bugfix</type>
-      <title>Adapter test</title>
-    </observation>`,
-    ]);
+    </observation>`;
+    llm.setResponses([obs, obs, obs, obs, obs, obs, obs]);
     const observer = new Observer({ store, llm });
     const runner = new HookRunner({ store, observer });
 
-    const samples: Array<{ platform: "claude-code" | "codex" | "opencode" | "cursor"; payload: any }> = [
+    const samples: Array<{ platform: "claude-code" | "codex" | "opencode" | "cursor" | "gemini-cli" | "windsurf" | "raw"; payload: any }> = [
       { platform: "claude-code", payload: { session_id: "a", tool_name: "Read", tool_input: null, tool_response: null } },
       { platform: "codex", payload: { session_id: "b", tool_name: "Read", tool_input: null, tool_response: null } },
       { platform: "opencode", payload: { sessionID: "c", tool: "Read", args: null, output: null } },
       { platform: "cursor", payload: { conversation_id: "d", tool_name: "Read", tool_input: null, result_json: null } },
+      { platform: "gemini-cli", payload: { session_id: "e", hook_event_name: "BeforeTool", tool_name: "Read", tool_input: null } },
+      { platform: "windsurf", payload: { trajectory_id: "f", agent_action_name: "post_run_command", tool_info: { command_line: "ls" } } },
+      { platform: "raw", payload: { session_id: "g", tool_name: "Read", tool_input: null } },
     ];
 
     for (const s of samples) {
@@ -112,6 +102,9 @@ describe("HookRunner", () => {
     expect(store.getObservationsForSession("b").length).toBe(1);
     expect(store.getObservationsForSession("c").length).toBe(1);
     expect(store.getObservationsForSession("d").length).toBe(1);
+    expect(store.getObservationsForSession("e").length).toBe(1);
+    expect(store.getObservationsForSession("f").length).toBe(1);
+    expect(store.getObservationsForSession("g").length).toBe(1);
     store.close();
   });
 });
