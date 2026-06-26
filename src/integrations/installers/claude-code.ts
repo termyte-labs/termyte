@@ -76,6 +76,8 @@ export function installClaudeCodeHooks(opts: ClaudeInstallOptions): number {
   mkdirSync(dirname(settingsPath), { recursive: true });
   writeFileSync(settingsPath, JSON.stringify(existing, null, 2) + "\n", "utf-8");
   process.stdout.write(`termyte: wrote Claude Code hooks to ${settingsPath}\n`);
+  process.stdout.write(`termyte: synthesis will run automatically on session end (uses 'claude -p' in the background).\n`);
+  process.stdout.write(`termyte: run 'termyte synth --dry-run' to preview what would be sent.\n`);
   return 0;
 }
 

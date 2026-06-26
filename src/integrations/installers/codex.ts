@@ -53,6 +53,7 @@ export function installCodexHooks(opts: CodexInstallOptions): number {
   mkdirSync(dirname(hooksPath), { recursive: true });
   writeFileSync(hooksPath, JSON.stringify(existing, null, 2) + "\n", "utf-8");
   process.stdout.write(`termyte: wrote Codex hooks to ${hooksPath}\n`);
+  process.stdout.write(`termyte: synthesis will run automatically on session end (uses 'codex exec' in the background).\n`);
   return 0;
 }
 

@@ -48,6 +48,7 @@ export function installWindsurfHooks(homeDirOverride?: string): number {
   mkdirSync(dirname(hooksPath), { recursive: true });
   writeFileSync(hooksPath, JSON.stringify(existing, null, 2) + "\n", "utf-8");
   process.stdout.write(`termyte: wrote Windsurf hooks to ${hooksPath}\n`);
+  process.stdout.write(`termyte: note — Windsurf has no synthesis CLI. Trace capture is enabled; run 'termyte synth' manually to synthesize.\n`);
   return 0;
 }
 

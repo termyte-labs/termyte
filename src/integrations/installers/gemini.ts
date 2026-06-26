@@ -57,6 +57,8 @@ export function installGeminiHooks(homeDirOverride?: string): number {
   mkdirSync(dirname(settingsPath), { recursive: true });
   writeFileSync(settingsPath, JSON.stringify(existing, null, 2) + "\n", "utf-8");
   process.stdout.write(`termyte: wrote Gemini hooks to ${settingsPath}\n`);
+  process.stdout.write(`termyte: synthesis will run automatically on session end (uses 'gemini -p' in the background).\n`);
+  process.stdout.write(`termyte: note: the free tier is 60 req/min, 1000 req/day — termyte rate-limits accordingly.\n`);
   return 0;
 }
 

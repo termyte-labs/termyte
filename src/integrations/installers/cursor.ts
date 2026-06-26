@@ -50,6 +50,7 @@ export function installCursorHooks(target: CursorInstallTarget, homeDirOverride?
   mkdirSync(targetDir, { recursive: true });
   writeFileSync(hooksPath, JSON.stringify(existing, null, 2) + "\n", "utf-8");
   process.stdout.write(`termyte: wrote Cursor hooks to ${hooksPath}\n`);
+  process.stdout.write(`termyte: note — Cursor hooks cannot trigger the agent, so memory synthesis is not automatic for Cursor. Run 'termyte synth' from cron or a launcher to synthesize traces.\n`);
   return 0;
 }
 

@@ -32,9 +32,9 @@ export {
   type PlatformAdapter,
   type NormalizedEvent,
   adapterFor,
-  ClaudeCodeAdapter,
-  CodexAdapter,
-  OpenCodeAdapter,
+  ClaudeCodeAdapter as CaptureClaudeCodeAdapter,
+  CodexAdapter as CaptureCodexAdapter,
+  OpenCodeAdapter as CaptureOpenCodeAdapter,
   CursorAdapter,
   Ingestor,
   extractFilesFromEvent,
@@ -46,6 +46,21 @@ export { ContextBuilder, renderContext, renderHybridResults, type ContextInput, 
 
 export { loadConfig, type TermyteConfig } from "./cli/config.js";
 export { runMcpServer } from "./mcp/server.js";
+export { Batcher, type BatcherOptions, type BatcherRunResult, SYNTHESIS_SYSTEM_PROMPT } from "./synth/batcher.js";
+export {
+  type AgentAdapter,
+  type AgentAdapterId,
+  type AgentInvokeOptions,
+  type AgentInvokeResult,
+  type AgentInvocationError,
+  ClaudeCodeAdapter,
+  CodexAdapter,
+  OpenCodeAdapter,
+  GeminiCliAdapter,
+  FakeAdapter,
+  createAdapter,
+  discoverAdapter,
+} from "./synth/index.js";
 
 import { Store } from "./storage/store.js";
 import { Observer } from "./observer/pipeline.js";

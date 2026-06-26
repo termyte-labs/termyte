@@ -11,6 +11,9 @@ import { LocalEmbeddingsProvider } from "../src/retrieval/local-embeddings.js";
 import { getHandler, buildHandlers } from "../src/cli/handlers/index.js";
 import { adapterFor } from "../src/capture/index.js";
 import { MockLLM } from "./mock-llm.js";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 let dbCtx: DatabaseContext;
 
@@ -182,6 +185,34 @@ describe("event handlers", () => {
       "context", "file-context", "file-edit", "observation", "session-init", "summarize",
     ]);
     store.close();
+  });
+
+  it("summarize handler returns no-op when termyte-synth is missing", async () => {
+    // Ensure TERMYTE_SYNTH_PATH is unset and CWD has no dist/src.
+    const before = process.env.TERMYTE_SYNTH_PATH;
+    delete process.env.TERMYTE_SYNTH_PATH;
+    const beforeCwd = process.cwd();
+    const dir = mkdtempSync(join(tmpdir(), "termyte-no-synth-"));
+    process.chdir(dir);
+    try {
+      const store = new Store(dbCtx);
+      seedSession(store, "s1");
+      const llm = new MockLLM();
+      llm.setResponse(`<skip_summary />`);
+      const observer = new Observer({ store, llm });
+      const deps = makeDeps(store, observer);
+      const adapter = adapterFor("claude-code");
+      const event = adapter.normalize({ session_id: "s1", cwd: dir, hook_event_name: "SessionEnd" })!;
+      const out = await getHandler("summarize", deps)({ event, raw: {} });
+      expect(out.handled).toBe(true);
+      expect(out.result.continue).toBe(true);
+      // The handler should not throw even though termyte-synth is missing.
+      store.close();
+    } finally {
+      process.chdir(beforeCwd);
+      if (before !== undefined) process.env.TERMYTE_SYNTH_PATH = before;
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("LocalEmbeddingsProvider exposes the chosen model dimensions from config", () => {

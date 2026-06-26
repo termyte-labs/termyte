@@ -31,11 +31,17 @@ Usage:
   termyte session   <id>     [--json]
   termyte sessions           [--limit n]
   termyte install   <platform> [--target user|project]
+  termyte synth     [options]              (background memory synthesis)
+  termyte stats                                 (local stats — no network)
   termyte mcp                (stdio MCP server)
   termyte help
 
 Supported install platforms:
   ${listSupportedPlatforms().join(", ")}
+
+termyte synth options: --adapter claude-code|codex|opencode|gemini-cli
+                       --dry-run --max-budget-usd N --batch-size N
+                       --session <id> --repo <repo_id> --json
 `;
 
 function parseArgs(argv: string[]): { positional: string[]; opts: Record<string, string | boolean> } {
@@ -137,6 +143,19 @@ async function main(): Promise<void> {
       }
       case "mcp": {
         await runMcpServer();
+        process.exit(0);
+      }
+      case "synth": {
+        // Forward to the synth CLI. Re-exec via dynamic import so we
+        // don't have to import the (large) LocalEmbeddingsProvider
+        // graph when the user runs other subcommands.
+        const mod = await import("./synth.js");
+        await mod.runMain();
+        process.exit(0);
+      }
+      case "stats": {
+        const mod = await import("./stats.js");
+        await mod.runMain();
         process.exit(0);
       }
       default:
