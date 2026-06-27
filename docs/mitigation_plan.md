@@ -1,8 +1,8 @@
 # Termyte — Mitigation Plan
 
 **Date:** 2026-06-26
-**Status:** Draft for engineering review
-**Scope:** All 22 issues from the senior-engineer review
+**Status:** Implemented. All committed on branch `fix/mitigation-plan`.
+**Scope:** All 22 issues from the senior-engineer review.
 
 This plan is ordered by severity. Each entry has:
 - A short problem statement
@@ -16,6 +16,24 @@ Severity rubric:
 - **High** — performance or reliability under realistic load. Should ship within the first iteration after release.
 - **Medium** — operational hygiene. Schedule for the next cleanup pass.
 - **Low** — quality-of-life. Pick up as time allows.
+
+## Implementation status
+
+| ID | Severity | Title | Status | Commit |
+|---|---|---|---|---|
+| C8 | Critical | Silent ingest failures | done | (first) |
+| H5 | High | Install corrupts user configs | done | (second) |
+| C2 | Critical | OpenCode plugin stdio race + synth timeout + orphan reaper | done | (third) |
+| C3 / C20 / E2 | Critical | Spend module with daily cap + checksum | done | (fourth) |
+| C4 / H2 / M6 | Critical | Embeddings singleton + lean/fat hook paths | done | (fifth) |
+| C1 Part A | Critical | FTS5 pre-filter on vector search | done | (sixth) |
+| M5 / B3 | Medium | FTS5 trigger qualifier + value-comparison guard | done | (seventh) |
+| M2 | Medium | Trace ordering | done | (eighth) |
+| L5 | Low | Schema version tracking tests | done | (ninth) |
+| H3 | High | Hook normalizes once (folded into C8) | done | (first) |
+| H4 | High | `stats` respects TERMYTE_SYNTH_ADAPTER | done | (fourth) |
+| M1 | Medium | Dead `processUnprocessedOnce` reference | n/a — method is used by `termyte-worker` |
+| L2 | Low | NoOpEmbeddingsProvider to test utils | skipped — provider is a useful public API opt-out |
 
 ---
 
