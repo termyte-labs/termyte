@@ -115,15 +115,20 @@ export class Store {
   }
 
   getUnprocessedTraces(limit = 50): Trace[] {
+    // M2: order by (session_id, timestamp, id) so within a session
+    // ties on timestamp resolve by insertion order. Synthesis
+    // prompts see events chronologically, not in random order.
     const rows = this.ctx.db.prepare(
-      `SELECT * FROM traces WHERE processed_at IS NULL ORDER BY timestamp ASC LIMIT ?`
+      `SELECT * FROM traces WHERE processed_at IS NULL
+       ORDER BY session_id, timestamp ASC, id ASC LIMIT ?`
     ).all(limit) as any[];
     return rows.map(mapTrace);
   }
 
   getUnprocessedTracesForSession(session_id: string, limit = 50): Trace[] {
     const rows = this.ctx.db.prepare(
-      `SELECT * FROM traces WHERE session_id = ? AND processed_at IS NULL ORDER BY timestamp ASC LIMIT ?`
+      `SELECT * FROM traces WHERE session_id = ? AND processed_at IS NULL
+       ORDER BY timestamp ASC, id ASC LIMIT ?`
     ).all(session_id, limit) as any[];
     return rows.map(mapTrace);
   }
@@ -136,7 +141,7 @@ export class Store {
       `SELECT t.* FROM traces t
        INNER JOIN sessions s ON s.session_id = t.session_id
        WHERE t.processed_at IS NULL AND s.repo_id = ?
-       ORDER BY t.timestamp ASC LIMIT ?`
+       ORDER BY s.session_id, t.timestamp ASC, t.id ASC LIMIT ?`
     ).all(repo_id, limit) as any[];
     return rows.map(mapTrace);
   }
