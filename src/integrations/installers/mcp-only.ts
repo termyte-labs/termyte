@@ -9,6 +9,7 @@ import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { getNodeAbsolutePath, getTermyteMcpPath } from "../install-paths.js";
 import type { McpInstallerConfig, McpJsonConfig } from "../types.js";
+import { backupIfExists } from "./backup.js";
 
 const PLACEHOLDER_CONTEXT = `# termyte: Cross-Session Memory
 
@@ -25,7 +26,7 @@ function writeMcpJsonConfig(configFilePath: string, mcpServerPath: string, serve
   mkdirSync(parentDirectory, { recursive: true });
 
   const existing: McpJsonConfig = existsSync(configFilePath)
-    ? safeReadJson(configFilePath) : {};
+    ? safeReadJsonWithBackup(configFilePath) : {};
   if (!existing[serversKeyName]) existing[serversKeyName] = {};
   existing[serversKeyName]!.termyte = buildMcpServerEntry(mcpServerPath);
 
@@ -35,8 +36,16 @@ function writeMcpJsonConfig(configFilePath: string, mcpServerPath: string, serve
 }
 
 function safeReadJson(p: string): McpJsonConfig {
-  try { return JSON.parse(readFileSync(p, "utf-8")) as McpJsonConfig; }
-  catch { return {}; }
+  return JSON.parse(readFileSync(p, "utf-8")) as McpJsonConfig;
+}
+
+function safeReadJsonWithBackup(p: string): McpJsonConfig {
+  try { return safeReadJson(p); }
+  catch {
+    const backup = backupIfExists(p);
+    if (backup) process.stdout.write(`termyte: backed up malformed ${p} to ${backup}\n`);
+    return {};
+  }
 }
 
 function buildMcpInstallers(home: string): Record<string, McpInstallerConfig> {
@@ -100,6 +109,8 @@ function installGooseMcp(home: string): number {
   }
   const configPath = join(home, ".config", "goose", "config.yaml");
   mkdirSync(dirname(configPath), { recursive: true });
+  const backup = backupIfExists(configPath);
+  if (backup) process.stdout.write(`termyte: backed up previous Goose config to ${backup}\n`);
   const node = getNodeAbsolutePath();
   const block = [
     "extensions:",

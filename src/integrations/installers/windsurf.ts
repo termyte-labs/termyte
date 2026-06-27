@@ -9,6 +9,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { getTermyteHookPath, shellEscapePath } from "../install-paths.js";
+import { backupIfExists } from "./backup.js";
 
 interface WindsurfHookEntry { command: string; show_output?: boolean; working_directory?: string; }
 interface WindsurfHooksConfig { hooks?: Record<string, WindsurfHookEntry[]>; [k: string]: unknown; }
@@ -34,7 +35,7 @@ export function installWindsurfHooks(homeDirOverride?: string): number {
   const wd = process.cwd();
 
   const existing: WindsurfHooksConfig = existsSync(hooksPath)
-    ? safeReadJson(hooksPath) : { hooks: {} };
+    ? safeReadJsonWithBackup(hooksPath) : { hooks: {} };
   if (!existing.hooks) existing.hooks = {};
 
   for (const [event, cmd] of Object.entries(WINDSURF_EVENT_TO_COMMAND)) {
@@ -53,6 +54,14 @@ export function installWindsurfHooks(homeDirOverride?: string): number {
 }
 
 function safeReadJson(p: string): WindsurfHooksConfig {
-  try { return JSON.parse(readFileSync(p, "utf-8")) as WindsurfHooksConfig; }
-  catch { return { hooks: {} }; }
+  return JSON.parse(readFileSync(p, "utf-8")) as WindsurfHooksConfig;
+}
+
+function safeReadJsonWithBackup(p: string): WindsurfHooksConfig {
+  try { return safeReadJson(p); }
+  catch {
+    const backup = backupIfExists(p);
+    if (backup) process.stdout.write(`termyte: backed up malformed ${p} to ${backup}\n`);
+    return { hooks: {} };
+  }
 }

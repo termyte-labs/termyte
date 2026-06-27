@@ -11,6 +11,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { getTermyteHookPath, shellEscapePath } from "../install-paths.js";
+import { backupIfExists } from "./backup.js";
 
 interface ClaudeHookEntry {
   type: "command";
@@ -55,9 +56,18 @@ export function installClaudeCodeHooks(opts: ClaudeInstallOptions): number {
     ? join(home, ".claude", "settings.json")
     : join(process.cwd(), ".claude", "settings.json");
 
-  const existing: ClaudeSettings = existsSync(settingsPath)
-    ? safeReadJson(settingsPath)
-    : {};
+  // If the existing file is malformed JSON, back it up before we
+  // overwrite it with a fresh config. The user can recover.
+  let existing: ClaudeSettings = {};
+  if (existsSync(settingsPath)) {
+    try {
+      existing = JSON.parse(readFileSync(settingsPath, "utf-8")) as ClaudeSettings;
+    } catch {
+      const backup = backupIfExists(settingsPath);
+      if (backup) process.stdout.write(`termyte: backed up malformed ${settingsPath} to ${backup}\n`);
+      existing = {};
+    }
+  }
 
   if (!existing.hooks) existing.hooks = {};
 
@@ -79,9 +89,4 @@ export function installClaudeCodeHooks(opts: ClaudeInstallOptions): number {
   process.stdout.write(`termyte: synthesis will run automatically on session end (uses 'claude -p' in the background).\n`);
   process.stdout.write(`termyte: run 'termyte synth --dry-run' to preview what would be sent.\n`);
   return 0;
-}
-
-function safeReadJson(p: string): ClaudeSettings {
-  try { return JSON.parse(readFileSync(p, "utf-8")) as ClaudeSettings; }
-  catch { return {}; }
 }

@@ -9,6 +9,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { getTermyteHookPath, shellEscapePath } from "../install-paths.js";
+import { backupIfExists } from "./backup.js";
 
 interface GeminiHookEntry { name: string; type: "command"; command: string; timeout?: number; }
 interface GeminiHookGroup { matcher?: string; hooks: GeminiHookEntry[]; }
@@ -40,7 +41,7 @@ export function installGeminiHooks(homeDirOverride?: string): number {
   const escaped = shellEscapePath(hookPath);
 
   const existing: GeminiSettings = existsSync(settingsPath)
-    ? safeReadJson(settingsPath) : {};
+    ? safeReadJsonWithBackup(settingsPath) : {};
   if (!existing.hooks) existing.hooks = {};
 
   for (const [event, cmd] of Object.entries(GEMINI_EVENT_TO_COMMAND)) {
@@ -63,6 +64,14 @@ export function installGeminiHooks(homeDirOverride?: string): number {
 }
 
 function safeReadJson(p: string): GeminiSettings {
-  try { return JSON.parse(readFileSync(p, "utf-8")) as GeminiSettings; }
-  catch { return {}; }
+  return JSON.parse(readFileSync(p, "utf-8")) as GeminiSettings;
+}
+
+function safeReadJsonWithBackup(p: string): GeminiSettings {
+  try { return safeReadJson(p); }
+  catch {
+    const backup = backupIfExists(p);
+    if (backup) process.stdout.write(`termyte: backed up malformed ${p} to ${backup}\n`);
+    return {};
+  }
 }

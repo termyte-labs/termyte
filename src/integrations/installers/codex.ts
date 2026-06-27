@@ -8,6 +8,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { getTermyteHookPath, shellEscapePath } from "../install-paths.js";
+import { backupIfExists } from "./backup.js";
 
 interface CodexHookEntry { type: "command"; command: string; timeout?: number; }
 interface CodexHookGroup { matcher?: string; hooks: CodexHookEntry[]; }
@@ -36,7 +37,7 @@ export function installCodexHooks(opts: CodexInstallOptions): number {
 
   const escaped = shellEscapePath(hookPath);
   const existing: CodexHooksConfig = existsSync(hooksPath)
-    ? safeReadJson(hooksPath) : {};
+    ? safeReadJsonWithBackup(hooksPath) : {};
   if (!existing.hooks) existing.hooks = {};
 
   for (const e of HOOK_EVENTS) {
@@ -58,6 +59,14 @@ export function installCodexHooks(opts: CodexInstallOptions): number {
 }
 
 function safeReadJson(p: string): CodexHooksConfig {
-  try { return JSON.parse(readFileSync(p, "utf-8")) as CodexHooksConfig; }
-  catch { return {}; }
+  return JSON.parse(readFileSync(p, "utf-8")) as CodexHooksConfig;
+}
+
+function safeReadJsonWithBackup(p: string): CodexHooksConfig {
+  try { return safeReadJson(p); }
+  catch {
+    const backup = backupIfExists(p);
+    if (backup) process.stdout.write(`termyte: backed up malformed ${p} to ${backup}\n`);
+    return {};
+  }
 }

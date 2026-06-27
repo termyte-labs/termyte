@@ -134,6 +134,29 @@ describe("installers", () => {
     expect(parsed.hooks.SessionStart).toBeDefined();
   });
 
+  it("backs up a malformed JSON config before overwriting it", () => {
+    const claudePath = join(homeDir, ".claude", "settings.json");
+    mkdirSync(join(homeDir, ".claude"), { recursive: true });
+    writeFileSync(claudePath, "{ this is not valid json");
+    const code = installFor("claude-code", { target: "user", homeDir });
+    expect(code).toBe(0);
+    // A .bak.<timestamp> sibling should exist.
+    const dirEntries = require("node:fs").readdirSync(join(homeDir, ".claude"));
+    const backups = dirEntries.filter((f: string) => f.startsWith("settings.json.bak."));
+    expect(backups.length).toBeGreaterThan(0);
+  });
+
+  it("does not back up a well-formed JSON config", () => {
+    const claudePath = join(homeDir, ".claude", "settings.json");
+    mkdirSync(join(homeDir, ".claude"), { recursive: true });
+    writeFileSync(claudePath, JSON.stringify({ theme: "dark", hooks: {} }));
+    const code = installFor("claude-code", { target: "user", homeDir });
+    expect(code).toBe(0);
+    const dirEntries = require("node:fs").readdirSync(join(homeDir, ".claude"));
+    const backups = dirEntries.filter((f: string) => f.startsWith("settings.json.bak."));
+    expect(backups.length).toBe(0);
+  });
+
   it("returns 1 for an unknown platform", () => {
     expect(installFor("not-a-real-ide", { homeDir })).toBe(1);
   });
