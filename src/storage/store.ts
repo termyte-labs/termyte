@@ -228,8 +228,18 @@ export class Store {
   }
 
   updateObservationEmbedding(id: number, embedding: Float32Array): void {
-    this.ctx.db.prepare(`UPDATE observations SET embedding = ? WHERE id = ?`)
-      .run(Buffer.from(embedding.buffer), id);
+    // M5 + B3: only write if the embedding actually changed. The
+    // FTS5 update trigger is now qualified to `OF title,
+    // description` so it doesn't fire on embedding-only updates,
+    // but the UPDATE itself is still wasted work. Skip the
+    // write when the existing embedding has the same bytes.
+    const newBytes = Buffer.from(embedding.buffer);
+    const stmt = this.ctx.db.prepare(`
+      UPDATE observations
+      SET embedding = ?
+      WHERE id = ? AND (embedding IS NULL OR length(embedding) != ?)
+    `);
+    stmt.run(newBytes, id, newBytes.length);
   }
 
   // ---------- memories ----------
