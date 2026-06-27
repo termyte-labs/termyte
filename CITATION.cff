@@ -1,0 +1,41 @@
+preferred_contributors:
+  - login: palguna26
+    name: Termyte Maintainers
+    avatar_url: https://avatars.githubusercontent.com/palguna26
+    email: palguna@termyte.xyz
+    orcid: null
+    website: https://termyte.xyz
+    affiliation: Termyte Labs
+    type: Person
+cff-version: 1.2.0
+message: >-
+  If you use Termyte in academic work, please cite it using the metadata in this file.
+title: "Termyte"
+abstract: >-
+  Termyte is a local-first memory layer for AI coding agents. It captures
+  every tool call, file read, file write, shell command, and final response
+  from a coding agent (Claude Code, Codex, OpenCode, Cursor, Gemini CLI,
+  Windsurf, and any MCP-compatible client), stores them in a local SQLite
+  database, and synthesizes them into searchable, durable memories. The next
+  time the agent opens the project, Termyte surfaces the relevant memories
+  as context — so the agent does not have to rediscover what you already
+  know.
+date-released: 2026-06-28
+version: 1.0.0
+license: MIT
+repository-code: https://github.com/termyte-labs/termyte
+url: https://github.com/termyte-labs/termyte
+keywords:
+  - ai-coding-agent
+  - memory-layer
+  - local-first
+  - sqlite
+  - vector-search
+  - rag
+  - mcp
+  - claude-code
+  - codex
+  - opencode
+  - cursor
+  - gemini-cli
+  - windsurf

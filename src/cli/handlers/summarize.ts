@@ -1,13 +1,12 @@
 /**
  * `summarize` handler — Stop / PreCompress / session.idle.
  *
- * On session end, the handler:
- *   1. Generates a session summary through the in-process LLM
- *      observer (preserves the existing behavior for users with a
- *      dedicated LLM configured).
- *   2. Fires `termyte-synth --session <id>` as a fire-and-forget
- *      background process to synthesize observations + memories
- *      from any remaining unprocessed traces.
+ * On session end, the handler fires `termyte-synth --session <id>` as
+ * a fire-and-forget background process. The synth adapter is the
+ * single source of truth for memory generation in the new
+ * architecture; this handler does NOT call the in-process
+ * Observer.generateSummary (which would duplicate work and silently
+ * fail for users without an OpenAI API key).
  *
  * The hook is best-effort: any error is logged to stderr but the
  * hook itself returns a no-op so the agent is never blocked.
@@ -18,34 +17,13 @@ import { dirname, join, resolve as resolvePath } from "node:path";
 import { homedir } from "node:os";
 import type { EventHandler } from "../handler-types.js";
 import type { Store } from "../../storage/store.js";
-import type { Observer } from "../../observer/pipeline.js";
-import { buildSummaryPrompt, type SessionForPrompt } from "../../observer/prompts.js";
+import { buildSummaryPrompt } from "../../observer/prompts.js";
 
-export function makeSummarizeHandler(deps: { store: Store; observer: Observer }): EventHandler {
+export function makeSummarizeHandler(_deps: { store: Store }): EventHandler {
   return async ({ event }) => {
     if (event.event_type === "session_end" || event.event_type === "assistant_message") {
-      try {
-        const traces = deps.store.getTracesForSession(event.session_id, 200);
-        const files = new Set<string>();
-        const userPrompts: string[] = [];
-        let finalResponse: string | null = null;
-        for (const t of traces) {
-          if (t.user_prompt) userPrompts.push(t.user_prompt);
-          if (t.final_response) finalResponse = t.final_response;
-          if (t.files_modified) for (const f of t.files_modified) files.add(f);
-        }
-        const promptInput: SessionForPrompt = {
-          user_prompts: userPrompts,
-          final_response: finalResponse,
-          files_modified: [...files],
-        };
-        await deps.observer.generateSummary(event.session_id, promptInput);
-      } catch (err) {
-        process.stderr.write(`termyte: summarize failed: ${err instanceof Error ? err.message : String(err)}\n`);
-      }
-      // After the in-process summary, fire the background synthesizer
-      // for this session. We do not await — the agent is already
-      // done and the hook must return immediately.
+      // Fire the background synthesizer. We do not await — the
+      // agent is already done and the hook must return immediately.
       fireTermyteSynth(event.session_id, event.cwd);
     }
     return { handled: true, result: { continue: true, suppressOutput: true } };

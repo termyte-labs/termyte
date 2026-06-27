@@ -13,15 +13,13 @@
  */
 import { loadConfig } from "./config.js";
 import { Store } from "../storage/store.js";
-import { Observer } from "../observer/pipeline.js";
-import { OpenAICompatibleProvider } from "../observer/openai-provider.js";
 import { HookRunner } from "../hooks/runner.js";
 import { FTSSearch } from "../retrieval/fts.js";
 import { VectorSearch } from "../retrieval/vector.js";
 import { HybridSearch } from "../retrieval/hybrid.js";
 import { ContextBuilder } from "../context/builder.js";
 import { adapterFor } from "../capture/index.js";
-import { getEmbeddings, EmbeddingsNotReadyError } from "../retrieval/embeddings-singleton.js";
+import { getEmbeddings } from "../retrieval/embeddings-singleton.js";
 import { NoOpEmbeddingsProvider } from "../retrieval/embeddings.js";
 import type { Platform } from "../core/types.js";
 import { getHandler, type HandlerInput } from "./handlers/index.js";
@@ -44,11 +42,11 @@ async function main(): Promise<void> {
 
   const config = loadConfig();
   const store = new Store(config.dbPath);
-  const llm = new OpenAICompatibleProvider(config.llm);
   // Lean path: do NOT load embeddings eagerly. They are only needed
   // by the FAT handlers and are created lazily inside the branch.
-  const observer = new Observer({ store, llm, embeddings: undefined });
-  const runner = new HookRunner({ store, observer });
+  // No Observer either — the in-process LLM path is deprecated in
+  // favor of termyte-synth's agent-adapter path.
+  const runner = new HookRunner({ store });
 
   try {
     const ingest = await runner.processStdin(platform);
@@ -76,7 +74,7 @@ async function main(): Promise<void> {
     }
 
     const adapter = adapterFor(platform);
-    const handler = getHandler(eventName, { store, search: search ?? makeStubHybrid(store), builder: builder ?? makeStubContext(store), observer });
+    const handler = getHandler(eventName, { store, search, builder });
     const input: HandlerInput = { event: ingest.event, raw: null };
     const out = await handler(input);
     const formatted = adapter.formatOutput(out.result);
@@ -88,7 +86,6 @@ async function main(): Promise<void> {
     process.stderr.write(`termyte-hook: ${err instanceof Error ? err.message : String(err)}\n`);
     process.exit(1);
   } finally {
-    await observer.flush().catch(() => {});
     store.close();
   }
 }

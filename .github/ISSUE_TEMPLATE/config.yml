@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Discussions
+    url: https://github.com/termyte-labs/termyte/discussions
+    about: "Ask questions, share how you use Termyte, and propose ideas."
+  - name: Security advisory
+    url: https://github.com/termyte-labs/termyte/security/advisories/new
+    about: "Privately disclose a vulnerability (see SECURITY.md)."
+  - name: Commercial support
+    url: mailto:palguna@termyte.xyz
+    about: "Custom adapters, integration consulting, and SLAs."
