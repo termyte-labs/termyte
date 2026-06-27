@@ -63,21 +63,44 @@ function resolveHookPath(): string | null {
 
 /** Forward an event to termyte-hook without blocking the agent. We use
  *  stdio JSON in and ignore the response — the hook will write context
- *  to the AGENTS.md file when appropriate. */
+ *  to the AGENTS.md file when appropriate.
+ *
+ *  Stdio safety: on Windows, the child's stdio pipes are not
+ *  immediately writable after spawn() returns. Writing synchronously
+ *  to a not-yet-open stdin can raise EPIPE and the payload is lost.
+ *  We wait for the 'open' event before writing. We also drain stderr
+ *  so the child never blocks on a full pipe buffer. */
 function forward(eventName: string, payload: HookPayload): void {
   const hookPath = resolveHookPath();
   if (!hookPath) return;
+  let child: ReturnType<typeof spawn>;
   try {
-    const child = spawn(process.execPath, [hookPath, "opencode", eventName], {
-      stdio: ["pipe", "ignore", "ignore"],
+    child = spawn(process.execPath, [hookPath, "opencode", eventName], {
+      stdio: ["pipe", "ignore", "pipe"],
       windowsHide: true,
     });
-    child.stdin.write(JSON.stringify(payload));
-    child.stdin.end();
-    child.on("error", () => { /* best-effort */ });
   } catch {
-    /* never crash the agent because of a memory hook failure */
+    return;
   }
+  // Drain stderr so the child never blocks.
+  child.stderr?.on("data", () => { /* discard */ });
+  child.stderr?.on("error", () => { /* best-effort */ });
+  child.on("error", () => { /* best-effort */ });
+  // Wait for stdin to be writable, then write and end. The 'open'
+  // event fires when the OS has finished setting up the pipe.
+  if (child.stdin) {
+    child.stdin.on("error", () => { child.kill(); });
+    child.stdin.on("open", () => {
+      try {
+        child.stdin!.write(JSON.stringify(payload));
+        child.stdin!.end();
+      } catch {
+        child.kill();
+      }
+    });
+  }
+  // Don't keep the host process alive on the child's behalf.
+  child.unref();
 }
 
 function agentsMdPath(): string {
