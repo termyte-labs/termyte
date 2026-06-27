@@ -12,6 +12,15 @@ export interface HookRunnerConfig {
   observer?: Observer;
 }
 
+export interface ProcessRawResult {
+  /** True if a NormalizedEvent was produced and ingest succeeded. */
+  handled: boolean;
+  /** The normalized event, if any. Re-used by callers to avoid re-normalizing. */
+  event: NormalizedEvent | null;
+  /** Human-readable error if ingest failed. */
+  error?: string;
+}
+
 export class HookRunner {
   private store: Store;
   private observer?: Observer;
@@ -34,25 +43,40 @@ export class HookRunner {
   }
 
   /**
-   * Normalize a raw payload and ingest it. Returns true on success, false
-   * if the adapter produced null (unparseable input) or threw
-   * AdapterRejectedInput. Other errors propagate.
+   * Normalize a raw payload and ingest it.
+   *
+   * Returns:
+   *   - { handled: true, event } on success (caller can reuse `event`)
+   *   - { handled: false, event: null } when the adapter returned null
+   *   - { handled: false, event: null, error } on validation / FK failure
+   *
+   * The error is also written to stderr so the user can see *why* a
+   * trace was rejected (previously this was silent).
    */
-  async processRaw(platform: Platform, raw: unknown): Promise<boolean> {
+  async processRaw(platform: Platform, raw: unknown): Promise<ProcessRawResult> {
     const adapter = this.adapters[platform];
     let event: NormalizedEvent | null;
     try {
       event = adapter.normalize(raw);
     } catch (err) {
       if (err instanceof AdapterRejectedInput) {
-        process.stderr.write(`termyte: ${err.reason}\n`);
-        return false;
+        const msg = `adapter rejected input (${err.reason})`;
+        process.stderr.write(`termyte: ${msg}\n`);
+        return { handled: false, event: null, error: msg };
       }
       throw err;
     }
-    if (!event) return false;
-    await this.processEvent(event);
-    return true;
+    if (!event) {
+      return { handled: false, event: null };
+    }
+    try {
+      await this.processEvent(event);
+      return { handled: true, event };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      process.stderr.write(`termyte: ingest failed for ${platform} session ${event.session_id}: ${msg}\n`);
+      return { handled: false, event, error: msg };
+    }
   }
 
   async processEvent(event: NormalizedEvent): Promise<void> {
@@ -84,14 +108,24 @@ export class HookRunner {
       throw err;
     }
     if (!event) return { handled: false, output: { continue: true } };
-    await this.processEvent(event);
+    try {
+      await this.processEvent(event);
+    } catch {
+      return { handled: false, output: { continue: true, suppressOutput: true } };
+    }
     return { handled: true, output: adapter.formatOutput({ continue: true }) };
   }
 
-  async processStdin(platform: Platform): Promise<boolean> {
+  async processStdin(platform: Platform): Promise<ProcessRawResult> {
     const raw = await readStdin();
-    if (!raw.trim()) return false;
-    const parsed = JSON.parse(raw);
+    if (!raw.trim()) return { handled: false, event: null };
+    let parsed: unknown;
+    try { parsed = JSON.parse(raw); }
+    catch (err) {
+      const msg = `stdin is not valid JSON: ${err instanceof Error ? err.message : String(err)}`;
+      process.stderr.write(`termyte: ${msg}\n`);
+      return { handled: false, event: null, error: msg };
+    }
     return await this.processRaw(platform, parsed);
   }
 

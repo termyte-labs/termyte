@@ -48,6 +48,12 @@ export interface Trace {
   final_response: string | null;
   /** Internal: when the observer consumed this trace. null = unprocessed. */
   processed_at: number | null;
+  /** Internal: ingest status. 'ok' = in DB, 'failed' = error recorded in ingest_error. */
+  ingest_status: "ok" | "failed";
+  /** Human-readable error message when ingest_status is 'failed'. */
+  ingest_error: string | null;
+  /** How many times ingest was attempted. 1 = success on first try. */
+  ingest_attempts: number;
 }
 
 /** Session row. */

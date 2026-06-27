@@ -47,34 +47,21 @@ async function main(): Promise<void> {
   const builder = new ContextBuilder(store, search);
 
   try {
-    const raw = await readStdin();
-    if (!raw.trim()) {
-      process.stderr.write("termyte-hook: empty input\n");
+    const ingest = await runner.processStdin(platform);
+    if (!ingest.event) {
+      // No event: malformed input or empty stdin. Nothing to do.
       process.exit(0);
     }
-    const parsed = JSON.parse(raw);
-
-    // Always ingest the trace; the runner swallows AdapterRejectedInput.
-    await runner.processRaw(platform, parsed);
-
     if (!eventName) {
       // Legacy mode: just ingest, no event handler.
       process.exit(0);
     }
 
-    // Run the event handler. Re-normalize so the handler sees the same
-    // shape the runner saw.
+    // Run the event handler against the same event the runner saw.
+    // No re-normalization — the runner already produced it.
     const adapter = adapterFor(platform);
-    let event;
-    try {
-      event = adapter.normalize(parsed);
-    } catch {
-      process.exit(0);
-    }
-    if (!event) process.exit(0);
-
     const handler = getHandler(eventName, { store, search, builder, observer });
-    const input: HandlerInput = { event, raw: parsed };
+    const input: HandlerInput = { event: ingest.event, raw: null };
     const out = await handler(input);
     const formatted = adapter.formatOutput(out.result);
     if (formatted && Object.keys(formatted as object).length > 0) {

@@ -10,7 +10,8 @@ import type { HookResult, NormalizedEvent } from "../capture/adapter.js";
  *  payload (for handlers that need fields we don't normalize). */
 export interface HandlerInput {
   event: NormalizedEvent;
-  raw: unknown;
+  /** The original raw payload from stdin, or null if not available. */
+  raw: unknown | null;
 }
 
 /** What a handler returns. The `output` is what the agent will see. */

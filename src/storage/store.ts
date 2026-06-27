@@ -61,12 +61,13 @@ export class Store {
 
   // ---------- traces ----------
 
-  insertTrace(trace: Omit<Trace, "id" | "processed_at">): Trace {
+  insertTrace(trace: Omit<Trace, "id" | "processed_at" | "ingest_status" | "ingest_error" | "ingest_attempts">): Trace {
     const stmt = this.ctx.db.prepare(`
       INSERT INTO traces (
         session_id, timestamp, event_type, tool_name, tool_input, tool_output,
-        files_read, files_modified, user_prompt, final_response
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        files_read, files_modified, user_prompt, final_response,
+        ingest_status, ingest_error, ingest_attempts
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ok', NULL, 1)
     `);
     const info = stmt.run(
       trace.session_id, trace.timestamp, trace.event_type,
@@ -74,7 +75,14 @@ export class Store {
       serialize(trace.files_read), serialize(trace.files_modified),
       trace.user_prompt, trace.final_response,
     );
-    return { id: info.lastInsertRowid as number, processed_at: null, ...trace };
+    return {
+      id: info.lastInsertRowid as number,
+      processed_at: null,
+      ingest_status: "ok",
+      ingest_error: null,
+      ingest_attempts: 1,
+      ...trace,
+    };
   }
 
   getTrace(id: number): Trace | null {
@@ -381,6 +389,9 @@ function mapTrace(row: any): Trace {
     files_modified: parseJSON<string[] | null>(row.files_modified, null),
     user_prompt: row.user_prompt, final_response: row.final_response,
     processed_at: row.processed_at,
+    ingest_status: (row.ingest_status ?? "ok") as Trace["ingest_status"],
+    ingest_error: row.ingest_error ?? null,
+    ingest_attempts: row.ingest_attempts ?? 1,
   };
 }
 
