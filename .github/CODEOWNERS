@@ -1,0 +1,29 @@
+# Default code owners
+# Maintainers are notified for changes to security-sensitive paths and for
+# the public surface (CLI, capture adapters, packaging).
+
+*                           @palguna26
+
+# Security policy
+/SECURITY.md                @palguna26
+/.github/dependabot.yml     @palguna26
+
+# Public API and CLI surface
+/src/index.ts               @palguna26
+/src/cli/                   @palguna26
+/src/capture/               @palguna26
+/src/storage/               @palguna26
+/src/observer/              @palguna26
+/src/synth/                 @palguna26
+/src/retrieval/             @palguna26
+/src/hooks/                 @palguna26
+/src/mcp/                   @palguna26
+/src/integrations/          @palguna26
+/package.json               @palguna26
+/README.md                  @palguna26
+/llm.txt                    @palguna26
+/CHANGELOG.md               @palguna26
+
+# Test fixtures and docs can be reviewed more loosely
+/test/                      @palguna26
+/docs/                      @palguna26

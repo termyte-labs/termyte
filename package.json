@@ -4,6 +4,17 @@
   "description": "Local-first memory layer for AI coding agents. Persistent context across sessions — works with Claude Code, Codex, OpenCode, Cursor, Gemini, Windsurf, and Copilot.",
   "type": "module",
   "license": "MIT",
+  "homepage": "https://github.com/termyte-labs/termyte#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/termyte-labs/termyte.git"
+  },
+  "bugs": {
+    "url": "https://github.com/termyte-labs/termyte/issues"
+  },
+  "funding": {
+    "url": "https://github.com/sponsors/palguna26"
+  },
   "keywords": [
     "ai",
     "ai-coding",
@@ -53,7 +64,14 @@
   "files": [
     "dist",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "CONTRIBUTING.md",
+    "CODE_OF_CONDUCT.md",
+    "SECURITY.md",
+    "SUPPORT.md",
+    "CHANGELOG.md",
+    "llm.txt",
+    "AGENTS.md"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",

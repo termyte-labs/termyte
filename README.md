@@ -10,7 +10,7 @@ Persistent context across sessions. Searchable, file-aware, and 100% local. Use 
 [![npm downloads](https://img.shields.io/npm/dm/termyte.svg)](https://www.npmjs.com/package/termyte)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Node](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](https://nodejs.org)
-[![Tests](https://img.shields.io/badge/tests-155%20passing-brightgreen)](https://github.com/termyte/termyte)
+[![Tests](https://img.shields.io/badge/tests-155%20passing-brightgreen)](https://github.com/termyte-labs/termyte)
 
 </div>
 
@@ -235,11 +235,17 @@ npm test
 
 ## Documentation
 
+- [`AGENTS.md`](./AGENTS.md) — codebase-level architecture notes for AI agents working on this project.
+- [`CONTRIBUTING.md`](./CONTRIBUTING.md) — how to set up dev, file PRs, add a new agent adapter.
+- [`SECURITY.md`](./SECURITY.md) — private vulnerability disclosure process.
+- [`SUPPORT.md`](./SUPPORT.md) — where to ask questions and how to get help.
+- [`CHANGELOG.md`](./CHANGELOG.md) — release history.
+- [`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md) — community standards.
+- [`llm.txt`](./llm.txt) — project description for LLMs (GEO).
 - [`docs/background-memory-generation.md`](./docs/background-memory-generation.md) — design rationale for the agent-as-synthesis-adapter pattern.
 - [`docs/background-memory-generation-implementation.md`](./docs/background-memory-generation-implementation.md) — implementation status of the design.
 - [`docs/mitigation_plan.md`](./docs/mitigation_plan.md) — performance / reliability / cost mitigations applied.
 - [`docs/post-mitigation-rescan.md`](./docs/post-mitigation-rescan.md) — re-scan after the mitigation plan was applied.
-- [`AGENTS.md`](./AGENTS.md) — codebase-level architecture notes for AI agents working on this project.
 
 ---
 

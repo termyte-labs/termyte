@@ -1,0 +1,98 @@
+# Termyte
+
+> Local-first memory layer for AI coding agents. Persistent context across sessions, agents, and machines.
+
+## What it is
+
+Termyte is a TypeScript/Node CLI that captures every tool call, file read, file write, shell command, and final response from a coding agent (Claude Code, Codex, OpenCode, Cursor, Gemini CLI, Windsurf, and any MCP-compatible client), stores them in a local SQLite database, and synthesizes them into searchable, durable memories. The next time the agent opens the project, Termyte surfaces the relevant memories as context — so the agent does not have to rediscover what you already know.
+
+Termyte runs entirely on the user's machine. No API key is required to install or search. The only outbound call is when the user opts in to having their existing coding agent synthesize the memory in the background — and that call goes to the plan they already pay for, not a separate service.
+
+## Who it is for
+
+- Engineers using AI coding agents (Claude Code, Codex, OpenCode, Cursor, Gemini CLI, Windsurf, Copilot CLI, Roo, Goose, Warp, Antigravity) who are tired of re-explaining their codebase every session.
+- Teams that want a shared, local, queryable memory layer across multiple agents and IDEs.
+- Anyone who wants long-term memory for their coding agent without sending their codebase to a third-party cloud.
+
+## Key features
+
+- **Cross-session memory.** Memories survive across agent sessions, reboots, and machine moves (the SQLite file is portable).
+- **Cross-agent memory.** The same memory corpus is queryable from Claude Code, Codex, OpenCode, Cursor, Gemini CLI, Windsurf, and any MCP-compatible agent.
+- **Local-first.** No cloud, no SaaS, no telemetry. Embeddings run locally via ONNX (Transformers.js). The DB is a single SQLite file.
+- **Hooks-based capture.** Zero code changes to the agent. Termyte hooks into the agent's existing hook protocol (`PostToolUse`, `SessionStart`, `Stop`, etc.).
+- **Async synthesis.** Memory generation happens in the background, never blocking the agent's response. Synthesis reuses the agent's own LLM plan — not a separate API call.
+- **Hybrid search.** FTS5 keyword + vector cosine similarity with file-aware boosting and reciprocal rank fusion.
+- **MCP server.** Provides a stdio MCP server so any MCP-compatible IDE can search the corpus via tools.
+- **Bounded and crash-safe.** Daily invocation and cost caps. `processed_at` columns mean a crashed synth run leaves traces re-processable.
+
+## Install
+
+```bash
+npm install -g termyte
+termyte install claude-code
+# or: termyte install codex | cursor | gemini-cli | windsurf | opencode
+termyte search "how does authentication work"
+```
+
+## Supported agents
+
+| Agent | Capture | Synthesis |
+|---|---|---|
+| Claude Code | yes | yes |
+| Codex (OpenAI) | yes | yes |
+| OpenCode | yes | yes |
+| Cursor | yes | manual |
+| Gemini CLI | yes | yes |
+| Windsurf | yes | manual |
+| Any MCP client | via MCP server | n/a |
+
+## CLI
+
+```bash
+termyte install <agent>
+termyte search "query" [--repo r] [--limit n] [--json]
+termyte context [--query q] [--limit n]
+termyte synth [--session <id>] [--adapter claude-code] [--dry-run]
+termyte stats
+termyte mcp           # stdio MCP server
+```
+
+## Configuration
+
+- `TERMYTE_DB` — SQLite file path (default `./termyte.db`)
+- `TERMYTE_EMBED_MODEL_LOCAL` — `nomic-embed` (768d) or `bge-small` (384d). Runs locally.
+- `TERMYTE_SYNTH_ADAPTER` — `claude-code`, `codex`, `opencode`, `gemini-cli`, or auto-detect.
+- `TERMYTE_SYNTH_DAILY_BUDGET_INVOCATIONS` — default `50`
+- `TERMYTE_SYNTH_DAILY_BUDGET_USD` — default `0.50`
+
+## Architecture
+
+```
+agent hook events
+  -> termyte-hook (normalize via platform adapter)
+  -> SQLite (sessions, traces, observations, memories, summaries)
+  -> termyte-synth (background: unprocessed traces -> agent LLM -> memories)
+  -> termyte search/context (hybrid FTS5 + vector retrieval)
+```
+
+Three storage layers: raw `traces` (immutable event log), `observations` (extracted facts), `memories` (consolidated, embedded, searchable). Plus `sessions` and `summaries`.
+
+## Tech stack
+
+- TypeScript 5.8, strict mode, ESM, Node >= 20
+- `better-sqlite3` (WAL mode, foreign keys ON)
+- FTS5 virtual tables with SQL-trigger sync
+- Optional `sqlite-vec` for native vector search (falls back to in-memory cosine)
+- `@xenova/transformers` for local ONNX embeddings (Nomic Embed v1.5 default)
+- Vitest test suite (155 tests, in-memory SQLite, mock LLM, deterministic embeddings)
+
+## Inspiration
+
+Port of [claude-mem](https://github.com/thedotmack/claude-mem) — stripped down, cross-agent, local-first.
+
+## Links
+
+- npm: https://www.npmjs.com/package/termyte
+- Repository: https://github.com/termyte-labs/termyte
+- License: MIT
+- Issues: https://github.com/termyte-labs/termyte/issues
