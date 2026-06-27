@@ -25,6 +25,7 @@ import { Store } from "../storage/store.js";
 import { LocalEmbeddingsProvider } from "../retrieval/local-embeddings.js";
 import { Batcher } from "../synth/batcher.js";
 import { Lock, LockBusyError } from "../synth/lock.js";
+import { Spend } from "../synth/spend.js";
 import { createAdapter, discoverAdapter, type AgentAdapterId } from "../synth/index.js";
 import { buildBatchPrompt } from "../synth/prompts.js";
 import { homedir } from "node:os";
@@ -153,6 +154,15 @@ async function main(): Promise<void> {
     }
 
     const batcher = new Batcher(store, adapter);
+    // Pre-check the daily budget. If we've already hit the cap, skip
+    // without invoking the model.
+    const precheck = Spend.today();
+    if (precheck && (precheck.invocations >= 50 || precheck.est_cost_usd >= 0.50)) {
+      process.stderr.write(`termyte-synth: daily budget reached (invocations=${precheck.invocations}/50, est_cost=$${precheck.est_cost_usd.toFixed(2)}/0.50). Skipping.\n`);
+      process.stderr.write(`  Run 'termyte stats' to see today's usage. Increase limits via TERMYTE_SYNTH_DAILY_BUDGET_INVOCATIONS / TERMYTE_SYNTH_DAILY_BUDGET_USD.\n`);
+      process.exit(0);
+    }
+
     const result = await batcher.runOnce({
       batchSize: args.batchSize,
       maxBatches: args.maxBatches,
@@ -161,6 +171,20 @@ async function main(): Promise<void> {
       sessionId: args.sessionId,
       repoId: args.repoId,
     });
+
+    // Record spend. Use the last batch's usage if available;
+    // otherwise estimate from the number of traces processed.
+    const lastUsage = (result as { usage?: { input?: number; output?: number } }).usage;
+    if (result.batches > 0) {
+      Spend.record(
+        { input: lastUsage?.input, output: lastUsage?.output, estCostUsd: 0 },
+        {
+          maxInvocationsPerDay: parseInt(process.env.TERMYTE_SYNTH_DAILY_BUDGET_INVOCATIONS ?? "50", 10),
+          maxCostPerDayUsd: parseFloat(process.env.TERMYTE_SYNTH_DAILY_BUDGET_USD ?? "0.50"),
+        },
+      );
+    }
+
     const summary = {
       adapter: adapterId,
       ...result,

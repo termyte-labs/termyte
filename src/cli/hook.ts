@@ -15,17 +15,24 @@ import { loadConfig } from "./config.js";
 import { Store } from "../storage/store.js";
 import { Observer } from "../observer/pipeline.js";
 import { OpenAICompatibleProvider } from "../observer/openai-provider.js";
-import { LocalEmbeddingsProvider } from "../retrieval/local-embeddings.js";
 import { HookRunner } from "../hooks/runner.js";
 import { FTSSearch } from "../retrieval/fts.js";
 import { VectorSearch } from "../retrieval/vector.js";
 import { HybridSearch } from "../retrieval/hybrid.js";
 import { ContextBuilder } from "../context/builder.js";
 import { adapterFor } from "../capture/index.js";
+import { getEmbeddings, EmbeddingsNotReadyError } from "../retrieval/embeddings-singleton.js";
+import { NoOpEmbeddingsProvider } from "../retrieval/embeddings.js";
 import type { Platform } from "../core/types.js";
 import { getHandler, type HandlerInput } from "./handlers/index.js";
 
 const KNOWN_PLATFORMS: Platform[] = ["claude-code", "codex", "opencode", "cursor", "gemini-cli", "windsurf", "raw"];
+
+/** Event names that need the embeddings model loaded. The other
+ *  events (observation, summarize, file-edit) are lean: they only
+ *  touch the DB. Splitting the path avoids loading 130 MB of ONNX
+ *  for a 200-tool-call session. */
+const FAT_HANDLERS = new Set(["context", "session-init", "file-context"]);
 
 async function main(): Promise<void> {
   const platform = process.argv[2] as Platform | undefined;
@@ -38,43 +45,39 @@ async function main(): Promise<void> {
   const config = loadConfig();
   const store = new Store(config.dbPath);
   const llm = new OpenAICompatibleProvider(config.llm);
-  const embeddings = new LocalEmbeddingsProvider({ model: config.embeddings.model });
-  const observer = new Observer({ store, llm, embeddings });
+  // Lean path: do NOT load embeddings eagerly. They are only needed
+  // by the FAT handlers and are created lazily inside the branch.
+  const observer = new Observer({ store, llm, embeddings: undefined });
   const runner = new HookRunner({ store, observer });
-  const fts = new FTSSearch(store);
-  const vector = new VectorSearch(store);
-  const search = new HybridSearch({ fts, vector, embeddings });
-  const builder = new ContextBuilder(store, search);
 
   try {
-    const raw = await readStdin();
-    if (!raw.trim()) {
-      process.stderr.write("termyte-hook: empty input\n");
+    const ingest = await runner.processStdin(platform);
+    if (!ingest.event) {
       process.exit(0);
     }
-    const parsed = JSON.parse(raw);
-
-    // Always ingest the trace; the runner swallows AdapterRejectedInput.
-    await runner.processRaw(platform, parsed);
-
     if (!eventName) {
-      // Legacy mode: just ingest, no event handler.
       process.exit(0);
     }
 
-    // Run the event handler. Re-normalize so the handler sees the same
-    // shape the runner saw.
+    // Lazy embeddings: only construct search/builder if a fat
+    // handler needs them. Lean handlers return no-op.
+    let search: HybridSearch | null = null;
+    let builder: ContextBuilder | null = null;
+    if (FAT_HANDLERS.has(eventName)) {
+      const cached = getEmbeddings(config.embeddings.model);
+      // Wait up to 2 s for the model to be warm. If not ready, the
+      // handler will fall back to FTS-only via the NotReadyError
+      // path (the HybridSearch catches it).
+      await cached.ready;
+      const fts = new FTSSearch(store);
+      const vector = new VectorSearch(store);
+      search = new HybridSearch({ fts, vector, embeddings: cached.provider });
+      builder = new ContextBuilder(store, search);
+    }
+
     const adapter = adapterFor(platform);
-    let event;
-    try {
-      event = adapter.normalize(parsed);
-    } catch {
-      process.exit(0);
-    }
-    if (!event) process.exit(0);
-
-    const handler = getHandler(eventName, { store, search, builder, observer });
-    const input: HandlerInput = { event, raw: parsed };
+    const handler = getHandler(eventName, { store, search: search ?? makeStubHybrid(store), builder: builder ?? makeStubContext(store), observer });
+    const input: HandlerInput = { event: ingest.event, raw: null };
     const out = await handler(input);
     const formatted = adapter.formatOutput(out.result);
     if (formatted && Object.keys(formatted as object).length > 0) {
@@ -88,6 +91,19 @@ async function main(): Promise<void> {
     await observer.flush().catch(() => {});
     store.close();
   }
+}
+
+/** Stub search that returns [] — used by lean handlers that don't
+ *  actually search. */
+function makeStubHybrid(store: Store): HybridSearch {
+  return new HybridSearch({
+    fts: new FTSSearch(store),
+    vector: new VectorSearch(store),
+    embeddings: new NoOpEmbeddingsProvider(),
+  });
+}
+function makeStubContext(store: Store): ContextBuilder {
+  return new ContextBuilder(store, makeStubHybrid(store));
 }
 
 function readStdin(): Promise<string> {

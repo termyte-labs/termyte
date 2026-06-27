@@ -11,6 +11,7 @@ import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { getTermyteHookPath, shellEscapePath } from "../install-paths.js";
 import type { CursorHooksJson, CursorInstallTarget } from "../types.js";
+import { backupIfExists } from "./backup.js";
 
 export function installCursorHooks(target: CursorInstallTarget, homeDirOverride?: string): number {
   const hookPath = getTermyteHookPath();
@@ -30,7 +31,7 @@ export function installCursorHooks(target: CursorInstallTarget, homeDirOverride?
   const baseCmd = (event: string) => `node "${escaped}" cursor ${event}`;
 
   const existing: CursorHooksJson = existsSync(hooksPath)
-    ? safeReadJson(hooksPath)
+    ? safeReadJsonWithBackup(hooksPath)
     : { version: 1, hooks: {} };
   if (!existing.hooks) existing.hooks = {};
   if (existing.version === undefined) existing.version = 1;
@@ -71,6 +72,14 @@ function cursorDir(target: CursorInstallTarget, homeDirOverride?: string): strin
 }
 
 function safeReadJson(p: string): CursorHooksJson {
-  try { return JSON.parse(readFileSync(p, "utf-8")) as CursorHooksJson; }
-  catch { return { version: 1, hooks: {} }; }
+  return JSON.parse(readFileSync(p, "utf-8")) as CursorHooksJson;
+}
+
+function safeReadJsonWithBackup(p: string): CursorHooksJson {
+  try { return safeReadJson(p); }
+  catch {
+    const backup = backupIfExists(p);
+    if (backup) process.stdout.write(`termyte: backed up malformed ${p} to ${backup}\n`);
+    return { version: 1, hooks: {} };
+  }
 }

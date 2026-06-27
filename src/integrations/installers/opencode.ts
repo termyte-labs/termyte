@@ -14,6 +14,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync } from
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { findTermyteProjectRoot } from "../install-paths.js";
+import { backupIfExists } from "./backup.js";
 
 const PLUGIN_REL_PATH = "./plugins/termyte.js";
 
@@ -58,6 +59,10 @@ export function installOpenCodePlugin(): number {
   const configPath = getOpenCodeConfigPath();
 
   mkdirSync(pluginsDir, { recursive: true });
+  // If the user has a hand-edited the destination (custom prompts,
+  // extra hooks), back it up before we overwrite.
+  const backup = backupIfExists(dest);
+  if (backup) process.stdout.write(`termyte: backed up previous plugin to ${backup}\n`);
   copyFileSync(src, dest);
   process.stdout.write(`termyte: copied plugin to ${dest}\n`);
 

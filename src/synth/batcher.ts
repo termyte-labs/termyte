@@ -38,6 +38,8 @@ export interface BatcherRunResult {
   tracesRead: number;
   observationsWritten: number;
   durationMs: number;
+  /** Aggregated token usage across all batches in this run. */
+  usage?: { input?: number; output?: number };
   /** Last error from any failed batch, if any. */
   lastError?: { reason: string; message: string };
 }
@@ -61,6 +63,8 @@ export class Batcher {
     let batches = 0;
     let tracesRead = 0;
     let observationsWritten = 0;
+    let totalInput = 0;
+    let totalOutput = 0;
     let lastError: BatcherRunResult["lastError"];
 
     for (let i = 0; i < maxBatches; i++) {
@@ -69,11 +73,13 @@ export class Batcher {
       tracesRead += traces.length;
 
       try {
-        const written = await this.synthesizeOne(traces, {
+        const result = await this.synthesizeOne(traces, {
           timeoutMs: perBatchTimeoutMs,
           maxBudgetUsd: perBatchBudgetUsd,
         });
-        observationsWritten += written;
+        observationsWritten += result.written;
+        if (result.usage?.input) totalInput += result.usage.input;
+        if (result.usage?.output) totalOutput += result.usage.output;
         batches++;
       } catch (err) {
         const info = err instanceof AgentInvocationError
@@ -86,7 +92,8 @@ export class Batcher {
       }
     }
 
-    return { batches, tracesRead, observationsWritten, durationMs: Date.now() - startedAt, lastError };
+    const usage = (totalInput > 0 || totalOutput > 0) ? { input: totalInput, output: totalOutput } : undefined;
+    return { batches, tracesRead, observationsWritten, durationMs: Date.now() - startedAt, usage, lastError };
   }
 
   private pickBatch(limit: number, opts: BatcherOptions): Trace[] {
@@ -99,7 +106,7 @@ export class Batcher {
     return this.store.getUnprocessedTraces(limit);
   }
 
-  private async synthesizeOne(traces: Trace[], callOpts: { timeoutMs?: number; maxBudgetUsd?: number }): Promise<number> {
+  private async synthesizeOne(traces: Trace[], callOpts: { timeoutMs?: number; maxBudgetUsd?: number }): Promise<{ written: number; usage?: { input?: number; output?: number } }> {
     const inputs: SynthesisTraceInput[] = traces.map((t) => ({
       id: t.id, tool_name: t.tool_name, tool_input: t.tool_input,
       tool_output: t.tool_output, user_prompt: t.user_prompt, timestamp: t.timestamp,
@@ -110,12 +117,12 @@ export class Batcher {
       maxBudgetUsd: callOpts.maxBudgetUsd,
     });
     const parsed = parseAgentXml(result.text);
-    if (!parsed.valid) return 0;
+    if (!parsed.valid) return { written: 0, usage: result.usage };
     if (parsed.observations.length === 0) {
       // Mark traces as processed even on <skip_summary /> so they
       // don't get re-sent next run.
       this.markProcessed(traces);
-      return 0;
+      return { written: 0, usage: result.usage };
     }
 
     const traceIds = traces.map((t) => t.id);
@@ -144,7 +151,7 @@ export class Batcher {
       void inserted;
     }
     this.markProcessed(traces);
-    return written;
+    return { written, usage: result.usage };
   }
 
   private markProcessed(traces: Trace[]): void {

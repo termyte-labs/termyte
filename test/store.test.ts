@@ -33,6 +33,22 @@ describe("Store", () => {
     store.close();
   });
 
+  it("stamps ingest_status='ok' and ingest_attempts=1 on a successful insert", () => {
+    const store = new Store(ctx);
+    store.upsertSession("sess-ingest", "demo");
+    const t = store.insertTrace({
+      session_id: "sess-ingest",
+      timestamp: 1000, event_type: "tool_use",
+      tool_name: "Read", tool_input: null, tool_output: null,
+      files_read: null, files_modified: null,
+      user_prompt: null, final_response: null,
+    });
+    expect(t.ingest_status).toBe("ok");
+    expect(t.ingest_error).toBeNull();
+    expect(t.ingest_attempts).toBe(1);
+    store.close();
+  });
+
   it("round-trips a trace with JSON fields", () => {
     const store = new Store(ctx);
     store.upsertSession("sess-1", "demo");

@@ -49,6 +49,9 @@ CREATE TABLE IF NOT EXISTS traces (
   user_prompt TEXT,
   final_response TEXT,
   processed_at INTEGER,
+  ingest_status TEXT NOT NULL DEFAULT 'ok',
+  ingest_error TEXT,
+  ingest_attempts INTEGER NOT NULL DEFAULT 0,
   FOREIGN KEY (session_id) REFERENCES sessions(session_id)
 );
 CREATE INDEX IF NOT EXISTS idx_traces_session ON traces(session_id);
@@ -135,7 +138,7 @@ CREATE TRIGGER IF NOT EXISTS obs_ad AFTER DELETE ON observations BEGIN
   VALUES('delete', old.id, old.title, old.description);
 END;
 
-CREATE TRIGGER IF NOT EXISTS obs_au AFTER UPDATE ON observations BEGIN
+CREATE TRIGGER IF NOT EXISTS obs_au AFTER UPDATE OF title, description ON observations BEGIN
   INSERT INTO observations_fts(observations_fts, rowid, title, description)
   VALUES('delete', old.id, old.title, old.description);
   INSERT INTO observations_fts(rowid, title, description)
@@ -160,7 +163,7 @@ CREATE TRIGGER IF NOT EXISTS mem_ad AFTER DELETE ON memories BEGIN
   VALUES('delete', old.id, old.title, old.description);
 END;
 
-CREATE TRIGGER IF NOT EXISTS mem_au AFTER UPDATE ON memories BEGIN
+CREATE TRIGGER IF NOT EXISTS mem_au AFTER UPDATE OF title, description ON memories BEGIN
   INSERT INTO memories_fts(memories_fts, rowid, title, description)
   VALUES('delete', old.id, old.title, old.description);
   INSERT INTO memories_fts(rowid, title, description)
@@ -169,7 +172,61 @@ END;
 `;
 
 export function runMigrations(db: DB): void {
+  // The `meta` table is created separately so it exists before
+  // `runMigrations` reads/writes the schema version.
+  db.exec(`CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
   db.exec(SCHEMA);
+  // Idempotent column-level migrations for DBs that pre-date the
+  // addition of these columns to the CREATE TABLE.
+  const columns = db.prepare(`PRAGMA table_info(traces)`).all() as Array<{ name: string }>;
+  const have = new Set(columns.map((c) => c.name));
+  if (!have.has("ingest_status")) {
+    db.exec(`ALTER TABLE traces ADD COLUMN ingest_status TEXT NOT NULL DEFAULT 'ok'`);
+  }
+  if (!have.has("ingest_error")) {
+    db.exec(`ALTER TABLE traces ADD COLUMN ingest_error TEXT`);
+  }
+  if (!have.has("ingest_attempts")) {
+    db.exec(`ALTER TABLE traces ADD COLUMN ingest_attempts INTEGER NOT NULL DEFAULT 0`);
+  }
+
+  // M5: re-create the FTS5 update triggers with the `OF title,
+  // description` qualifier. The original trigger fires on any
+  // UPDATE, including embedding-only changes — which doesn't
+  // affect the FTS index but does churn the trigger. The qualifier
+  // limits the trigger to fire only when title or description
+  // actually change.
+  const triggersHaveOf = (db.prepare(
+    `SELECT sql FROM sqlite_master WHERE type='trigger' AND name='obs_au'`
+  ).get() as { sql?: string } | undefined)?.sql?.includes("OF title, description") ?? false;
+  if (!triggersHaveOf) {
+    db.exec(`DROP TRIGGER IF EXISTS obs_au`);
+    db.exec(`
+      CREATE TRIGGER obs_au AFTER UPDATE OF title, description ON observations BEGIN
+        INSERT INTO observations_fts(observations_fts, rowid, title, description)
+        VALUES('delete', old.id, old.title, old.description);
+        INSERT INTO observations_fts(rowid, title, description)
+        VALUES (new.id, new.title, new.description);
+      END
+    `);
+    db.exec(`DROP TRIGGER IF EXISTS mem_au`);
+    db.exec(`
+      CREATE TRIGGER mem_au AFTER UPDATE OF title, description ON memories BEGIN
+        INSERT INTO memories_fts(memories_fts, rowid, title, description)
+        VALUES('delete', old.id, old.title, old.description);
+        INSERT INTO memories_fts(rowid, title, description)
+        VALUES (new.id, new.title, new.description);
+      END
+    `);
+  }
+
+  // Ensure meta has a schema_version row.
+  const v = db.prepare(`SELECT value FROM meta WHERE key = 'schema_version'`).get() as { value?: string } | undefined;
+  if (!v) {
+    db.prepare(`INSERT INTO meta (key, value) VALUES ('schema_version', '3')`).run();
+  } else if (parseInt(v.value ?? "0", 10) < 3) {
+    db.prepare(`UPDATE meta SET value = '3' WHERE key = 'schema_version'`).run();
+  }
 }
 
 /**

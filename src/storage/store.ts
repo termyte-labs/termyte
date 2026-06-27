@@ -61,12 +61,13 @@ export class Store {
 
   // ---------- traces ----------
 
-  insertTrace(trace: Omit<Trace, "id" | "processed_at">): Trace {
+  insertTrace(trace: Omit<Trace, "id" | "processed_at" | "ingest_status" | "ingest_error" | "ingest_attempts">): Trace {
     const stmt = this.ctx.db.prepare(`
       INSERT INTO traces (
         session_id, timestamp, event_type, tool_name, tool_input, tool_output,
-        files_read, files_modified, user_prompt, final_response
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        files_read, files_modified, user_prompt, final_response,
+        ingest_status, ingest_error, ingest_attempts
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ok', NULL, 1)
     `);
     const info = stmt.run(
       trace.session_id, trace.timestamp, trace.event_type,
@@ -74,7 +75,14 @@ export class Store {
       serialize(trace.files_read), serialize(trace.files_modified),
       trace.user_prompt, trace.final_response,
     );
-    return { id: info.lastInsertRowid as number, processed_at: null, ...trace };
+    return {
+      id: info.lastInsertRowid as number,
+      processed_at: null,
+      ingest_status: "ok",
+      ingest_error: null,
+      ingest_attempts: 1,
+      ...trace,
+    };
   }
 
   getTrace(id: number): Trace | null {
@@ -107,15 +115,20 @@ export class Store {
   }
 
   getUnprocessedTraces(limit = 50): Trace[] {
+    // M2: order by (session_id, timestamp, id) so within a session
+    // ties on timestamp resolve by insertion order. Synthesis
+    // prompts see events chronologically, not in random order.
     const rows = this.ctx.db.prepare(
-      `SELECT * FROM traces WHERE processed_at IS NULL ORDER BY timestamp ASC LIMIT ?`
+      `SELECT * FROM traces WHERE processed_at IS NULL
+       ORDER BY session_id, timestamp ASC, id ASC LIMIT ?`
     ).all(limit) as any[];
     return rows.map(mapTrace);
   }
 
   getUnprocessedTracesForSession(session_id: string, limit = 50): Trace[] {
     const rows = this.ctx.db.prepare(
-      `SELECT * FROM traces WHERE session_id = ? AND processed_at IS NULL ORDER BY timestamp ASC LIMIT ?`
+      `SELECT * FROM traces WHERE session_id = ? AND processed_at IS NULL
+       ORDER BY timestamp ASC, id ASC LIMIT ?`
     ).all(session_id, limit) as any[];
     return rows.map(mapTrace);
   }
@@ -128,7 +141,7 @@ export class Store {
       `SELECT t.* FROM traces t
        INNER JOIN sessions s ON s.session_id = t.session_id
        WHERE t.processed_at IS NULL AND s.repo_id = ?
-       ORDER BY t.timestamp ASC LIMIT ?`
+       ORDER BY s.session_id, t.timestamp ASC, t.id ASC LIMIT ?`
     ).all(repo_id, limit) as any[];
     return rows.map(mapTrace);
   }
@@ -220,8 +233,18 @@ export class Store {
   }
 
   updateObservationEmbedding(id: number, embedding: Float32Array): void {
-    this.ctx.db.prepare(`UPDATE observations SET embedding = ? WHERE id = ?`)
-      .run(Buffer.from(embedding.buffer), id);
+    // M5 + B3: only write if the embedding actually changed. The
+    // FTS5 update trigger is now qualified to `OF title,
+    // description` so it doesn't fire on embedding-only updates,
+    // but the UPDATE itself is still wasted work. Skip the
+    // write when the existing embedding has the same bytes.
+    const newBytes = Buffer.from(embedding.buffer);
+    const stmt = this.ctx.db.prepare(`
+      UPDATE observations
+      SET embedding = ?
+      WHERE id = ? AND (embedding IS NULL OR length(embedding) != ?)
+    `);
+    stmt.run(newBytes, id, newBytes.length);
   }
 
   // ---------- memories ----------
@@ -381,6 +404,9 @@ function mapTrace(row: any): Trace {
     files_modified: parseJSON<string[] | null>(row.files_modified, null),
     user_prompt: row.user_prompt, final_response: row.final_response,
     processed_at: row.processed_at,
+    ingest_status: (row.ingest_status ?? "ok") as Trace["ingest_status"],
+    ingest_error: row.ingest_error ?? null,
+    ingest_attempts: row.ingest_attempts ?? 1,
   };
 }
 
