@@ -235,17 +235,29 @@ npm test
 
 ## Documentation
 
-- [`AGENTS.md`](./AGENTS.md) — codebase-level architecture notes for AI agents working on this project.
+User-facing docs live in [`docs/`](./docs). Start with the [docs index](./docs/README.md) or jump to a specific page:
+
+- [Getting started](./docs/getting-started.md) — 5-minute quickstart.
+- [Concepts](./docs/concepts.md) — the `traces → observations → memories` data model.
+- [Architecture](./docs/architecture.md) — how the pieces fit together.
+- [Configuration](./docs/configuration.md) — every env var.
+- [CLI reference](./docs/cli.md) — every subcommand and flag.
+- [Agent setup](./docs/agents.md) — per-agent install details (Claude Code, Codex, OpenCode, Cursor, Gemini CLI, Windsurf, MCP).
+- [MCP server](./docs/mcp.md) — protocol and tools.
+- [Adapter development](./docs/adapters.md) — writing a new platform or synthesis adapter.
+- [Security model](./docs/security.md) — threat model, network surface, crash safety.
+- [Troubleshooting](./docs/troubleshooting.md) — common issues and fixes.
+- [FAQ](./docs/faq.md) — frequently asked questions.
+
+Repo-level meta-docs:
+
+- [`AGENTS.md`](./AGENTS.md) — codebase architecture notes for AI agents working on this project.
 - [`CONTRIBUTING.md`](./CONTRIBUTING.md) — how to set up dev, file PRs, add a new agent adapter.
 - [`SECURITY.md`](./SECURITY.md) — private vulnerability disclosure process.
 - [`SUPPORT.md`](./SUPPORT.md) — where to ask questions and how to get help.
 - [`CHANGELOG.md`](./CHANGELOG.md) — release history.
 - [`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md) — community standards.
 - [`llm.txt`](./llm.txt) — project description for LLMs (GEO).
-- [`docs/background-memory-generation.md`](./docs/background-memory-generation.md) — design rationale for the agent-as-synthesis-adapter pattern.
-- [`docs/background-memory-generation-implementation.md`](./docs/background-memory-generation-implementation.md) — implementation status of the design.
-- [`docs/mitigation_plan.md`](./docs/mitigation_plan.md) — performance / reliability / cost mitigations applied.
-- [`docs/post-mitigation-rescan.md`](./docs/post-mitigation-rescan.md) — re-scan after the mitigation plan was applied.
 
 ---
 
