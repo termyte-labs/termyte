@@ -131,7 +131,7 @@ describe("event handlers", () => {
     store.close();
   });
 
-  it("summarize handler triggers generateSummary for session_end", async () => {
+  it("summarize handler is a no-op (synthesis runs in termyte-synth subprocess)", async () => {
     const store = new Store(dbCtx);
     const llm = new MockLLM();
     llm.setResponse(`<skip_summary />`);
@@ -158,7 +158,10 @@ describe("event handlers", () => {
     })!;
     const out = await getHandler("summarize", deps)({ event, raw: {} });
     expect(out.handled).toBe(true);
-    expect(llm.calls.length).toBeGreaterThan(0);
+    // The in-process LLM path is gone — the handler returns a no-op
+    // and the termyte-synth subprocess (tested separately) does the
+    // real synthesis. The LLM should not be called.
+    expect(llm.calls.length).toBe(0);
     store.close();
   });
 

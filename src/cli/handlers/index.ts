@@ -12,15 +12,13 @@ import { makeFileContextHandler } from "./file-context.js";
 import type { Store } from "../../storage/store.js";
 import type { HybridSearch } from "../../retrieval/hybrid.js";
 import type { ContextBuilder } from "../../context/builder.js";
-import type { Observer } from "../../observer/pipeline.js";
 
 export type { EventHandler, EventHandlerName, HandlerInput, HandlerOutput } from "../handler-types.js";
 
 export interface HandlerDeps {
   store: Store;
-  search: HybridSearch;
-  builder: ContextBuilder;
-  observer: Observer;
+  search: HybridSearch | null;
+  builder: ContextBuilder | null;
 }
 
 export function buildHandlers(deps: HandlerDeps): Record<EventHandlerName, EventHandler> {

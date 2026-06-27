@@ -8,7 +8,7 @@ import type { HybridSearch } from "../../retrieval/hybrid.js";
 import type { ContextBuilder } from "../../context/builder.js";
 import { makeContextHandler } from "./context.js";
 
-export function makeSessionInitHandler(deps: { store: Store; search: HybridSearch; builder: ContextBuilder }): EventHandler {
+export function makeSessionInitHandler(deps: { store: Store; search: HybridSearch | null; builder: ContextBuilder | null }): EventHandler {
   const inner = makeContextHandler(deps);
   return async (input) => {
     if (input.event.event_type !== "session_init") {

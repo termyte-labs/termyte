@@ -8,8 +8,9 @@ import type { HybridSearch } from "../../retrieval/hybrid.js";
 import type { ContextBuilder } from "../../context/builder.js";
 import { renderHybridResults } from "../../context/builder.js";
 
-export function makeFileContextHandler(deps: { search: HybridSearch; builder: ContextBuilder }): EventHandler {
+export function makeFileContextHandler(deps: { search: HybridSearch | null; builder: ContextBuilder | null }): EventHandler {
   return async ({ event }) => {
+    if (!deps.search) return { handled: true, result: { continue: true, suppressOutput: true } };
     if (event.event_type !== "tool_use" || !event.tool_name) {
       return { handled: true, result: { continue: true, suppressOutput: true } };
     }
