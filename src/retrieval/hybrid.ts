@@ -49,8 +49,15 @@ export class HybridSearch {
     let vectorResults: VectorSearchResult[] = [];
     try {
       const queryVec = await this.embeddings.embed(options.query);
+      // C1 Part A: pre-filter the vector cosine via FTS5 by passing
+      // the text query to VectorSearch. This bounds the candidate
+      // set to the top-200 FTS matches instead of every embedded
+      // memory.
       vectorResults = this.vector.search({
         query: queryVec,
+        ftsQuery: options.query,
+        ftsRepoId: options.repo_id,
+        ftsType: options.type,
         repo_id: options.repo_id,
         type: options.type,
         limit: limit * 2,

@@ -41,6 +41,41 @@ export class FTSSearch {
     const rows = this.store.getDB().prepare(sql).all(...params) as any[];
     return rows.map(mapMemoryRow);
   }
+
+  /**
+   * Return only the memory ids that match the FTS query, not the
+   * full row. Used by VectorSearch as a pre-filter to bound the
+   * candidate set for in-memory cosine. C1 Part A.
+   */
+  searchIds(options: FTSSearchOptions): number[] {
+    const ftsQuery = buildFTSQuery(options.query);
+    if (!ftsQuery) return [];
+
+    const params: any[] = [ftsQuery];
+    const where: string[] = ["memories_fts MATCH ?"];
+
+    if (options.repo_id) {
+      where.push("m.repo_id = ?");
+      params.push(options.repo_id);
+    }
+    if (options.type) {
+      where.push("m.type = ?");
+      params.push(options.type);
+    }
+
+    const limit = options.limit ?? 200;
+    params.push(limit);
+
+    const sql = `
+      SELECT m.id FROM memories m
+      INNER JOIN memories_fts fts ON fts.rowid = m.id
+      WHERE ${where.join(" AND ")}
+      ORDER BY rank
+      LIMIT ?
+    `;
+    const rows = this.store.getDB().prepare(sql).all(...params) as Array<{ id: number }>;
+    return rows.map((r) => r.id);
+  }
 }
 
 function buildFTSQuery(query: string): string {
