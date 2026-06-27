@@ -5,6 +5,11 @@
  * The vector store is in-process and holds vectors in memory; embeddings are
  * persisted to the `memories.embedding` BLOB column on insert, so the
  * in-process cache can be rehydrated from disk on restart.
+ *
+ * `NoOpEmbeddingsProvider` is the documented "no embeddings" fallback.
+ * It's exposed in the public API (createTermyte) so users can opt out
+ * of embeddings entirely. Most production code should not instantiate
+ * it directly — pass `{ model: null }` to createTermyte instead.
  */
 
 export interface EmbeddingsProvider {
