@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { MemoryType, Trace } from "../core/types.js";
@@ -49,7 +49,11 @@ export function loadRegressionCorpus(path = defaultCorpusPath()): EvalCorpusCase
 
 export function defaultCorpusPath(): string {
   const here = dirname(fileURLToPath(import.meta.url));
-  return join(here, "..", "..", "test", "fixtures", "regression-corpus", "cases.json");
+  const candidates = [
+    join(here, "..", "..", "test", "fixtures", "regression-corpus", "cases.json"),
+    join(here, "..", "..", "..", "test", "fixtures", "regression-corpus", "cases.json"),
+  ];
+  return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0]!;
 }
 
 function validateCorpus(value: unknown, source: string): EvalCorpusCase[] {

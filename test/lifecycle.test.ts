@@ -159,6 +159,55 @@ describe("feedback lifecycle math", () => {
   });
 });
 
+describe("persisted memory feedback", () => {
+  it("records feedback and updates memory lifecycle scores atomically", () => {
+    const store = new Store(openDatabase(":memory:"));
+    try {
+      store.upsertSession("feedback-session", "test", "repo", "/repo");
+      const memory = store.insertMemory({
+        session_id: "feedback-session",
+        repo_id: "repo",
+        workspace_root: "/repo",
+        type: "fact",
+        title: "Persist feedback",
+        description: "Feedback should update memory scores.",
+        files_read: [],
+        files_modified: [],
+        source_observation_ids: [],
+        source_trace_ids: [],
+        created_at: 100,
+        embedding: null,
+      });
+
+      const result = store.recordMemoryFeedback({
+        id: `memory:${memory.id}`,
+        event: "used",
+        contextInjectionId: "ctx-1",
+        nowMs: 200,
+      });
+
+      expect(result).toEqual({ recorded: true, memoryId: memory.id });
+      const updated = store.getMemory(memory.id)!;
+      expect(updated.usage_count).toBe(1);
+      expect(updated.importance).toBeCloseTo(0.56);
+      expect(updated.confidence).toBeCloseTo(0.52);
+      expect(updated.last_accessed_at).toBe(200);
+
+      const feedback = store.getDB().prepare(`
+        SELECT event_type, context_injection_id
+        FROM memory_feedback
+        WHERE memory_id = ?
+      `).get(memory.id) as any;
+      expect(feedback).toEqual({
+        event_type: "used",
+        context_injection_id: "ctx-1",
+      });
+    } finally {
+      store.close();
+    }
+  });
+});
+
 describe("dedupe helpers", () => {
   it("normalizes canonical keys across dates, hashes, whitespace, case, and file order", () => {
     const a = canonicalMemoryKey({
@@ -226,4 +275,3 @@ describe("dedupe helpers", () => {
     ).toBe(true);
   });
 });
-

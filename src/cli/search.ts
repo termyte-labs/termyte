@@ -6,6 +6,7 @@ import { HybridSearch } from "../retrieval/hybrid.js";
 import { LocalEmbeddingsProvider } from "../retrieval/local-embeddings.js";
 import { renderHybridResults } from "../context/builder.js";
 import { parseRetrievalTypeName } from "../mcp/schemas.js";
+import { DocumentStore, type DocumentType, type SparseHit } from "../storage/documents.js";
 
 export async function searchCommand(
   query: string,
@@ -16,19 +17,26 @@ export async function searchCommand(
 
   const config = loadConfig();
   const store = new Store(config.dbPath);
-  const fts = new FTSSearch(store);
-  const vector = new VectorSearch(store);
-  const embeddings = new LocalEmbeddingsProvider({ model: config.embeddings.model });
-  const search = new HybridSearch({ fts, vector, embeddings });
+  const documents = new DocumentStore(store.getDB());
 
   try {
     const limit = options.limit ?? 20;
     if (parsedType.value && parsedType.value !== "all" && parsedType.value !== "memory") {
-      if (options.json) process.stdout.write("[]\n");
-      else process.stdout.write("(no results)\n");
+      const hits = documents.searchSparse({
+        query,
+        types: [parsedType.value as DocumentType],
+        limit,
+        files: options.currentFiles,
+      });
+      if (options.json) process.stdout.write(JSON.stringify(hits, null, 2) + "\n");
+      else process.stdout.write(renderDocumentHits(hits));
       return;
     }
 
+    const fts = new FTSSearch(store);
+    const vector = new VectorSearch(store);
+    const embeddings = new LocalEmbeddingsProvider({ model: config.embeddings.model });
+    const search = new HybridSearch({ fts, vector, embeddings });
     const results = await search.search({
       query,
       repo_id: options.repo_id,
@@ -48,4 +56,13 @@ export async function searchCommand(
 function jsonReplacer(_key: string, value: unknown): unknown {
   if (value instanceof Float32Array) return Array.from(value);
   return value;
+}
+
+function renderDocumentHits(hits: SparseHit[]): string {
+  if (hits.length === 0) return "(no results)\n";
+  return hits.map((hit) => {
+    const doc = hit.document;
+    const files = doc.files.length > 0 ? `\n  files: ${doc.files.join(", ")}` : "";
+    return `# ${doc.id} [${doc.doc_type}] score=${hit.score.toFixed(3)}\n${doc.content}${files}`;
+  }).join("\n\n") + "\n";
 }

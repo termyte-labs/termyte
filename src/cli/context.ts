@@ -6,6 +6,7 @@ import { HybridSearch } from "../retrieval/hybrid.js";
 import { LocalEmbeddingsProvider } from "../retrieval/local-embeddings.js";
 import { ContextBuilder } from "../context/builder.js";
 import { parseRetrievalTypeName } from "../mcp/schemas.js";
+import { DocumentStore, type DocumentType } from "../storage/documents.js";
 
 export async function contextCommand(options: {
   repo_id?: string;
@@ -19,18 +20,25 @@ export async function contextCommand(options: {
 
   const config = loadConfig();
   const store = new Store(config.dbPath);
-  const fts = new FTSSearch(store);
-  const vector = new VectorSearch(store);
-  const embeddings = new LocalEmbeddingsProvider({ model: config.embeddings.model });
-  const search = new HybridSearch({ fts, vector, embeddings });
-  const builder = new ContextBuilder(store, search);
+  const documents = new DocumentStore(store.getDB());
 
   try {
     if (parsedType.value && parsedType.value !== "all" && parsedType.value !== "memory") {
-      process.stdout.write("# Memory Context\n\n(no results for requested type in current memory-row retrieval engine)\n");
+      const hits = documents.searchSparse({
+        query: options.query ?? "",
+        files: options.currentFiles,
+        types: [parsedType.value as DocumentType],
+        limit: options.limit ?? 50,
+      });
+      process.stdout.write(renderDocumentContext(hits) + "\n");
       return;
     }
 
+    const fts = new FTSSearch(store);
+    const vector = new VectorSearch(store);
+    const embeddings = new LocalEmbeddingsProvider({ model: config.embeddings.model });
+    const search = new HybridSearch({ fts, vector, embeddings });
+    const builder = new ContextBuilder(store, search);
     const result = await builder.build({
       repo_id: options.repo_id,
       query: options.query,
@@ -41,4 +49,20 @@ export async function contextCommand(options: {
   } finally {
     store.close();
   }
+}
+
+function renderDocumentContext(
+  hits: ReturnType<DocumentStore["searchSparse"]>,
+): string {
+  if (hits.length === 0) return "# Termyte Context\n\n(no results)";
+  return [
+    "# Termyte Context",
+    "",
+    ...hits.flatMap((hit) => [
+      `## ${hit.document.id} [${hit.document.doc_type}]`,
+      hit.document.content,
+      hit.document.files.length > 0 ? `Files: ${hit.document.files.join(", ")}` : "",
+      "",
+    ]),
+  ].filter((line, index, all) => line !== "" || all[index - 1] !== "").join("\n").trimEnd();
 }

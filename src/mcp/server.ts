@@ -26,6 +26,7 @@ import { ContextBuilder, renderHybridResults, renderMemory } from "../context/bu
 import type { EmbeddingsProvider } from "../retrieval/embeddings.js";
 import { NoOpEmbeddingsProvider } from "../retrieval/embeddings.js";
 import { MCP_TOOL_DEFS } from "./tools.js";
+import { DocumentStore, type DocumentType, type SparseHit } from "../storage/documents.js";
 import {
   validateContextInput,
   validateExplainInput,
@@ -41,6 +42,7 @@ class TermyteMcpServer {
   private search: HybridSearch;
   private contextBuilder: ContextBuilder;
   private embeddings: EmbeddingsProvider;
+  private documents: DocumentStore;
 
   constructor() {
     const config = loadConfig();
@@ -54,6 +56,7 @@ class TermyteMcpServer {
     const vector = new VectorSearch(this.store);
     this.search = new HybridSearch({ fts, vector, embeddings: this.embeddings });
     this.contextBuilder = new ContextBuilder(this.store, this.search);
+    this.documents = new DocumentStore(this.store.getDB());
   }
 
   close(): void { this.store.close(); }
@@ -100,7 +103,16 @@ class TermyteMcpServer {
         const input = validateSearchInput(args);
         if (!input.ok) return validationErrorResult(input.error);
         if (!isCurrentMemorySearchSupported(input.value.type)) {
-          return textResult(JSON.stringify({ results: [] }, null, 2));
+          const hits = this.searchDocuments(
+            input.value.query,
+            input.value.type,
+            input.value.files,
+            input.value.sessionId,
+            input.value.limit,
+          );
+          return textResult(JSON.stringify({
+            results: hits.map(documentHitResult),
+          }, null, 2));
         }
         const results = await this.search.search({
           query: input.value.query,
@@ -129,10 +141,18 @@ class TermyteMcpServer {
         const input = validateContextInput(args);
         if (!input.ok) return validationErrorResult(input.error);
         if (!isCurrentMemorySearchSupported(input.value.type)) {
+          const hits = this.searchDocuments(
+            input.value.query,
+            input.value.type,
+            input.value.files,
+            input.value.sessionId,
+            input.value.limit,
+          );
+          const markdown = renderDocumentContext(hits, input.value.tokenBudget);
           return textResult(JSON.stringify({
-            markdown: "",
-            selectedIds: [],
-            estimatedTokens: 0,
+            markdown,
+            selectedIds: hits.map((hit) => hit.document.id),
+            estimatedTokens: Math.ceil(markdown.length / 4),
             contextInjectionId: null,
           }, null, 2));
         }
@@ -174,11 +194,24 @@ class TermyteMcpServer {
       case "termyte.feedback": {
         const input = validateFeedbackInput(args);
         if (!input.ok) return validationErrorResult(input.error);
+        const result = this.store.recordMemoryFeedback({
+          id: input.value.id,
+          event: input.value.event,
+          contextInjectionId: input.value.contextInjectionId,
+          source: "mcp",
+        });
+        if (!result.recorded) {
+          return textResult(JSON.stringify({
+            accepted: false,
+            recorded: false,
+            reason: result.reason,
+          }, null, 2), true);
+        }
         return textResult(JSON.stringify({
           accepted: true,
-          recorded: false,
-          reason: "feedback persistence is provided by the lifecycle module; MCP argument validation is active",
-          input: input.value,
+          recorded: true,
+          memoryId: result.memoryId,
+          event: input.value.event,
         }, null, 2));
       }
       case "termyte.explain": {
@@ -245,6 +278,22 @@ class TermyteMcpServer {
         return textResult(`(unknown tool: ${name})`, true);
     }
   }
+
+  private searchDocuments(
+    query: string,
+    type: RetrievalType | undefined,
+    files: string[] | undefined,
+    sessionId: string | undefined,
+    limit: number | undefined,
+  ): SparseHit[] {
+    return this.documents.searchSparse({
+      query,
+      files,
+      sessionId,
+      types: type && type !== "all" ? [type as DocumentType] : undefined,
+      limit: limit ?? 20,
+    });
+  }
 }
 
 function textResult(text: string, isError = false): { content: Array<{ type: "text"; text: string }>; isError?: boolean } {
@@ -257,6 +306,29 @@ function validationErrorResult(error: { code: string; message: string; field?: s
 
 function isCurrentMemorySearchSupported(type: RetrievalType | undefined): boolean {
   return type === undefined || type === "all" || type === "memory";
+}
+
+function documentHitResult(hit: SparseHit): Record<string, unknown> {
+  return {
+    id: hit.document.id,
+    type: hit.document.doc_type,
+    score: hit.score,
+    content: hit.document.content,
+    files: hit.document.files,
+    confidence: hit.document.confidence,
+    importance: hit.document.importance,
+    provenance: [`${hit.document.doc_type}:${hit.document.source_id}`],
+  };
+}
+
+function renderDocumentContext(hits: SparseHit[], tokenBudget = 4_000): string {
+  const maxCharacters = Math.max(0, tokenBudget * 4);
+  const sections = hits.map((hit) => [
+    `## ${hit.document.id} [${hit.document.doc_type}]`,
+    hit.document.content,
+    hit.document.files.length > 0 ? `Files: ${hit.document.files.join(", ")}` : "",
+  ].filter(Boolean).join("\n"));
+  return ["# Termyte Context", ...sections].join("\n\n").slice(0, maxCharacters);
 }
 
 /** Read newline-delimited JSON-RPC requests from a single line per

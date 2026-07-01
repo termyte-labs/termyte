@@ -1,7 +1,10 @@
+import { randomUUID } from "node:crypto";
 import { openDatabase, closeDatabase, defaultDbPath, type DB, type DatabaseContext } from "./connection.js";
 import { runMigrations } from "./migrations.js";
+import { applyFeedback } from "../lifecycle/feedback.js";
 import type {
   Memory,
+  MemoryFeedbackEvent,
   MemoryLifecycleState,
   MemoryType,
   Observation,
@@ -295,6 +298,95 @@ export class Store {
 
   markMemoryFailed(id: number): void {
     this.updateMemoryLifecycleState(id, "failed");
+  }
+
+  recordMemoryFeedback(input: {
+    id: string;
+    event: MemoryFeedbackEvent;
+    contextInjectionId?: string;
+    source?: string;
+    nowMs?: number;
+  }): { recorded: boolean; memoryId?: number; reason?: string } {
+    const memoryId = this.resolveMemoryId(input.id);
+    if (memoryId === null) {
+      return { recorded: false, reason: `No memory document found for ${input.id}` };
+    }
+
+    const memory = this.getMemory(memoryId);
+    if (!memory) {
+      return { recorded: false, reason: `Memory ${memoryId} not found` };
+    }
+
+    const nowMs = input.nowMs ?? Date.now();
+    const next = applyFeedback({
+      state: memory.state ?? "active",
+      importance: memory.importance ?? 0.5,
+      confidence: memory.confidence ?? 0.5,
+      usage_count: memory.usage_count ?? 0,
+      last_accessed_at: memory.last_accessed_at ?? null,
+      last_reinforced_at: memory.last_reinforced_at ?? null,
+    }, input.event, nowMs);
+
+    this.transaction(() => {
+      this.ctx.db.prepare(`
+        INSERT INTO memory_feedback (
+          id, memory_id, doc_id, event_type, weight, source,
+          context_injection_id, created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        `feedback_${randomUUID()}`,
+        memoryId,
+        input.id,
+        input.event,
+        next.weight,
+        input.source ?? "mcp",
+        input.contextInjectionId ?? null,
+        nowMs,
+      );
+
+      this.ctx.db.prepare(`
+        UPDATE memories
+        SET
+          state = ?,
+          importance = ?,
+          confidence = ?,
+          usage_count = ?,
+          last_accessed_at = ?,
+          last_reinforced_at = ?
+        WHERE id = ?
+      `).run(
+        next.state,
+        next.importance,
+        next.confidence,
+        next.usage_count,
+        next.last_accessed_at ?? null,
+        next.last_reinforced_at ?? null,
+        memoryId,
+      );
+
+      this.ctx.db.prepare(`
+        UPDATE documents
+        SET importance = ?, confidence = ?, updated_at = ?
+        WHERE id = ?
+      `).run(next.importance, next.confidence, nowMs, `memory:${memoryId}`);
+    });
+
+    return { recorded: true, memoryId };
+  }
+
+  private resolveMemoryId(id: string): number | null {
+    const direct = id.match(/^(?:memory:)?(\d+)$/);
+    if (direct) return Number(direct[1]);
+
+    const document = this.ctx.db.prepare(`
+      SELECT source_id
+      FROM documents
+      WHERE id = ? AND doc_type = 'memory'
+    `).get(id) as { source_id?: string } | undefined;
+
+    if (!document?.source_id || !/^\d+$/.test(document.source_id)) return null;
+    return Number(document.source_id);
   }
 
   getMemory(id: number): Memory | null {

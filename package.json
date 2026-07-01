@@ -16,6 +16,7 @@
   },
   "files": [
     "dist",
+    "test/fixtures/regression-corpus/cases.json",
     "README.md",
     "LICENSE"
   ],
