@@ -5,13 +5,18 @@ import { VectorSearch } from "../retrieval/vector.js";
 import { HybridSearch } from "../retrieval/hybrid.js";
 import { LocalEmbeddingsProvider } from "../retrieval/local-embeddings.js";
 import { ContextBuilder } from "../context/builder.js";
+import { parseRetrievalTypeName } from "../mcp/schemas.js";
 
 export async function contextCommand(options: {
   repo_id?: string;
   query?: string;
   limit?: number;
   currentFiles?: string[];
+  type?: string;
 }): Promise<void> {
+  const parsedType = parseRetrievalTypeName(options.type);
+  if (!parsedType.ok) throw new Error(parsedType.error.message);
+
   const config = loadConfig();
   const store = new Store(config.dbPath);
   const fts = new FTSSearch(store);
@@ -21,6 +26,11 @@ export async function contextCommand(options: {
   const builder = new ContextBuilder(store, search);
 
   try {
+    if (parsedType.value && parsedType.value !== "all" && parsedType.value !== "memory") {
+      process.stdout.write("# Memory Context\n\n(no results for requested type in current memory-row retrieval engine)\n");
+      return;
+    }
+
     const result = await builder.build({
       repo_id: options.repo_id,
       query: options.query,

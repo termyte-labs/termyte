@@ -2,14 +2,16 @@
  * `termyte <command> [args]`
  *
  * Subcommands:
- *   search    <query>  [--repo r] [--limit n] [--json] [--files f1,f2]
- *   context            [--repo r] [--query q] [--limit n] [--files f1,f2]
+ *   search    <query>  [--repo r] [--limit n] [--json] [--files f1,f2] [--type t]
+ *   context            [--repo r] [--query q] [--limit n] [--files f1,f2] [--type t]
  *   memories           [--repo r] [--limit n] [--type t]
  *   memory    <id>     [--json]
  *   trace     <id>     [--json]
  *   session   <id>     [--json]
  *   sessions           [--limit n]
  *   install   <platform> [--target user|project]
+ *   eval               [--suite retrieval|durability|lifecycle|all] [--json]
+ *   viewer             [--host 127.0.0.1] [--port 7331]
  *   mcp                (stdio server for MCP-capable IDEs)
  *   help
  */
@@ -23,14 +25,16 @@ import { runMcpServer } from "../mcp/server.js";
 const USAGE = `termyte - memory layer for coding agents
 
 Usage:
-  termyte search    <query>  [--repo r] [--limit n] [--json] [--files f1,f2]
-  termyte context            [--repo r] [--query q] [--limit n] [--files f1,f2]
+  termyte search    <query>  [--repo r] [--limit n] [--json] [--files f1,f2] [--type trace|observation|memory|summary|episode|all]
+  termyte context            [--repo r] [--query q] [--limit n] [--files f1,f2] [--type trace|observation|memory|summary|episode|all]
   termyte memories           [--repo r] [--limit n] [--type t]
   termyte memory    <id>     [--json]
   termyte trace     <id>     [--json]
   termyte session   <id>     [--json]
   termyte sessions           [--limit n]
   termyte install   <platform> [--target user|project]
+  termyte eval      [--suite retrieval|durability|lifecycle|all] [--json]
+  termyte viewer    [--host 127.0.0.1] [--port 7331]
   termyte synth     [options]              (background memory synthesis)
   termyte stats                                 (local stats — no network)
   termyte mcp                (stdio MCP server)
@@ -82,6 +86,7 @@ async function main(): Promise<void> {
           limit: typeof opts["limit"] === "string" ? parseInt(opts["limit"], 10) : undefined,
           json: opts["json"] === true,
           currentFiles: typeof opts["files"] === "string" ? (opts["files"] as string).split(",").map((s: string) => s.trim()).filter(Boolean) : undefined,
+          type: typeof opts["type"] === "string" ? opts["type"] : undefined,
         });
         break;
       }
@@ -91,6 +96,7 @@ async function main(): Promise<void> {
           query: typeof opts["query"] === "string" ? opts["query"] : undefined,
           limit: typeof opts["limit"] === "string" ? parseInt(opts["limit"], 10) : undefined,
           currentFiles: typeof opts["files"] === "string" ? (opts["files"] as string).split(",").map((s: string) => s.trim()).filter(Boolean) : undefined,
+          type: typeof opts["type"] === "string" ? opts["type"] : undefined,
         });
         break;
       }
@@ -140,6 +146,23 @@ async function main(): Promise<void> {
           : "user";
         const code = installFor(platform, { target });
         process.exit(code);
+      }
+      case "eval": {
+        const mod = await import("./eval.js");
+        await mod.evalCommand({
+          suite: typeof opts["suite"] === "string" ? opts["suite"] : undefined,
+          corpus: typeof opts["corpus"] === "string" ? opts["corpus"] : undefined,
+          json: opts["json"] === true,
+        });
+        process.exit(0);
+      }
+      case "viewer": {
+        const mod = await import("./viewer.js");
+        await mod.viewerCommand({
+          host: typeof opts["host"] === "string" ? opts["host"] : undefined,
+          port: typeof opts["port"] === "string" ? parseInt(opts["port"], 10) : undefined,
+        });
+        break;
       }
       case "mcp": {
         await runMcpServer();

@@ -56,6 +56,27 @@ CREATE INDEX IF NOT EXISTS idx_traces_timestamp ON traces(timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_traces_unprocessed
   ON traces(processed_at) WHERE processed_at IS NULL;
 
+CREATE TABLE IF NOT EXISTS jobs (
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  subject_type TEXT NOT NULL,
+  subject_id TEXT NOT NULL,
+  state TEXT NOT NULL CHECK(state IN
+    ('pending', 'leased', 'succeeded', 'failed', 'dead')),
+  attempt_count INTEGER NOT NULL DEFAULT 0,
+  max_attempts INTEGER NOT NULL DEFAULT 5,
+  lease_owner TEXT,
+  lease_until INTEGER,
+  next_run_at INTEGER NOT NULL,
+  last_error TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  UNIQUE(kind, subject_type, subject_id)
+);
+CREATE INDEX IF NOT EXISTS jobs_ready_idx ON jobs(state, next_run_at, kind);
+CREATE INDEX IF NOT EXISTS jobs_lease_idx ON jobs(state, lease_until);
+CREATE INDEX IF NOT EXISTS jobs_subject_idx ON jobs(subject_type, subject_id);
+
 CREATE TABLE IF NOT EXISTS observations (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   session_id TEXT NOT NULL,
@@ -96,12 +117,25 @@ CREATE TABLE IF NOT EXISTS memories (
   source_trace_ids TEXT NOT NULL DEFAULT '[]',
   created_at INTEGER NOT NULL,
   embedding BLOB,
+  state TEXT NOT NULL DEFAULT 'active' CHECK(state IN
+    ('active', 'stale', 'superseded', 'conflicted', 'deleted')),
+  importance REAL NOT NULL DEFAULT 0.5,
+  confidence REAL NOT NULL DEFAULT 0.5,
+  usage_count INTEGER NOT NULL DEFAULT 0,
+  last_accessed_at INTEGER,
+  last_reinforced_at INTEGER,
+  decayed_score REAL NOT NULL DEFAULT 0.5,
+  content_hash TEXT,
+  canonical_key TEXT,
+  superseded_by INTEGER REFERENCES memories(id),
   FOREIGN KEY (session_id) REFERENCES sessions(session_id)
 );
 CREATE INDEX IF NOT EXISTS idx_memories_session ON memories(session_id);
 CREATE INDEX IF NOT EXISTS idx_memories_repo ON memories(repo_id);
 CREATE INDEX IF NOT EXISTS idx_memories_type ON memories(type);
 CREATE INDEX IF NOT EXISTS idx_memories_created ON memories(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_memories_state ON memories(state);
+CREATE INDEX IF NOT EXISTS idx_memories_canonical_key ON memories(canonical_key);
 
 CREATE TABLE IF NOT EXISTS summaries (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -166,10 +200,134 @@ CREATE TRIGGER IF NOT EXISTS mem_au AFTER UPDATE ON memories BEGIN
   INSERT INTO memories_fts(rowid, title, description)
   VALUES (new.id, new.title, new.description);
 END;
+
+CREATE TABLE IF NOT EXISTS memory_edges (
+  id TEXT PRIMARY KEY,
+  source_memory_id INTEGER NOT NULL REFERENCES memories(id),
+  target_memory_id INTEGER NOT NULL REFERENCES memories(id),
+  edge_type TEXT NOT NULL CHECK(edge_type IN
+    ('supports', 'contradicts', 'supersedes', 'duplicates', 'derived_from', 'related_to')),
+  confidence REAL NOT NULL DEFAULT 0.5,
+  created_at INTEGER NOT NULL,
+  UNIQUE(source_memory_id, target_memory_id, edge_type)
+);
+CREATE INDEX IF NOT EXISTS idx_memory_edges_source ON memory_edges(source_memory_id);
+CREATE INDEX IF NOT EXISTS idx_memory_edges_target ON memory_edges(target_memory_id);
+CREATE INDEX IF NOT EXISTS idx_memory_edges_type ON memory_edges(edge_type);
+
+CREATE TABLE IF NOT EXISTS memory_feedback (
+  id TEXT PRIMARY KEY,
+  memory_id INTEGER NOT NULL REFERENCES memories(id),
+  doc_id TEXT,
+  event_type TEXT NOT NULL CHECK(event_type IN
+    ('shown', 'used', 'ignored', 'downranked', 'corrected')),
+  weight REAL NOT NULL,
+  source TEXT NOT NULL,
+  context_injection_id TEXT,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_memory_feedback_memory ON memory_feedback(memory_id);
+CREATE INDEX IF NOT EXISTS idx_memory_feedback_context ON memory_feedback(context_injection_id);
+
+CREATE TABLE IF NOT EXISTS documents (
+  id TEXT PRIMARY KEY,
+  doc_type TEXT NOT NULL CHECK(doc_type IN
+    ('trace', 'observation', 'memory', 'summary', 'episode')),
+  source_id TEXT NOT NULL,
+  session_id TEXT,
+  content TEXT NOT NULL,
+  content_hash TEXT NOT NULL,
+  files_json TEXT NOT NULL DEFAULT '[]',
+  tags_json TEXT NOT NULL DEFAULT '[]',
+  importance REAL NOT NULL DEFAULT 0.5,
+  confidence REAL NOT NULL DEFAULT 0.5,
+  recency_ts INTEGER NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  deleted_at INTEGER,
+  UNIQUE(doc_type, source_id)
+);
+CREATE INDEX IF NOT EXISTS idx_documents_type ON documents(doc_type);
+CREATE INDEX IF NOT EXISTS idx_documents_session ON documents(session_id);
+CREATE INDEX IF NOT EXISTS idx_documents_recency ON documents(recency_ts DESC);
+CREATE INDEX IF NOT EXISTS idx_documents_deleted ON documents(deleted_at);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts USING fts5(
+  content,
+  files,
+  tags,
+  content='documents',
+  content_rowid='rowid'
+);
+
+CREATE TRIGGER IF NOT EXISTS documents_ai AFTER INSERT ON documents BEGIN
+  INSERT INTO documents_fts(rowid, content, files, tags)
+  VALUES (new.rowid, new.content, new.files_json, new.tags_json);
+END;
+
+CREATE TRIGGER IF NOT EXISTS documents_ad AFTER DELETE ON documents BEGIN
+  INSERT INTO documents_fts(documents_fts, rowid, content, files, tags)
+  VALUES('delete', old.rowid, old.content, old.files_json, old.tags_json);
+END;
+
+CREATE TRIGGER IF NOT EXISTS documents_au AFTER UPDATE ON documents BEGIN
+  INSERT INTO documents_fts(documents_fts, rowid, content, files, tags)
+  VALUES('delete', old.rowid, old.content, old.files_json, old.tags_json);
+  INSERT INTO documents_fts(rowid, content, files, tags)
+  VALUES (new.rowid, new.content, new.files_json, new.tags_json);
+END;
+
+CREATE TABLE IF NOT EXISTS document_embeddings (
+  doc_id TEXT PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
+  model TEXT NOT NULL,
+  dimensions INTEGER NOT NULL,
+  vector_table TEXT NOT NULL,
+  embedded_at INTEGER NOT NULL,
+  embedding_hash TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_document_embeddings_model ON document_embeddings(model, dimensions);
 `;
 
 export function runMigrations(db: DB): void {
   db.exec(SCHEMA);
+  ensurePipelineColumns(db);
+  ensureLifecycleColumns(db);
+}
+
+function ensurePipelineColumns(db: DB): void {
+  addColumnIfMissing(db, "traces", "pipeline_state", "TEXT DEFAULT 'captured'");
+  addColumnIfMissing(db, "observations", "lifecycle_state", "TEXT DEFAULT 'extracting'");
+  addColumnIfMissing(db, "memories", "lifecycle_state", "TEXT DEFAULT 'consolidating'");
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_traces_pipeline_state ON traces(pipeline_state);
+    CREATE INDEX IF NOT EXISTS idx_observations_lifecycle_state ON observations(lifecycle_state);
+    CREATE INDEX IF NOT EXISTS idx_memories_lifecycle_state ON memories(lifecycle_state);
+  `);
+}
+
+function ensureLifecycleColumns(db: DB): void {
+  addColumnIfMissing(db, "memories", "state", "TEXT NOT NULL DEFAULT 'active'");
+  addColumnIfMissing(db, "memories", "importance", "REAL NOT NULL DEFAULT 0.5");
+  addColumnIfMissing(db, "memories", "confidence", "REAL NOT NULL DEFAULT 0.5");
+  addColumnIfMissing(db, "memories", "usage_count", "INTEGER NOT NULL DEFAULT 0");
+  addColumnIfMissing(db, "memories", "last_accessed_at", "INTEGER");
+  addColumnIfMissing(db, "memories", "last_reinforced_at", "INTEGER");
+  addColumnIfMissing(db, "memories", "decayed_score", "REAL NOT NULL DEFAULT 0.5");
+  addColumnIfMissing(db, "memories", "content_hash", "TEXT");
+  addColumnIfMissing(db, "memories", "canonical_key", "TEXT");
+  addColumnIfMissing(db, "memories", "superseded_by", "INTEGER REFERENCES memories(id)");
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_memories_state ON memories(state);
+    CREATE INDEX IF NOT EXISTS idx_memories_canonical_key ON memories(canonical_key);
+  `);
+}
+
+function addColumnIfMissing(db: DB, table: string, column: string, ddl: string): void {
+  const rows = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  if (rows.some((row) => row.name === column)) return;
+  db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
 }
 
 /**

@@ -1,6 +1,18 @@
 import { openDatabase, closeDatabase, defaultDbPath, type DB, type DatabaseContext } from "./connection.js";
 import { runMigrations } from "./migrations.js";
-import type { Memory, MemoryType, Session, Summary, Trace, Observation, ObservationType, EventType } from "../core/types.js";
+import type {
+  Memory,
+  MemoryLifecycleState,
+  MemoryType,
+  Observation,
+  ObservationLifecycleState,
+  ObservationType,
+  EventType,
+  Session,
+  Summary,
+  Trace,
+  TracePipelineState,
+} from "../core/types.js";
 
 export class Store {
   private ctx: DatabaseContext;
@@ -12,6 +24,10 @@ export class Store {
 
   getDB(): DB { return this.ctx.db; }
   getPath(): string { return this.ctx.dbPath; }
+
+  transaction<T>(fn: () => T): T {
+    return this.ctx.db.transaction(fn)();
+  }
 
   // ---------- sessions ----------
 
@@ -134,18 +150,26 @@ export class Store {
   }
 
   markTraceProcessed(traceId: number): void {
-    this.ctx.db.prepare(`UPDATE traces SET processed_at = ? WHERE id = ?`)
+    this.ctx.db.prepare(`UPDATE traces SET processed_at = ?, pipeline_state = 'memory_ready' WHERE id = ?`)
       .run(Date.now(), traceId);
   }
 
   markTracesProcessed(traceIds: number[]): void {
     if (traceIds.length === 0) return;
-    const stmt = this.ctx.db.prepare(`UPDATE traces SET processed_at = ? WHERE id = ?`);
+    const stmt = this.ctx.db.prepare(`UPDATE traces SET processed_at = ?, pipeline_state = 'memory_ready' WHERE id = ?`);
     const tx = this.ctx.db.transaction((ids: number[]) => {
       const now = Date.now();
       for (const id of ids) stmt.run(now, id);
     });
     tx(traceIds);
+  }
+
+  updateTracePipelineState(traceId: number, state: TracePipelineState): void {
+    this.ctx.db.prepare(`UPDATE traces SET pipeline_state = ? WHERE id = ?`).run(state, traceId);
+  }
+
+  markTraceFailed(traceId: number): void {
+    this.ctx.db.prepare(`UPDATE traces SET pipeline_state = 'failed' WHERE id = ?`).run(traceId);
   }
 
   // ---------- observations ----------
@@ -205,13 +229,13 @@ export class Store {
   }
 
   markObservationProcessed(id: number): void {
-    this.ctx.db.prepare(`UPDATE observations SET processed_at = ? WHERE id = ?`)
+    this.ctx.db.prepare(`UPDATE observations SET processed_at = ?, lifecycle_state = 'indexed' WHERE id = ?`)
       .run(Date.now(), id);
   }
 
   markObservationsProcessed(ids: number[]): void {
     if (ids.length === 0) return;
-    const stmt = this.ctx.db.prepare(`UPDATE observations SET processed_at = ? WHERE id = ?`);
+    const stmt = this.ctx.db.prepare(`UPDATE observations SET processed_at = ?, lifecycle_state = 'indexed' WHERE id = ?`);
     const tx = this.ctx.db.transaction((obsIds: number[]) => {
       const now = Date.now();
       for (const id of obsIds) stmt.run(now, id);
@@ -222,6 +246,14 @@ export class Store {
   updateObservationEmbedding(id: number, embedding: Float32Array): void {
     this.ctx.db.prepare(`UPDATE observations SET embedding = ? WHERE id = ?`)
       .run(Buffer.from(embedding.buffer), id);
+  }
+
+  updateObservationLifecycleState(id: number, state: ObservationLifecycleState): void {
+    this.ctx.db.prepare(`UPDATE observations SET lifecycle_state = ? WHERE id = ?`).run(state, id);
+  }
+
+  markObservationFailed(id: number): void {
+    this.updateObservationLifecycleState(id, "failed");
   }
 
   // ---------- memories ----------
@@ -248,6 +280,21 @@ export class Store {
   updateMemoryEmbedding(id: number, embedding: Float32Array): void {
     this.ctx.db.prepare(`UPDATE memories SET embedding = ? WHERE id = ?`)
       .run(Buffer.from(embedding.buffer), id);
+  }
+
+  updateMemoryLifecycleState(id: number, state: MemoryLifecycleState): void {
+    const memoryState = ["active", "stale", "superseded", "conflicted", "deleted"].includes(state)
+      ? state
+      : null;
+    this.ctx.db.prepare(`
+      UPDATE memories
+      SET lifecycle_state = ?, state = COALESCE(?, state)
+      WHERE id = ?
+    `).run(state, memoryState, id);
+  }
+
+  markMemoryFailed(id: number): void {
+    this.updateMemoryLifecycleState(id, "failed");
   }
 
   getMemory(id: number): Memory | null {
@@ -381,6 +428,7 @@ function mapTrace(row: any): Trace {
     files_modified: parseJSON<string[] | null>(row.files_modified, null),
     user_prompt: row.user_prompt, final_response: row.final_response,
     processed_at: row.processed_at,
+    pipeline_state: row.pipeline_state,
   };
 }
 
@@ -395,6 +443,7 @@ function mapObservation(row: any): Observation {
     commands_executed: parseJSON<string[]>(row.commands_executed, []),
     source_trace_ids: parseNumberArray(row.source_trace_ids),
     created_at: row.created_at, processed_at: row.processed_at,
+    lifecycle_state: row.lifecycle_state,
   };
 }
 
@@ -414,6 +463,17 @@ function mapMemory(row: any): Memory {
     source_observation_ids: parseNumberArray(row.source_observation_ids),
     source_trace_ids: parseNumberArray(row.source_trace_ids),
     created_at: row.created_at, embedding,
+    lifecycle_state: row.lifecycle_state,
+    state: row.state,
+    importance: row.importance,
+    confidence: row.confidence,
+    usage_count: row.usage_count,
+    last_accessed_at: row.last_accessed_at,
+    last_reinforced_at: row.last_reinforced_at,
+    decayed_score: row.decayed_score,
+    content_hash: row.content_hash,
+    canonical_key: row.canonical_key,
+    superseded_by: row.superseded_by,
   };
 }
 

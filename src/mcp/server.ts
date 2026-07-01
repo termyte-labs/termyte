@@ -22,88 +22,24 @@ import { LocalEmbeddingsProvider } from "../retrieval/local-embeddings.js";
 import { FTSSearch } from "../retrieval/fts.js";
 import { VectorSearch } from "../retrieval/vector.js";
 import { HybridSearch } from "../retrieval/hybrid.js";
-import { renderHybridResults, renderMemory } from "../context/builder.js";
+import { ContextBuilder, renderHybridResults, renderMemory } from "../context/builder.js";
 import type { EmbeddingsProvider } from "../retrieval/embeddings.js";
 import { NoOpEmbeddingsProvider } from "../retrieval/embeddings.js";
-
-interface JsonRpcRequest {
-  jsonrpc: "2.0";
-  id?: number | string;
-  method: string;
-  params?: unknown;
-}
-
-interface JsonRpcResponse {
-  jsonrpc: "2.0";
-  id: number | string | null;
-  result?: unknown;
-  error?: { code: number; message: string; data?: unknown };
-}
-
-interface ToolDef {
-  name: string;
-  description: string;
-  inputSchema: Record<string, unknown>;
-}
-
-const TOOLS: ToolDef[] = [
-  {
-    name: "search_memories",
-    description: "Search the termyte memory corpus. Returns a hybrid FTS + vector ranked list of memories.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        query: { type: "string" },
-        limit: { type: "number" },
-        repo_id: { type: "string" },
-        currentFiles: { type: "array", items: { type: "string" } },
-      },
-      required: ["query"],
-    },
-  },
-  {
-    name: "get_memory",
-    description: "Fetch a single memory row by id.",
-    inputSchema: {
-      type: "object",
-      properties: { id: { type: "number" } },
-      required: ["id"],
-    },
-  },
-  {
-    name: "get_recent_sessions",
-    description: "List the most recent sessions, newest first.",
-    inputSchema: {
-      type: "object",
-      properties: { limit: { type: "number" } },
-    },
-  },
-  {
-    name: "get_session",
-    description: "Get a session by id (includes summary if available).",
-    inputSchema: {
-      type: "object",
-      properties: { session_id: { type: "string" } },
-      required: ["session_id"],
-    },
-  },
-  {
-    name: "get_observations_for_session",
-    description: "List observations extracted during a session.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        session_id: { type: "string" },
-        limit: { type: "number" },
-      },
-      required: ["session_id"],
-    },
-  },
-];
+import { MCP_TOOL_DEFS } from "./tools.js";
+import {
+  validateContextInput,
+  validateExplainInput,
+  validateFeedbackInput,
+  validateNumericIdInput,
+  validateSearchInput,
+  type RetrievalType,
+} from "./schemas.js";
+import type { JsonRpcRequest, JsonRpcResponse } from "./types.js";
 
 class TermyteMcpServer {
   private store: Store;
   private search: HybridSearch;
+  private contextBuilder: ContextBuilder;
   private embeddings: EmbeddingsProvider;
 
   constructor() {
@@ -117,6 +53,7 @@ class TermyteMcpServer {
     const fts = new FTSSearch(this.store);
     const vector = new VectorSearch(this.store);
     this.search = new HybridSearch({ fts, vector, embeddings: this.embeddings });
+    this.contextBuilder = new ContextBuilder(this.store, this.search);
   }
 
   close(): void { this.store.close(); }
@@ -134,7 +71,7 @@ class TermyteMcpServer {
         case "notifications/initialized":
           return { jsonrpc: "2.0", id, result: {} };
         case "tools/list":
-          return { jsonrpc: "2.0", id, result: { tools: TOOLS } };
+          return { jsonrpc: "2.0", id, result: { tools: MCP_TOOL_DEFS } };
         case "tools/call": {
           const params = (req.params ?? {}) as { name?: string; arguments?: Record<string, unknown> };
           const result = await this.callTool(params.name ?? "", params.arguments ?? {});
@@ -158,24 +95,116 @@ class TermyteMcpServer {
 
   private async callTool(name: string, args: Record<string, unknown>): Promise<unknown> {
     switch (name) {
+      case "termyte.search":
       case "search_memories": {
-        const query = String(args["query"] ?? "");
-        if (!query) return textResult("(missing required argument: query)");
-        const limit = typeof args["limit"] === "number" ? args["limit"] : 20;
-        const repo_id = typeof args["repo_id"] === "string" ? args["repo_id"] : undefined;
-        const currentFiles = Array.isArray(args["currentFiles"])
-          ? (args["currentFiles"] as unknown[]).filter((f): f is string => typeof f === "string")
-          : undefined;
-        const results = await this.search.search({ query, limit, repo_id, currentFiles });
-        return textResult(renderHybridResults(results));
+        const input = validateSearchInput(args);
+        if (!input.ok) return validationErrorResult(input.error);
+        if (!isCurrentMemorySearchSupported(input.value.type)) {
+          return textResult(JSON.stringify({ results: [] }, null, 2));
+        }
+        const results = await this.search.search({
+          query: input.value.query,
+          limit: input.value.limit ?? 20,
+          repo_id: input.value.repo_id,
+          currentFiles: input.value.files,
+        });
+        if (name === "search_memories") return textResult(renderHybridResults(results));
+        return textResult(JSON.stringify({
+          results: results.map((r) => ({
+            id: `memory:${r.memory.id}`,
+            type: "memory",
+            score: r.combined_score,
+            content: [r.memory.title, r.memory.description].filter(Boolean).join("\n"),
+            files: [...r.memory.files_read, ...r.memory.files_modified],
+            confidence: r.memory.confidence ?? null,
+            importance: r.memory.importance ?? null,
+            provenance: [
+              ...r.memory.source_trace_ids.map((id) => `trace:${id}`),
+              ...r.memory.source_observation_ids.map((id) => `observation:${id}`),
+            ],
+          })),
+        }, null, 2));
       }
+      case "termyte.context": {
+        const input = validateContextInput(args);
+        if (!input.ok) return validationErrorResult(input.error);
+        if (!isCurrentMemorySearchSupported(input.value.type)) {
+          return textResult(JSON.stringify({
+            markdown: "",
+            selectedIds: [],
+            estimatedTokens: 0,
+            contextInjectionId: null,
+          }, null, 2));
+        }
+        const context = await this.contextBuilder.build({
+          repo_id: input.value.repo_id,
+          query: input.value.query,
+          maxMemories: input.value.limit ?? 50,
+          currentFiles: input.value.files,
+        });
+        return textResult(JSON.stringify({
+          markdown: context.text,
+          selectedIds: context.memories.map((memory) => `memory:${memory.id}`),
+          estimatedTokens: Math.ceil(context.text.length / 4),
+          contextInjectionId: null,
+        }, null, 2));
+      }
+      case "termyte.get_memory":
       case "get_memory": {
-        const id = Number(args["id"]);
-        if (!Number.isFinite(id)) return textResult("(missing or invalid id)", true);
-        const memory = this.store.getMemory(id);
-        if (!memory) return textResult(`(no memory with id ${id})`, true);
+        const input = validateNumericIdInput(args);
+        if (!input.ok) return validationErrorResult(input.error);
+        const memory = this.store.getMemory(input.value.id);
+        if (!memory) return textResult(`(no memory with id ${input.value.id})`, true);
         return textResult(renderMemory(memory));
       }
+      case "termyte.get_trace": {
+        const input = validateNumericIdInput(args);
+        if (!input.ok) return validationErrorResult(input.error);
+        const trace = this.store.getTrace(input.value.id);
+        if (!trace) return textResult(`(no trace with id ${input.value.id})`, true);
+        return textResult(JSON.stringify(trace, null, 2));
+      }
+      case "termyte.get_observation": {
+        const input = validateNumericIdInput(args);
+        if (!input.ok) return validationErrorResult(input.error);
+        const observation = this.store.getObservation(input.value.id);
+        if (!observation) return textResult(`(no observation with id ${input.value.id})`, true);
+        return textResult(JSON.stringify(observation, null, 2));
+      }
+      case "termyte.feedback": {
+        const input = validateFeedbackInput(args);
+        if (!input.ok) return validationErrorResult(input.error);
+        return textResult(JSON.stringify({
+          accepted: true,
+          recorded: false,
+          reason: "feedback persistence is provided by the lifecycle module; MCP argument validation is active",
+          input: input.value,
+        }, null, 2));
+      }
+      case "termyte.explain": {
+        const input = validateExplainInput(args);
+        if (!input.ok) return validationErrorResult(input.error);
+        return textResult(JSON.stringify({
+          id: input.value.id,
+          state: null,
+          sourceTraces: [],
+          sourceObservations: [],
+          edges: [],
+          feedback: [],
+          lastUpdated: null,
+        }, null, 2));
+      }
+      case "termyte.health":
+      case "termyte.stats":
+        return textResult(JSON.stringify({
+          database: "ok",
+          jobs: null,
+          documents: null,
+          retrieval: {
+            sqliteVecAvailable: null,
+            ftsAvailable: true,
+          },
+        }, null, 2));
       case "get_recent_sessions": {
         const limit = typeof args["limit"] === "number" ? args["limit"] : 20;
         const sessions = this.store.getRecentSessions(limit);
@@ -220,6 +249,14 @@ class TermyteMcpServer {
 
 function textResult(text: string, isError = false): { content: Array<{ type: "text"; text: string }>; isError?: boolean } {
   return { content: [{ type: "text", text }], isError };
+}
+
+function validationErrorResult(error: { code: string; message: string; field?: string }): ReturnType<typeof textResult> {
+  return textResult(JSON.stringify({ error }, null, 2), true);
+}
+
+function isCurrentMemorySearchSupported(type: RetrievalType | undefined): boolean {
+  return type === undefined || type === "all" || type === "memory";
 }
 
 /** Read newline-delimited JSON-RPC requests from a single line per

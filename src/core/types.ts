@@ -33,6 +33,54 @@ export type MemoryType =
 /** Observation types (same as memory types). */
 export type ObservationType = MemoryType;
 
+export type MemoryState =
+  | "active"
+  | "stale"
+  | "superseded"
+  | "conflicted"
+  | "deleted";
+
+export type MemoryEdgeType =
+  | "supports"
+  | "contradicts"
+  | "supersedes"
+  | "duplicates"
+  | "derived_from"
+  | "related_to";
+
+export type MemoryFeedbackEvent =
+  | "shown"
+  | "used"
+  | "ignored"
+  | "downranked"
+  | "corrected";
+
+export type TracePipelineState =
+  | "captured"
+  | "observation_pending"
+  | "observation_ready"
+  | "memory_pending"
+  | "memory_ready"
+  | "failed";
+
+export type ObservationLifecycleState =
+  | "extracting"
+  | "awaiting_embedding"
+  | "indexed"
+  | "failed"
+  | "superseded"
+  | "deleted";
+
+export type MemoryLifecycleState =
+  | "consolidating"
+  | "awaiting_embedding"
+  | "active"
+  | "stale"
+  | "superseded"
+  | "conflicted"
+  | "deleted"
+  | "failed";
+
 /** Common trace shape, written to the `traces` table. Immutable. */
 export interface Trace {
   id: number;
@@ -48,6 +96,7 @@ export interface Trace {
   final_response: string | null;
   /** Internal: when the observer consumed this trace. null = unprocessed. */
   processed_at: number | null;
+  pipeline_state?: TracePipelineState;
 }
 
 /** Session row. */
@@ -79,6 +128,7 @@ export interface Observation {
   source_trace_ids: number[];
   created_at: number;
   processed_at: number | null;
+  lifecycle_state?: ObservationLifecycleState;
 }
 
 /**
@@ -101,6 +151,17 @@ export interface Memory {
   source_trace_ids: number[];
   created_at: number;
   embedding: Float32Array | null;
+  lifecycle_state?: MemoryLifecycleState;
+  state?: MemoryState;
+  importance?: number;
+  confidence?: number;
+  usage_count?: number;
+  last_accessed_at?: number | null;
+  last_reinforced_at?: number | null;
+  decayed_score?: number;
+  content_hash?: string | null;
+  canonical_key?: string | null;
+  superseded_by?: number | null;
 }
 
 /** Summary row, one per session. */

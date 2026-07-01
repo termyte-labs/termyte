@@ -1,0 +1,322 @@
+[
+  {
+    "id": "case_sqlite_vec_001",
+    "trace": { "event_type": "tool_use", "user_prompt": "Migrate vector search to sqlite-vec." },
+    "expectedObservations": [{ "type": "fact", "title": "sqlite-vec retrieval decision", "description": "Use native sqlite-vec vector tables." }],
+    "expectedMemories": [
+      {
+        "id": "memory:sqlite_vec_decision",
+        "type": "convention",
+        "title": "Use sqlite-vec for dense retrieval",
+        "description": "Termyte vector search must use sqlite-vec native tables instead of scanning embedding BLOBs.",
+        "filesModified": ["src/indexing/sqlite-vec-index.ts", "src/retrieval/hybrid-engine.ts"],
+        "keywords": ["sqlite-vec", "vector", "dense"]
+      }
+    ],
+    "queries": [{ "query": "How should vector search work?", "expectedDocIds": ["memory:sqlite_vec_decision"], "expectedKeywords": ["sqlite-vec", "vector"] }]
+  },
+  {
+    "id": "case_storage_migration_002",
+    "trace": { "event_type": "tool_use", "user_prompt": "Add migration for jobs table." },
+    "expectedObservations": [{ "type": "procedure", "title": "storage migration decision", "description": "Migrations must be idempotent." }],
+    "expectedMemories": [
+      {
+        "id": "memory:idempotent_migrations",
+        "type": "procedure",
+        "title": "Keep SQLite migrations idempotent",
+        "description": "Schema updates must use CREATE IF NOT EXISTS and add-column guards so existing databases migrate safely.",
+        "filesModified": ["src/storage/migrations.ts"],
+        "keywords": ["migration", "idempotent"]
+      }
+    ],
+    "queries": [{ "query": "How should storage migrations be written?", "expectedDocIds": ["memory:idempotent_migrations"], "expectedKeywords": ["migration", "idempotent"] }]
+  },
+  {
+    "id": "case_embedding_retry_003",
+    "trace": { "event_type": "tool_use", "user_prompt": "Embedding provider timed out during observation indexing." },
+    "expectedObservations": [{ "type": "warning", "title": "failed embedding retry", "description": "Embedding failures must retry through jobs." }],
+    "expectedMemories": [
+      {
+        "id": "memory:embedding_retry",
+        "type": "warning",
+        "title": "Retry embedding failures through durable jobs",
+        "description": "When embedding generation times out, keep the observation pending and retry the embed job instead of marking it indexed.",
+        "filesModified": ["src/pipeline/job-queue.ts"],
+        "keywords": ["embedding", "retry", "timeout"]
+      }
+    ],
+    "queries": [{ "query": "What happens if embedding generation times out?", "expectedDocIds": ["memory:embedding_retry"], "expectedKeywords": ["embedding", "retry"] }]
+  },
+  {
+    "id": "case_supersession_004",
+    "trace": { "event_type": "assistant_message", "user_prompt": "Replace BLOB vector scan decision." },
+    "expectedObservations": [{ "type": "fact", "title": "memory supersession", "description": "Newer memory supersedes old vector scan guidance." }],
+    "expectedMemories": [
+      {
+        "id": "memory:supersede_blob_scan",
+        "type": "fact",
+        "title": "Supersede BLOB vector scan guidance",
+        "description": "The old in-memory BLOB scan approach is deprecated and superseded by sqlite-vec indexing.",
+        "filesModified": ["src/retrieval/vector.ts"],
+        "keywords": ["superseded", "BLOB", "sqlite-vec"]
+      }
+    ],
+    "queries": [{ "query": "Which vector scan approach is deprecated?", "expectedDocIds": ["memory:supersede_blob_scan"], "expectedKeywords": ["deprecated", "BLOB"] }]
+  },
+  {
+    "id": "case_conflicting_convention_005",
+    "trace": { "event_type": "tool_use", "user_prompt": "Resolve import style conflict." },
+    "expectedObservations": [{ "type": "convention", "title": "conflicting coding convention", "description": "NodeNext imports require .js extensions." }],
+    "expectedMemories": [
+      {
+        "id": "memory:nodenext_js_imports",
+        "type": "convention",
+        "title": "Use .js extensions in TypeScript imports",
+        "description": "Because the project uses NodeNext module resolution, TypeScript source imports must include .js extensions.",
+        "filesModified": ["src/eval/harness.ts"],
+        "keywords": ["NodeNext", ".js", "imports"]
+      }
+    ],
+    "queries": [{ "query": "What import extension convention is required?", "expectedDocIds": ["memory:nodenext_js_imports"], "expectedKeywords": [".js", "NodeNext"] }]
+  },
+  {
+    "id": "case_file_specific_006",
+    "trace": { "event_type": "tool_use", "user_prompt": "Fix store observation indexing." },
+    "expectedObservations": [{ "type": "fact", "title": "file-specific implementation detail", "description": "Store owns observations and memories." }],
+    "expectedMemories": [
+      {
+        "id": "memory:store_owns_crud",
+        "type": "fact",
+        "title": "Store owns SQLite CRUD boundaries",
+        "description": "src/storage/store.ts remains the CRUD boundary for traces, observations, memories, sessions, and summaries.",
+        "filesModified": ["src/storage/store.ts"],
+        "keywords": ["store.ts", "CRUD", "SQLite"]
+      }
+    ],
+    "queries": [{ "query": "Which file owns SQLite CRUD for memories?", "expectedDocIds": ["memory:store_owns_crud"], "expectedKeywords": ["store.ts", "CRUD"] }]
+  },
+  {
+    "id": "case_user_preference_007",
+    "trace": { "event_type": "user_prompt", "user_prompt": "Keep everything local-first." },
+    "expectedObservations": [{ "type": "convention", "title": "user preference", "description": "No external vector databases." }],
+    "expectedMemories": [
+      {
+        "id": "memory:local_first_no_external_db",
+        "type": "convention",
+        "title": "Preserve local-first retrieval infrastructure",
+        "description": "Termyte should not depend on Chroma, Redis, Postgres, Qdrant, LanceDB, or any external vector database.",
+        "filesModified": ["src/retrieval/hybrid.ts"],
+        "keywords": ["local-first", "external", "vector database"]
+      }
+    ],
+    "queries": [{ "query": "Can Termyte use an external vector database?", "expectedDocIds": ["memory:local_first_no_external_db"], "expectedKeywords": ["external", "vector database"] }]
+  },
+  {
+    "id": "case_architecture_decision_008",
+    "trace": { "event_type": "assistant_message", "user_prompt": "Unify synth and worker." },
+    "expectedObservations": [{ "type": "procedure", "title": "project architecture decision", "description": "All ingestion paths use the same durable queue." }],
+    "expectedMemories": [
+      {
+        "id": "memory:unified_pipeline",
+        "type": "procedure",
+        "title": "Use one durable pipeline for synth and worker",
+        "description": "Both synth and worker entry points must enqueue the same job sequence so the corpus does not fracture.",
+        "filesModified": ["src/pipeline/memory-pipeline.ts", "src/synth/batcher.ts"],
+        "keywords": ["synth", "worker", "pipeline"]
+      }
+    ],
+    "queries": [{ "query": "How should synth and worker ingestion relate?", "expectedDocIds": ["memory:unified_pipeline"], "expectedKeywords": ["synth", "worker"] }]
+  },
+  {
+    "id": "case_deprecated_approach_009",
+    "trace": { "event_type": "tool_use", "user_prompt": "Stop swallowing embedding errors." },
+    "expectedObservations": [{ "type": "warning", "title": "deprecated approach", "description": "Fire-and-forget embeddings hide failures." }],
+    "expectedMemories": [
+      {
+        "id": "memory:no_fire_and_forget_embeddings",
+        "type": "warning",
+        "title": "Do not swallow embedding failures",
+        "description": "Embedding persistence must be a durable job stage, not a fire-and-forget side effect with swallowed errors.",
+        "filesModified": ["src/observer/pipeline.ts"],
+        "keywords": ["embedding", "fire-and-forget", "failures"]
+      }
+    ],
+    "queries": [{ "query": "Why are fire-and-forget embeddings unsafe?", "expectedDocIds": ["memory:no_fire_and_forget_embeddings"], "expectedKeywords": ["fire-and-forget", "embedding"] }]
+  },
+  {
+    "id": "case_task_state_010",
+    "trace": { "event_type": "assistant_message", "user_prompt": "Finish eval harness." },
+    "expectedObservations": [{ "type": "fact", "title": "task state update", "description": "Eval harness requires deterministic corpus." }],
+    "expectedMemories": [
+      {
+        "id": "memory:eval_requires_corpus",
+        "type": "fact",
+        "title": "Eval harness uses deterministic corpus",
+        "description": "The eval command should run against fixed local fixtures and deterministic mock embeddings without network access.",
+        "filesModified": ["src/eval/harness.ts", "test/fixtures/regression-corpus/cases.json"],
+        "keywords": ["eval", "deterministic", "corpus"]
+      }
+    ],
+    "queries": [{ "query": "What does the eval harness run against?", "expectedDocIds": ["memory:eval_requires_corpus"], "expectedKeywords": ["deterministic", "corpus"] }]
+  },
+  {
+    "id": "case_mcp_feedback_011",
+    "trace": { "event_type": "tool_use", "user_prompt": "Record context feedback." },
+    "expectedObservations": [{ "type": "procedure", "title": "context feedback loop", "description": "Shown and used feedback are separate events." }],
+    "expectedMemories": [
+      {
+        "id": "memory:mcp_feedback_events",
+        "type": "procedure",
+        "title": "Separate shown feedback from used feedback",
+        "description": "Context injection records shown feedback, but used feedback is recorded only when the downstream client explicitly reports use.",
+        "filesModified": ["src/mcp/tools.ts"],
+        "keywords": ["feedback", "shown", "used"]
+      }
+    ],
+    "queries": [{ "query": "When should used feedback be recorded?", "expectedDocIds": ["memory:mcp_feedback_events"], "expectedKeywords": ["feedback", "used"] }]
+  },
+  {
+    "id": "case_dead_letter_012",
+    "trace": { "event_type": "tool_use", "user_prompt": "Dead-letter failed jobs." },
+    "expectedObservations": [{ "type": "warning", "title": "dead-letter queue state", "description": "Exhausted jobs must be visible." }],
+    "expectedMemories": [
+      {
+        "id": "memory:dead_letter_visibility",
+        "type": "warning",
+        "title": "Expose exhausted jobs as dead letters",
+        "description": "Jobs that exhaust retry attempts must move to dead state with a readable last_error for diagnostics.",
+        "filesModified": ["src/pipeline/job-queue.ts"],
+        "keywords": ["dead", "last_error", "retry"]
+      }
+    ],
+    "queries": [{ "query": "How do exhausted jobs become visible?", "expectedDocIds": ["memory:dead_letter_visibility"], "expectedKeywords": ["dead", "last_error"] }]
+  },
+  {
+    "id": "case_lease_recovery_013",
+    "trace": { "event_type": "tool_use", "user_prompt": "Recover expired worker leases." },
+    "expectedObservations": [{ "type": "procedure", "title": "worker lease recovery", "description": "Expired leases become claimable." }],
+    "expectedMemories": [
+      {
+        "id": "memory:expired_lease_recovery",
+        "type": "procedure",
+        "title": "Recover expired job leases",
+        "description": "A leased job whose lease_until is in the past must return to a claimable failed state so another worker can continue.",
+        "filesModified": ["src/pipeline/job-queue.ts"],
+        "keywords": ["lease", "claimable", "worker"]
+      }
+    ],
+    "queries": [{ "query": "What happens when a worker lease expires?", "expectedDocIds": ["memory:expired_lease_recovery"], "expectedKeywords": ["lease", "claimable"] }]
+  },
+  {
+    "id": "case_token_packer_014",
+    "trace": { "event_type": "tool_use", "user_prompt": "Implement token packer." },
+    "expectedObservations": [{ "type": "procedure", "title": "context window efficiency", "description": "Packer must be deterministic." }],
+    "expectedMemories": [
+      {
+        "id": "memory:deterministic_token_packer",
+        "type": "procedure",
+        "title": "Use deterministic token-budget packing",
+        "description": "Retrieved context should be packed within a fixed token budget using deterministic scoring and provenance-preserving trimming.",
+        "filesModified": ["src/retrieval/token-packer.ts"],
+        "keywords": ["token", "budget", "deterministic"]
+      }
+    ],
+    "queries": [{ "query": "How should retrieved context fit the model window?", "expectedDocIds": ["memory:deterministic_token_packer"], "expectedKeywords": ["token", "budget"] }]
+  },
+  {
+    "id": "case_bm25_sparse_015",
+    "trace": { "event_type": "tool_use", "user_prompt": "Add sparse search." },
+    "expectedObservations": [{ "type": "fact", "title": "keyword search strategy", "description": "Use FTS5 BM25." }],
+    "expectedMemories": [
+      {
+        "id": "memory:fts5_bm25_sparse",
+        "type": "fact",
+        "title": "Use FTS5 BM25 for sparse retrieval",
+        "description": "Sparse keyword lookup should use SQLite FTS5 with BM25 ranking before hybrid fusion.",
+        "filesModified": ["src/storage/documents.ts"],
+        "keywords": ["FTS5", "BM25", "sparse"]
+      }
+    ],
+    "queries": [{ "query": "Which sparse keyword search should Termyte use?", "expectedDocIds": ["memory:fts5_bm25_sparse"], "expectedKeywords": ["FTS5", "BM25"] }]
+  },
+  {
+    "id": "case_rrf_016",
+    "trace": { "event_type": "tool_use", "user_prompt": "Fuse retrieval rankings." },
+    "expectedObservations": [{ "type": "procedure", "title": "hybrid RRF", "description": "Use reciprocal rank fusion." }],
+    "expectedMemories": [
+      {
+        "id": "memory:rrf_hybrid_fusion",
+        "type": "procedure",
+        "title": "Fuse dense and sparse hits with RRF",
+        "description": "Hybrid retrieval should combine dense sqlite-vec hits and sparse BM25 hits using Reciprocal Rank Fusion with k around 60.",
+        "filesModified": ["src/retrieval/rrf.ts"],
+        "keywords": ["RRF", "dense", "sparse"]
+      }
+    ],
+    "queries": [{ "query": "How are dense and sparse retrieval results fused?", "expectedDocIds": ["memory:rrf_hybrid_fusion"], "expectedKeywords": ["RRF", "sparse"] }]
+  },
+  {
+    "id": "case_memory_decay_017",
+    "trace": { "event_type": "tool_use", "user_prompt": "Add memory decay." },
+    "expectedObservations": [{ "type": "fact", "title": "memory decay algorithm", "description": "Decay combines time and usage." }],
+    "expectedMemories": [
+      {
+        "id": "memory:decay_time_usage",
+        "type": "fact",
+        "title": "Score memory decay with time and access frequency",
+        "description": "Memory decay score should combine freshness, recent access, importance, confidence, and bounded usage count.",
+        "filesModified": ["src/lifecycle/decay.ts"],
+        "keywords": ["decay", "access", "importance"]
+      }
+    ],
+    "queries": [{ "query": "What signals determine memory decay?", "expectedDocIds": ["memory:decay_time_usage"], "expectedKeywords": ["decay", "access"] }]
+  },
+  {
+    "id": "case_conflict_edges_018",
+    "trace": { "event_type": "tool_use", "user_prompt": "Record memory contradiction." },
+    "expectedObservations": [{ "type": "warning", "title": "conflict edge", "description": "Contradictions become memory edges." }],
+    "expectedMemories": [
+      {
+        "id": "memory:conflict_edges",
+        "type": "warning",
+        "title": "Represent contradictions as memory edges",
+        "description": "Conflicting memories should be marked conflicted and linked with a contradicts edge rather than silently deleting either side.",
+        "filesModified": ["src/lifecycle/supersession.ts"],
+        "keywords": ["contradicts", "conflicted", "edge"]
+      }
+    ],
+    "queries": [{ "query": "How are contradictory memories represented?", "expectedDocIds": ["memory:conflict_edges"], "expectedKeywords": ["contradicts", "conflicted"] }]
+  },
+  {
+    "id": "case_viewer_health_019",
+    "trace": { "event_type": "tool_use", "user_prompt": "Add diagnostics dashboard." },
+    "expectedObservations": [{ "type": "procedure", "title": "viewer diagnostics", "description": "Dashboard shows queue health." }],
+    "expectedMemories": [
+      {
+        "id": "memory:viewer_queue_health",
+        "type": "procedure",
+        "title": "Viewer shows queue and dead-letter health",
+        "description": "The local diagnostics viewer should expose pending, leased, failed, and dead jobs so pipeline failures are visible.",
+        "filesModified": ["src/viewer/server.ts"],
+        "keywords": ["viewer", "queue", "dead"]
+      }
+    ],
+    "queries": [{ "query": "What should the diagnostics viewer show?", "expectedDocIds": ["memory:viewer_queue_health"], "expectedKeywords": ["queue", "dead"] }]
+  },
+  {
+    "id": "case_typed_retrieval_020",
+    "trace": { "event_type": "tool_use", "user_prompt": "Add typed retrieval." },
+    "expectedObservations": [{ "type": "procedure", "title": "typed retrieval", "description": "Users can search by document type." }],
+    "expectedMemories": [
+      {
+        "id": "memory:typed_retrieval_interfaces",
+        "type": "procedure",
+        "title": "Expose typed retrieval interfaces",
+        "description": "CLI and MCP search must support type filters for trace, observation, memory, summary, episode, and all.",
+        "filesModified": ["src/cli/search.ts", "src/mcp/tools.ts"],
+        "keywords": ["typed", "retrieval", "MCP"]
+      }
+    ],
+    "queries": [{ "query": "Which retrieval type filters must CLI and MCP support?", "expectedDocIds": ["memory:typed_retrieval_interfaces"], "expectedKeywords": ["trace", "memory"] }]
+  }
+]

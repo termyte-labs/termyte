@@ -5,11 +5,15 @@ import { VectorSearch } from "../retrieval/vector.js";
 import { HybridSearch } from "../retrieval/hybrid.js";
 import { LocalEmbeddingsProvider } from "../retrieval/local-embeddings.js";
 import { renderHybridResults } from "../context/builder.js";
+import { parseRetrievalTypeName } from "../mcp/schemas.js";
 
 export async function searchCommand(
   query: string,
-  options: { repo_id?: string; limit?: number; json?: boolean; currentFiles?: string[] },
+  options: { repo_id?: string; limit?: number; json?: boolean; currentFiles?: string[]; type?: string },
 ): Promise<void> {
+  const parsedType = parseRetrievalTypeName(options.type);
+  if (!parsedType.ok) throw new Error(parsedType.error.message);
+
   const config = loadConfig();
   const store = new Store(config.dbPath);
   const fts = new FTSSearch(store);
@@ -19,6 +23,12 @@ export async function searchCommand(
 
   try {
     const limit = options.limit ?? 20;
+    if (parsedType.value && parsedType.value !== "all" && parsedType.value !== "memory") {
+      if (options.json) process.stdout.write("[]\n");
+      else process.stdout.write("(no results)\n");
+      return;
+    }
+
     const results = await search.search({
       query,
       repo_id: options.repo_id,

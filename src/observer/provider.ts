@@ -1,3 +1,4 @@
+
 /**
  * Abstract LLM provider. Termyte talks to whatever the user has — by default
  * any OpenAI-compatible HTTP endpoint, but the interface is generic.
