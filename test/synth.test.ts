@@ -114,9 +114,14 @@ describe("Batcher", () => {
     const obs = store.getObservationsForSession("s1");
     expect(obs.length).toBe(1);
     expect(obs[0]!.title).toBe("Project uses src/file0.ts");
-    // Traces should be marked processed.
-    const unprocessed = store.getUnprocessedTraces(10);
-    expect(unprocessed.length).toBe(0);
+    expect(obs[0]!.processed_at).toBeNull();
+    expect(obs[0]!.lifecycle_state).toBe("awaiting_embedding");
+    const job = store.getDB().prepare(
+      `SELECT state FROM jobs WHERE kind = 'embed_observation' AND subject_id = ?`
+    ).get(String(obs[0]!.id)) as { state: string };
+    expect(job.state).toBe("pending");
+    // Durable completion owns processed_at; synth must leave traces pending.
+    expect(store.getUnprocessedTraces(10).length).toBe(3);
     store.close();
   });
 

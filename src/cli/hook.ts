@@ -32,7 +32,8 @@ async function main(): Promise<void> {
   const eventName = process.argv[3];
   if (!platform || !KNOWN_PLATFORMS.includes(platform)) {
     process.stderr.write(`usage: termyte-hook <${KNOWN_PLATFORMS.join("|")}> [event]\n`);
-    process.exit(2);
+    process.exitCode = 2;
+    return;
   }
 
   const config = loadConfig();
@@ -50,7 +51,7 @@ async function main(): Promise<void> {
     const raw = await readStdin();
     if (!raw.trim()) {
       process.stderr.write("termyte-hook: empty input\n");
-      process.exit(0);
+      return;
     }
     const parsed = JSON.parse(raw);
 
@@ -58,8 +59,8 @@ async function main(): Promise<void> {
     await runner.processRaw(platform, parsed);
 
     if (!eventName) {
-      // Legacy mode: just ingest, no event handler.
-      process.exit(0);
+      // The trace and its extraction job are committed. A worker resumes it.
+      return;
     }
 
     // Run the event handler. Re-normalize so the handler sees the same
@@ -69,9 +70,9 @@ async function main(): Promise<void> {
     try {
       event = adapter.normalize(parsed);
     } catch {
-      process.exit(0);
+      return;
     }
-    if (!event) process.exit(0);
+    if (!event) return;
 
     const handler = getHandler(eventName, { store, search, builder, observer });
     const input: HandlerInput = { event, raw: parsed };
@@ -80,12 +81,10 @@ async function main(): Promise<void> {
     if (formatted && Object.keys(formatted as object).length > 0) {
       process.stdout.write(JSON.stringify(formatted) + "\n");
     }
-    process.exit(0);
   } catch (err) {
     process.stderr.write(`termyte-hook: ${err instanceof Error ? err.message : String(err)}\n`);
-    process.exit(1);
+    process.exitCode = 1;
   } finally {
-    await observer.flush().catch(() => {});
     store.close();
   }
 }

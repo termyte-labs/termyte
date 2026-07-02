@@ -132,9 +132,28 @@ export class Store {
     return rows.map(mapTrace);
   }
 
+  getCapturedTraces(limit = 50): Trace[] {
+    const rows = this.ctx.db.prepare(
+      `SELECT * FROM traces
+       WHERE processed_at IS NULL AND COALESCE(pipeline_state, 'captured') = 'captured'
+       ORDER BY timestamp ASC LIMIT ?`
+    ).all(limit) as any[];
+    return rows.map(mapTrace);
+  }
+
   getUnprocessedTracesForSession(session_id: string, limit = 50): Trace[] {
     const rows = this.ctx.db.prepare(
       `SELECT * FROM traces WHERE session_id = ? AND processed_at IS NULL ORDER BY timestamp ASC LIMIT ?`
+    ).all(session_id, limit) as any[];
+    return rows.map(mapTrace);
+  }
+
+  getCapturedTracesForSession(session_id: string, limit = 50): Trace[] {
+    const rows = this.ctx.db.prepare(
+      `SELECT * FROM traces
+       WHERE session_id = ? AND processed_at IS NULL
+         AND COALESCE(pipeline_state, 'captured') = 'captured'
+       ORDER BY timestamp ASC LIMIT ?`
     ).all(session_id, limit) as any[];
     return rows.map(mapTrace);
   }
@@ -147,6 +166,17 @@ export class Store {
       `SELECT t.* FROM traces t
        INNER JOIN sessions s ON s.session_id = t.session_id
        WHERE t.processed_at IS NULL AND s.repo_id = ?
+       ORDER BY t.timestamp ASC LIMIT ?`
+    ).all(repo_id, limit) as any[];
+    return rows.map(mapTrace);
+  }
+
+  getCapturedTracesByRepo(repo_id: string, limit = 50): Trace[] {
+    const rows = this.ctx.db.prepare(
+      `SELECT t.* FROM traces t
+       INNER JOIN sessions s ON s.session_id = t.session_id
+       WHERE t.processed_at IS NULL AND s.repo_id = ?
+         AND COALESCE(t.pipeline_state, 'captured') = 'captured'
        ORDER BY t.timestamp ASC LIMIT ?`
     ).all(repo_id, limit) as any[];
     return rows.map(mapTrace);
@@ -246,9 +276,31 @@ export class Store {
     tx(ids);
   }
 
+  /** Mark an observation complete only after every derived memory is active. */
+  markObservationProcessedIfMemoriesReady(id: number): boolean {
+    const rows = this.ctx.db.prepare(
+      `SELECT source_observation_ids, lifecycle_state FROM memories`
+    ).all() as Array<{ source_observation_ids: string; lifecycle_state: string }>;
+    const derived = rows.filter((row) => parseJSON<number[]>(row.source_observation_ids, []).includes(id));
+    if (derived.length === 0 || derived.some((row) => row.lifecycle_state !== "active")) return false;
+    this.markObservationProcessed(id);
+    return true;
+  }
+
+  /** Mark a trace complete only after every derived observation is complete. */
+  markTraceProcessedIfObservationsReady(traceId: number): boolean {
+    const rows = this.ctx.db.prepare(
+      `SELECT source_trace_ids, processed_at FROM observations`
+    ).all() as Array<{ source_trace_ids: string; processed_at: number | null }>;
+    const derived = rows.filter((row) => parseJSON<number[]>(row.source_trace_ids, []).includes(traceId));
+    if (derived.length === 0 || derived.some((row) => row.processed_at === null)) return false;
+    this.markTraceProcessed(traceId);
+    return true;
+  }
+
   updateObservationEmbedding(id: number, embedding: Float32Array): void {
     this.ctx.db.prepare(`UPDATE observations SET embedding = ? WHERE id = ?`)
-      .run(Buffer.from(embedding.buffer), id);
+      .run(toEmbeddingBuffer(embedding), id);
   }
 
   updateObservationLifecycleState(id: number, state: ObservationLifecycleState): void {
@@ -275,14 +327,14 @@ export class Store {
       serialize(memory.files_read), serialize(memory.files_modified),
       serialize(memory.source_observation_ids), serialize(memory.source_trace_ids),
       memory.created_at,
-      memory.embedding ? Buffer.from(memory.embedding.buffer) : null,
+      memory.embedding ? toEmbeddingBuffer(memory.embedding) : null,
     );
     return { id: info.lastInsertRowid as number, ...memory };
   }
 
   updateMemoryEmbedding(id: number, embedding: Float32Array): void {
     this.ctx.db.prepare(`UPDATE memories SET embedding = ? WHERE id = ?`)
-      .run(Buffer.from(embedding.buffer), id);
+      .run(toEmbeddingBuffer(embedding), id);
   }
 
   updateMemoryLifecycleState(id: number, state: MemoryLifecycleState): void {
@@ -522,6 +574,10 @@ function mapTrace(row: any): Trace {
     processed_at: row.processed_at,
     pipeline_state: row.pipeline_state,
   };
+}
+
+function toEmbeddingBuffer(embedding: Float32Array): Buffer {
+  return Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength);
 }
 
 function mapObservation(row: any): Observation {

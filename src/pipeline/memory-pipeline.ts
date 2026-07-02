@@ -56,7 +56,7 @@ export class MemoryPipeline {
   }
 
   enqueueUnprocessedTraces(limit = 50): number {
-    const traces = this.store.getUnprocessedTraces(limit);
+    const traces = this.store.getCapturedTraces(limit);
     this.store.transaction(() => {
       for (const trace of traces) {
         this.store.updateTracePipelineState(trace.id, "observation_pending");
@@ -183,10 +183,10 @@ export class MemoryPipeline {
     if (observation.lifecycle_state === "indexed") return;
 
     const content = artifactText(observation.title, observation.description);
-    const vector = await this.embedIfConfigured(content);
+    const vector = await this.embedRequired(content);
 
     this.store.transaction(() => {
-      if (vector) this.store.updateObservationEmbedding(observation.id, vector);
+      this.store.updateObservationEmbedding(observation.id, vector);
       this.documents.upsertDocument({
         id: `observation:${observation.id}`,
         doc_type: "observation",
@@ -247,7 +247,9 @@ export class MemoryPipeline {
     if (parsed.observations.length === 0) {
       this.store.transaction(() => {
         this.store.markObservationProcessed(observation.id);
-        for (const traceId of observation.source_trace_ids) this.store.markTraceProcessed(traceId);
+        for (const traceId of observation.source_trace_ids) {
+          this.store.markTraceProcessedIfObservationsReady(traceId);
+        }
       });
       return;
     }
@@ -294,10 +296,10 @@ export class MemoryPipeline {
     if (memory.lifecycle_state === "active") return;
 
     const content = artifactText(memory.title, memory.description);
-    const vector = await this.embedIfConfigured(content);
+    const vector = await this.embedRequired(content);
 
     this.store.transaction(() => {
-      if (vector) this.store.updateMemoryEmbedding(memory.id, vector);
+      this.store.updateMemoryEmbedding(memory.id, vector);
       this.documents.upsertDocument({
         id: `memory:${memory.id}`,
         doc_type: "memory",
@@ -314,10 +316,10 @@ export class MemoryPipeline {
       this.store.updateMemoryLifecycleState(memory.id, "active");
 
       for (const observationId of memory.source_observation_ids) {
-        this.store.markObservationProcessed(observationId);
+        this.store.markObservationProcessedIfMemoriesReady(observationId);
       }
       for (const traceId of memory.source_trace_ids) {
-        this.store.markTraceProcessed(traceId);
+        this.store.markTraceProcessedIfObservationsReady(traceId);
       }
 
       this.queue.enqueueJob({
@@ -333,8 +335,10 @@ export class MemoryPipeline {
     });
   }
 
-  private async embedIfConfigured(content: string): Promise<Float32Array | null> {
-    if (!this.embeddings) return null;
+  private async embedRequired(content: string): Promise<Float32Array> {
+    if (!this.embeddings) {
+      throw new RetryableJobError("Embedding provider is not configured");
+    }
     try {
       return await this.embeddings.embed(content);
     } catch (error) {

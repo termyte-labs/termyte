@@ -17,6 +17,7 @@ import { AgentInvocationError } from "./types.js";
 import { buildBatchPrompt, SYNTHESIS_SYSTEM_PROMPT, type SynthesisTraceInput } from "./prompts.js";
 import { parseAgentXml } from "../observer/parser.js";
 import type { ObservationType } from "../core/types.js";
+import { JobQueue } from "../pipeline/job-queue.js";
 
 export interface BatcherOptions {
   /** Max traces per invocation. Default 50 (see design report §5.5). */
@@ -45,10 +46,12 @@ export interface BatcherRunResult {
 export class Batcher {
   private store: Store;
   private adapter: AgentAdapter;
+  private queue: JobQueue;
 
   constructor(store: Store, adapter: AgentAdapter) {
     this.store = store;
     this.adapter = adapter;
+    this.queue = new JobQueue(store.getDB());
   }
 
   async runOnce(opts: BatcherOptions = {}): Promise<BatcherRunResult> {
@@ -91,12 +94,12 @@ export class Batcher {
 
   private pickBatch(limit: number, opts: BatcherOptions): Trace[] {
     if (opts.sessionId) {
-      return this.store.getUnprocessedTracesForSession(opts.sessionId, limit);
+      return this.store.getCapturedTracesForSession(opts.sessionId, limit);
     }
     if (opts.repoId) {
-      return this.store.getUnprocessedTracesByRepo(opts.repoId, limit);
+      return this.store.getCapturedTracesByRepo(opts.repoId, limit);
     }
-    return this.store.getUnprocessedTraces(limit);
+    return this.store.getCapturedTraces(limit);
   }
 
   private async synthesizeOne(traces: Trace[], callOpts: { timeoutMs?: number; maxBudgetUsd?: number }): Promise<number> {
@@ -124,26 +127,34 @@ export class Batcher {
     const workspace_root = session?.workspace_root ?? "";
 
     let written = 0;
-    for (const obs of parsed.observations) {
-      const inserted = this.store.insertObservation({
-        session_id: traces[0]!.session_id,
-        repo_id,
-        workspace_root,
-        type: obs.type as ObservationType,
-        title: obs.title,
-        description: obs.description,
-        files_read: obs.files_read,
-        files_modified: obs.files_modified,
-        commands_executed: [],
-        source_trace_ids: traceIds,
-        created_at: Date.now(),
-        processed_at: Date.now(),
-      });
-      written++;
-      // Touch the inserted observation so TS doesn't warn.
-      void inserted;
-    }
-    this.markProcessed(traces);
+    this.store.transaction(() => {
+      for (const trace of traces) {
+        this.store.updateTracePipelineState(trace.id, "observation_pending");
+      }
+      for (const obs of parsed.observations) {
+        const inserted = this.store.insertObservation({
+          session_id: traces[0]!.session_id,
+          repo_id,
+          workspace_root,
+          type: obs.type as ObservationType,
+          title: obs.title,
+          description: obs.description,
+          files_read: obs.files_read,
+          files_modified: obs.files_modified,
+          commands_executed: [],
+          source_trace_ids: traceIds,
+          created_at: Date.now(),
+          processed_at: null,
+        });
+        this.store.updateObservationLifecycleState(inserted.id, "awaiting_embedding");
+        this.queue.enqueueJob({
+          kind: "embed_observation",
+          subjectType: "observation",
+          subjectId: inserted.id,
+        });
+        written++;
+      }
+    });
     return written;
   }
 

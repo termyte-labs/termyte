@@ -61,13 +61,20 @@ describe("Integration: capture -> observe -> store -> retrieve", () => {
       hook_event_name: "PostToolUse",
     });
 
-    // Step 2: observer extracts an observation
-    llm.setResponse(`<observation>
-      <type>bugfix</type>
-      <title>Auth whitespace</title>
-      <description>Trim tokens before validation.</description>
-      <files_modified><file>src/auth.ts</file></files_modified>
-    </observation>`);
+    // Step 2: the durable worker extracts, embeds, and consolidates.
+    llm.setResponses([
+      `<observation>
+        <type>bugfix</type>
+        <title>Auth whitespace</title>
+        <description>Trim tokens before validation.</description>
+        <files_modified><file>src/auth.ts</file></files_modified>
+      </observation>`,
+      `<observation>
+        <type>bugfix</type>
+        <title>Auth whitespace consolidated</title>
+        <description>Tokens trimmed before validation.</description>
+      </observation>`,
+    ]);
     await observer.flush();
 
     // Verify observation
@@ -75,26 +82,11 @@ describe("Integration: capture -> observe -> store -> retrieve", () => {
     expect(obs.length).toBe(1);
     expect(obs[0]!.title).toBe("Auth whitespace");
 
-    // Step 3: consolidate observations into memories
-    llm.setResponse(`<observation>
-      <type>bugfix</type>
-      <title>Auth whitespace consolidated</title>
-      <description>Tokens trimmed before validation.</description>
-    </observation>`);
-    await observer.consolidateObservations(obs);
-
     const mems = store.getRecentMemories(10);
     expect(mems.length).toBe(1);
     expect(mems[0]!.title).toBe("Auth whitespace consolidated");
 
-    // Step 4: backfill embeddings for search
-    for (const m of mems) {
-      if (!m.embedding) {
-        store.updateMemoryEmbedding(m.id, await embeddings.embed(m.title));
-      }
-    }
-
-    // Step 5: hybrid search returns the memory
+    // Step 3: hybrid search returns the memory
     const fts = new FTSSearch(store);
     const vec = new VectorSearch(store);
     const hybrid = new HybridSearch({ fts, vector: vec, embeddings });
@@ -103,7 +95,7 @@ describe("Integration: capture -> observe -> store -> retrieve", () => {
     expect(results[0]!.memory.title).toBe("Auth whitespace consolidated");
     expect(results[0]!.combined_score).toBeGreaterThan(0);
 
-    // Step 6: context builder renders repo context
+    // Step 4: context builder renders repo context
     const builder = new ContextBuilder(store, hybrid);
     const ctxOut = await builder.build({ repo_id: "unknown", query: "auth" });
     expect(ctxOut.text).toContain("Auth whitespace consolidated");
@@ -129,7 +121,7 @@ describe("Integration: capture -> observe -> store -> retrieve", () => {
       `<observation><type>fact</type><title>Caught up</title></observation>`,
       `<observation><type>fact</type><title>Consolidated caught up</title></observation>`,
     ]);
-    const observer = new Observer({ store, llm });
+    const observer = new Observer({ store, llm, embeddings: new FixedEmbeddings() });
     const processed = await observer.processUnprocessedOnce();
     expect(processed).toBe(1);
     expect(store.getUnprocessedTraces().length).toBe(0);
@@ -143,7 +135,7 @@ describe("Integration: capture -> observe -> store -> retrieve", () => {
     store.upsertSession("s1", "demo", "r1", "/w");
 
     const llm = new MockLLM();
-    const observer = new Observer({ store, llm });
+    const observer = new Observer({ store, llm, embeddings: new FixedEmbeddings() });
     const runner = new HookRunner({ store, observer });
 
     // Capture
@@ -153,26 +145,24 @@ describe("Integration: capture -> observe -> store -> retrieve", () => {
       tool_response: "all tests pass",
     });
 
-    // Observation
-    llm.setResponse(`<observation>
-      <type>procedure</type>
-      <title>Run tests with npm test</title>
-      <description>Use npm test to run the test suite.</description>
-    </observation>`);
+    llm.setResponses([
+      `<observation>
+        <type>procedure</type>
+        <title>Run tests with npm test</title>
+        <description>Use npm test to run the test suite.</description>
+      </observation>`,
+      `<observation>
+        <type>procedure</type>
+        <title>Testing procedure</title>
+        <description>Run npm test to execute tests.</description>
+      </observation>`,
+    ]);
     await observer.flush();
 
     const obs = store.getRecentObservations(10);
     expect(obs.length).toBe(1);
     // Observation references its source traces
     expect(obs[0]!.source_trace_ids.length).toBe(1);
-
-    // Memory consolidation
-    llm.setResponse(`<observation>
-      <type>procedure</type>
-      <title>Testing procedure</title>
-      <description>Run npm test to execute tests.</description>
-    </observation>`);
-    await observer.consolidateObservations(obs);
 
     const mems = store.getRecentMemories(10);
     expect(mems.length).toBe(1);

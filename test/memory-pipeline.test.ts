@@ -38,6 +38,27 @@ beforeEach(() => {
 });
 
 describe("MemoryPipeline durable processing", () => {
+  it("does not index an observation when no embedding provider is configured", async () => {
+    store.upsertSession("s1", "demo", "r1", "/w");
+    const trace = store.insertTrace({
+      session_id: "s1", timestamp: 1, event_type: "tool_use",
+      tool_name: "Read", tool_input: null, tool_output: null,
+      files_read: null, files_modified: null, user_prompt: null, final_response: null,
+    });
+    llm.setResponse(`<observation><type>fact</type><title>Needs vector</title></observation>`);
+    const withoutEmbeddings = new MemoryPipeline({ store, llm });
+
+    withoutEmbeddings.ingestTrace(trace.id);
+    await withoutEmbeddings.runOnce("worker-1");
+    await withoutEmbeddings.runOnce("worker-1");
+
+    const observation = store.getRecentObservations(1)[0]!;
+    expect(observation.lifecycle_state).toBe("awaiting_embedding");
+    expect(observation.processed_at).toBeNull();
+    expect(store.getTrace(trace.id)!.processed_at).toBeNull();
+    expect(withoutEmbeddings.getQueueStats().failed).toBe(1);
+  });
+
   it("does not mark an observation indexed or trace processed when embedding fails", async () => {
     store.upsertSession("s1", "demo", "r1", "/w");
     const trace = store.insertTrace({
@@ -125,6 +146,41 @@ describe("MemoryPipeline durable processing", () => {
     expect(updatedTrace.pipeline_state).toBe("memory_ready");
   });
 
+  it("waits for every derived memory before completing shared provenance", async () => {
+    store.upsertSession("s1", "demo", "r1", "/w");
+    const trace = store.insertTrace({
+      session_id: "s1", timestamp: 1, event_type: "tool_use",
+      tool_name: "Read", tool_input: null, tool_output: null,
+      files_read: null, files_modified: null, user_prompt: null, final_response: null,
+    });
+    llm.setResponses([
+      `<observation><type>fact</type><title>Observed</title></observation>`,
+      `<observation><type>fact</type><title>Memory one</title></observation>
+       <observation><type>warning</type><title>Memory two</title></observation>`,
+    ]);
+
+    pipeline.ingestTrace(trace.id);
+    await pipeline.runOnce("worker-1");
+    await pipeline.runOnce("worker-1");
+    await pipeline.runOnce("worker-1");
+
+    let sawOneActive = false;
+    for (let i = 0; i < 6; i++) {
+      await pipeline.runOnce("worker-1");
+      const active = store.getRecentMemories(10).filter((memory) => memory.lifecycle_state === "active");
+      if (active.length === 1) {
+        sawOneActive = true;
+        expect(store.getRecentObservations(1)[0]!.processed_at).toBeNull();
+        expect(store.getTrace(trace.id)!.processed_at).toBeNull();
+      }
+      if (active.length === 2) break;
+    }
+
+    expect(sawOneActive).toBe(true);
+    expect(store.getRecentObservations(1)[0]!.processed_at).not.toBeNull();
+    expect(store.getTrace(trace.id)!.processed_at).not.toBeNull();
+  });
+
   it("enqueues unprocessed traces idempotently for the worker path", () => {
     store.upsertSession("s1", "demo", "r1", "/w");
     const trace = store.insertTrace({
@@ -141,7 +197,7 @@ describe("MemoryPipeline durable processing", () => {
     });
 
     expect(pipeline.enqueueUnprocessedTraces()).toBe(1);
-    expect(pipeline.enqueueUnprocessedTraces()).toBe(1);
+    expect(pipeline.enqueueUnprocessedTraces()).toBe(0);
     expect(pipeline.getQueueStats().pending).toBe(1);
     expect(store.getTrace(trace.id)!.pipeline_state).toBe("observation_pending");
   });

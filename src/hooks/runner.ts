@@ -9,12 +9,12 @@ import { detectRepoId, detectWorkspaceRoot } from "../retrieval/local-embeddings
 
 export interface HookRunnerConfig {
   store: Store;
-  observer?: Observer;
+  observer: Observer;
 }
 
 export class HookRunner {
   private store: Store;
-  private observer?: Observer;
+  private observer: Observer;
   private ingestor: Ingestor;
   private adapters: Record<Platform, PlatformAdapter>;
 
@@ -61,7 +61,7 @@ export class HookRunner {
     const workspace_root = detectWorkspaceRoot(event.cwd);
     this.store.upsertSession(event.session_id, project, repo_id, workspace_root);
     const trace = this.ingestor.ingest(event);
-    if (this.observer) this.observer.enqueue(trace);
+    this.observer.enqueue(trace);
   }
 
   /**

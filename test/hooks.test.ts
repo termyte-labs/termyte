@@ -33,6 +33,12 @@ describe("HookRunner", () => {
       hook_event_name: "PostToolUse",
     });
     expect(ok).toBe(true);
+    expect(llm.calls).toHaveLength(0);
+    expect(store.getRecentObservations(10)).toHaveLength(0);
+    const queued = store.getDB().prepare(
+      `SELECT state FROM jobs WHERE kind = 'extract_observation'`
+    ).get() as { state: string };
+    expect(queued.state).toBe("pending");
     await observer.flush();
     const obs = store.getRecentObservations(10);
     expect(obs.length).toBe(1);

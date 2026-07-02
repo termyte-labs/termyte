@@ -131,7 +131,7 @@ describe("event handlers", () => {
     store.close();
   });
 
-  it("summarize handler triggers generateSummary for session_end", async () => {
+  it("summarize handler enqueues summary work without invoking the LLM", async () => {
     const store = new Store(dbCtx);
     const llm = new MockLLM();
     llm.setResponse(`<skip_summary />`);
@@ -158,7 +158,11 @@ describe("event handlers", () => {
     })!;
     const out = await getHandler("summarize", deps)({ event, raw: {} });
     expect(out.handled).toBe(true);
-    expect(llm.calls.length).toBeGreaterThan(0);
+    expect(llm.calls).toHaveLength(0);
+    const job = store.getDB().prepare(
+      `SELECT state FROM jobs WHERE kind = 'update_summary' AND subject_id = 's1'`
+    ).get() as { state: string };
+    expect(job.state).toBe("pending");
     store.close();
   });
 
