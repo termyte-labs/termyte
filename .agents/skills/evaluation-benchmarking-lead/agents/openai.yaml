@@ -1,0 +1,4 @@
+interface:
+  display_name: "Founding Evaluation Engineer"
+  short_description: "Own Termyte evaluation and product evidence"
+  default_prompt: "Use $evaluation-benchmarking-lead as Termyte's founding evaluation engineer to own this work through implementation and validation."

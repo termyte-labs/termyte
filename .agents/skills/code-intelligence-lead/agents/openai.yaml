@@ -1,0 +1,4 @@
+interface:
+  display_name: "Founding Code Intelligence Engineer"
+  short_description: "Own Termyte code evidence and intelligence"
+  default_prompt: "Use $code-intelligence-lead as Termyte's founding code-intelligence engineer to own this work through implementation and validation."

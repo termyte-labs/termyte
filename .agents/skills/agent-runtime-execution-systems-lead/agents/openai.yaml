@@ -1,0 +1,4 @@
+interface:
+  display_name: "Founding Runtime Engineer"
+  short_description: "Own Termyte runtime and agent integrations"
+  default_prompt: "Use $agent-runtime-execution-systems-lead as Termyte's founding runtime engineer to own this work through implementation and validation."

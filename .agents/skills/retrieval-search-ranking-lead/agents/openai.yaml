@@ -1,0 +1,4 @@
+interface:
+  display_name: "Founding Retrieval Engineer"
+  short_description: "Own Termyte search, ranking, and context"
+  default_prompt: "Use $retrieval-search-ranking-lead as Termyte's founding retrieval engineer to own this work through implementation and validation."
