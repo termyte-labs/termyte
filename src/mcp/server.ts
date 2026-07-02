@@ -161,12 +161,14 @@ class TermyteMcpServer {
           query: input.value.query,
           maxMemories: input.value.limit ?? 50,
           currentFiles: input.value.files,
+          sessionId: input.value.sessionId,
+          surface: "mcp",
         });
         return textResult(JSON.stringify({
           markdown: context.text,
           selectedIds: context.memories.map((memory) => `memory:${memory.id}`),
           estimatedTokens: Math.ceil(context.text.length / 4),
-          contextInjectionId: null,
+          contextInjectionId: context.contextInjectionId,
         }, null, 2));
       }
       case "termyte.get_memory":
@@ -198,6 +200,7 @@ class TermyteMcpServer {
           id: input.value.id,
           event: input.value.event,
           contextInjectionId: input.value.contextInjectionId,
+          correctionText: (args as Record<string, unknown>).correctionText as string | undefined,
           source: "mcp",
         });
         if (!result.recorded) {
@@ -227,12 +230,25 @@ class TermyteMcpServer {
           lastUpdated: null,
         }, null, 2));
       }
-      case "termyte.health":
+      case "termyte.health": {
+        const health = this.store.getHealthDiagnostics();
+        const deadJobs = this.store.getDeadJobs(10);
+        return textResult(JSON.stringify({
+          database: "ok",
+          queue: health.queue,
+          oldestPendingAgeMs: health.oldestPendingAgeMs,
+          deadLetters: deadJobs.map((j) => ({
+            id: j.id, kind: j.kind, subjectType: j.subject_type,
+            subjectId: j.subject_id, attempts: j.attempt_count,
+            error: j.last_error,
+          })),
+        }, null, 2));
+      }
       case "termyte.stats":
         return textResult(JSON.stringify({
           database: "ok",
-          jobs: null,
-          documents: null,
+          jobs: this.store.getHealthDiagnostics().queue,
+          documents: (this.store.getDB().prepare(`SELECT COUNT(*) c FROM documents WHERE deleted_at IS NULL`).get() as { c: number }).c,
           retrieval: {
             sqliteVecAvailable: null,
             ftsAvailable: true,

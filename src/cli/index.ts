@@ -38,6 +38,10 @@ Usage:
   termyte viewer    [--host 127.0.0.1] [--port 7331]
   termyte synth     [options]              (generate observations from captured traces)
   termyte stats                                 (local stats — no network)
+  termyte health                                (queue health and dead-letter diagnostics)
+  termyte dead-letters                          (list dead-lettered jobs)
+  termyte retry      <jobId>                    (retry a dead-lettered job)
+  termyte dismiss   <jobId>                    (remove a dead-lettered job)
   termyte mcp                (stdio MCP server)
   termyte help
 
@@ -183,6 +187,72 @@ async function main(): Promise<void> {
         const mod = await import("./stats.js");
         await mod.runMain();
         process.exit(0);
+      }
+      case "health": {
+        const config = loadConfig();
+        const s = new Store(config.dbPath);
+        try {
+          const health = s.getHealthDiagnostics();
+          process.stdout.write(`Termyte Health\n`);
+          process.stdout.write(`  queue:  pending=${health.queue.pending} leased=${health.queue.leased} succeeded=${health.queue.succeeded} failed=${health.queue.failed} dead=${health.queue.dead}\n`);
+          if (health.oldestPendingAgeMs != null) {
+            process.stdout.write(`  oldest pending age: ${(health.oldestPendingAgeMs / 1000).toFixed(1)}s\n`);
+          }
+          if (health.deadJobs > 0) {
+            const dead = s.getDeadJobs(10);
+            process.stdout.write(`  dead letters (${health.deadJobs}):\n`);
+            for (const j of dead) {
+              process.stdout.write(`    ${j.id} [${j.kind}] subject=${j.subject_type}:${j.subject_id} attempts=${j.attempt_count} error=${(j.last_error ?? "").slice(0, 120)}\n`);
+            }
+            process.stdout.write(`  Use 'termyte retry <jobId>' or 'termyte dismiss <jobId>'\n`);
+          } else {
+            process.stdout.write(`  dead letters: none\n`);
+          }
+        } finally { s.close(); }
+        break;
+      }
+      case "dead-letters": {
+        const config = loadConfig();
+        const s = new Store(config.dbPath);
+        try {
+          const dead = s.getDeadJobs(100);
+          if (dead.length === 0) { process.stdout.write("(no dead-lettered jobs)\n"); break; }
+          for (const j of dead) {
+            process.stdout.write(`${j.id}  [${j.kind}]  ${j.subject_type}:${j.subject_id}  attempts=${j.attempt_count}\n`);
+            if (j.last_error) process.stdout.write(`  error: ${j.last_error.slice(0, 200)}\n`);
+          }
+        } finally { s.close(); }
+        break;
+      }
+      case "retry": {
+        const jobId = positional[0];
+        if (!jobId) { process.stderr.write("usage: termyte retry <jobId>\n"); process.exit(2); }
+        const config = loadConfig();
+        const s = new Store(config.dbPath);
+        try {
+          if (s.retryDeadJob(jobId)) {
+            process.stdout.write(`termyte: job ${jobId} retried (reset to pending)\n`);
+          } else {
+            process.stderr.write(`termyte: job ${jobId} not found or not in dead state\n`);
+            process.exit(1);
+          }
+        } finally { s.close(); }
+        break;
+      }
+      case "dismiss": {
+        const jobId = positional[0];
+        if (!jobId) { process.stderr.write("usage: termyte dismiss <jobId>\n"); process.exit(2); }
+        const config = loadConfig();
+        const s = new Store(config.dbPath);
+        try {
+          if (s.dismissDeadJob(jobId)) {
+            process.stdout.write(`termyte: job ${jobId} dismissed (removed)\n`);
+          } else {
+            process.stderr.write(`termyte: job ${jobId} not found or not in dead state\n`);
+            process.exit(1);
+          }
+        } finally { s.close(); }
+        break;
       }
       default:
         process.stderr.write(`unknown command: ${command}\n\n${USAGE}`);

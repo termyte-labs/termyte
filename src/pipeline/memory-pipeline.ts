@@ -20,6 +20,7 @@ import {
   shouldDeduplicate,
   type DedupeComparable,
 } from "../lifecycle/dedupe.js";
+import { memoryDecayScore, nextMemoryStateAfterDecay } from "../lifecycle/decay.js";
 
 export interface MemoryPipelineConfig {
   store: Store;
@@ -101,6 +102,12 @@ export class MemoryPipeline {
           break;
         case "update_summary":
           await this.updateSummary(job);
+          break;
+        case "decay_memories":
+          await this.decayMemories(job);
+          break;
+        case "verify_memory":
+          await this.verifyMemory(job);
           break;
         default:
           throw new PermanentJobError(`Unsupported job kind: ${(job as Job).kind}`);
@@ -345,6 +352,11 @@ export class MemoryPipeline {
         subjectType: "summary",
         subjectId: memory.session_id,
       });
+      this.queue.enqueueJob({
+        kind: "decay_memories",
+        subjectType: "memory",
+        subjectId: memory.repo_id || "global",
+      });
     });
   }
 
@@ -472,6 +484,140 @@ export class MemoryPipeline {
       key_changes: parsed.summary.key_changes,
       key_learnings: parsed.summary.key_learnings,
       created_at: Date.now(),
+    });
+  }
+
+  /**
+   * Sweep active memories, compute their decay score, persist it, and
+   * transition low-scoring memories to `stale`. The job subject is the
+   * repo_id (or "global" when absent); idempotent on the subject key so
+   * only one sweep runs at a time per scope. Idempotent on re-run:
+   * already-stale memories are skipped, and superseded/deleted memories
+   * are never touched.
+   */
+  private async decayMemories(job: Job): Promise<void> {
+    const repoId = String(job.subjectId) || "global";
+    const nowMs = Date.now();
+
+    const memories = repoId === "global"
+      ? this.store.getRecentMemories(10_000)
+      : this.store.getRecentMemories(10_000, repoId);
+
+    for (const memory of memories) {
+      const state = memory.lifecycle_state ?? "active";
+      if (state === "superseded" || state === "deleted" || state === "failed") continue;
+      if (state === "stale") continue; // already decayed; reinforcement recovers it
+
+      const score = memoryDecayScore(
+        {
+          id: memory.id,
+          type: memory.type,
+          state: (memory.state ?? "active") as "active" | "stale" | "superseded" | "conflicted" | "deleted",
+          importance: memory.importance ?? 0.5,
+          confidence: memory.confidence ?? 0.5,
+          usage_count: memory.usage_count ?? 0,
+          created_at: memory.created_at,
+          updated_at: memory.last_reinforced_at ?? memory.created_at,
+          last_accessed_at: memory.last_accessed_at,
+        },
+        nowMs,
+      );
+
+      const newState = nextMemoryStateAfterDecay(
+        {
+          id: memory.id,
+          type: memory.type,
+          state: (memory.state ?? "active") as "active" | "stale" | "superseded" | "conflicted" | "deleted",
+          importance: memory.importance ?? 0.5,
+          confidence: memory.confidence ?? 0.5,
+          usage_count: memory.usage_count ?? 0,
+          created_at: memory.created_at,
+          updated_at: memory.last_reinforced_at ?? memory.created_at,
+          last_accessed_at: memory.last_accessed_at,
+        },
+        score,
+      );
+
+      this.store.updateMemoryDecayScore(memory.id, score, nowMs);
+      if (newState === "stale" && state === "active") {
+        this.store.updateMemoryLifecycleState(memory.id, "stale");
+      }
+    }
+  }
+
+  /**
+   * Verify a corrected memory. If correction text was provided, create a
+   * grounded replacement memory, embed it, link it with a `supersedes` edge,
+   * and mark the old memory superseded. If no correction text was provided,
+   * mark the memory `conflicted` so it is excluded from default retrieval but
+   * not deleted. Idempotent: already-superseded memories short-circuit.
+   */
+  private async verifyMemory(job: Job): Promise<void> {
+    const memoryId = Number(job.subjectId);
+    const memory = this.store.getMemory(memoryId);
+    if (!memory) throw new PermanentJobError(`Memory not found: ${job.subjectId}`);
+    if (memory.lifecycle_state === "superseded" || memory.lifecycle_state === "deleted") return;
+
+    // Find the latest correction feedback with text.
+    const correctionRow = this.store.getDB().prepare(
+      `SELECT correction_text FROM memory_feedback WHERE memory_id = ? AND event_type = 'corrected' AND correction_text IS NOT NULL ORDER BY created_at DESC LIMIT 1`,
+    ).get(memoryId) as { correction_text: string | null } | undefined;
+
+    if (!correctionRow || !correctionRow.correction_text) {
+      // No replacement text — mark conflicted so retrieval excludes it.
+      if (memory.lifecycle_state !== "conflicted") {
+        this.store.updateMemoryLifecycleState(memoryId, "conflicted");
+      }
+      return;
+    }
+
+    // Create the replacement memory from the correction text.
+    const session = this.store.getSession(memory.session_id);
+    const replacement = this.store.insertMemory({
+      session_id: memory.session_id,
+      repo_id: session?.repo_id ?? memory.repo_id,
+      workspace_root: session?.workspace_root ?? memory.workspace_root,
+      type: memory.type,
+      title: `Corrected: ${memory.title}`,
+      description: correctionRow.correction_text,
+      files_read: memory.files_read,
+      files_modified: memory.files_modified,
+      source_observation_ids: memory.source_observation_ids,
+      source_trace_ids: memory.source_trace_ids,
+      created_at: Date.now(),
+      embedding: null,
+    });
+
+    // Embed the replacement, then supersede the original.
+    const content = artifactText(replacement.title, replacement.description);
+    const vector = await this.embedRequired(content);
+
+    this.store.transaction(() => {
+      this.store.updateMemoryEmbedding(replacement.id, vector);
+      this.store.updateMemoryLifecycleState(replacement.id, "active");
+
+      this.documents.upsertDocument({
+        id: `memory:${replacement.id}`,
+        doc_type: "memory",
+        source_id: String(replacement.id),
+        session_id: replacement.session_id,
+        content,
+        files: [...replacement.files_read, ...replacement.files_modified],
+        tags: [replacement.type, "active"],
+        importance: replacement.importance ?? 0.5,
+        confidence: 0.75, // corrected version starts with slightly reduced confidence
+        recency_ts: replacement.created_at,
+        created_at: replacement.created_at,
+      });
+
+      this.store.markMemorySuperseded(memoryId, replacement.id);
+      this.store.insertMemoryEdge({
+        source: replacement.id,
+        target: memoryId,
+        edgeType: "supersedes",
+        confidence: 0.85,
+      });
+      this.documents.softDeleteDocument(`memory:${memoryId}`);
     });
   }
 

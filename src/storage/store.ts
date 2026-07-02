@@ -380,9 +380,92 @@ export class Store {
     this.updateMemoryLifecycleState(id, "failed");
   }
 
+  /** Persist a computed decay score. */
+  updateMemoryDecayScore(id: number, decayedScore: number, _nowMs = Date.now()): void {
+    this.ctx.db
+      .prepare(`UPDATE memories SET decayed_score = ? WHERE id = ?`)
+      .run(decayedScore, id);
+  }
+
+  /** Reinforce a memory: increment usage, update access/reinforcement
+   *  timestamps, and restore from `stale` to `active`. Idempotent for
+   *  already-active memories. */
+  reinforceMemory(id: number, nowMs = Date.now()): void {
+    this.ctx.db
+      .prepare(`
+        UPDATE memories
+        SET usage_count = usage_count + 1,
+            last_accessed_at = ?,
+            last_reinforced_at = ?,
+            lifecycle_state = CASE WHEN lifecycle_state = 'stale' THEN 'active' ELSE lifecycle_state END,
+            state = CASE WHEN state = 'stale' THEN 'active' ELSE state END
+        WHERE id = ?
+      `)
+      .run(nowMs, nowMs, id);
+  }
+
   /** Persist the deterministic deduplication key for a memory. */
   updateMemoryCanonicalKey(id: number, canonicalKey: string): void {
     this.ctx.db.prepare(`UPDATE memories SET canonical_key = ? WHERE id = ?`).run(canonicalKey, id);
+  }
+
+  // ---------- context injections ----------
+
+  /** Record a context injection so downstream outcomes can be attributed. */
+  recordContextInjection(input: {
+    id: string;
+    sessionId?: string;
+    repoId?: string;
+    query?: string;
+    files?: string[];
+    memoryIds: number[];
+    surface: string;
+    nowMs?: number;
+  }): void {
+    const nowMs = input.nowMs ?? Date.now();
+    this.ctx.db
+      .prepare(
+        `INSERT OR REPLACE INTO context_injections
+           (id, session_id, repo_id, query, files_json, memory_ids_json, surface, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        input.id,
+        input.sessionId ?? null,
+        input.repoId ?? null,
+        input.query ?? null,
+        serialize(input.files ?? []),
+        serialize(input.memoryIds),
+        input.surface,
+        nowMs,
+      );
+  }
+
+  /** Retrieve a context injection by ID. */
+  getContextInjection(id: string): {
+    id: string;
+    session_id: string | null;
+    repo_id: string | null;
+    query: string | null;
+    files: string[];
+    memory_ids: number[];
+    surface: string;
+    created_at: number;
+  } | null {
+    const row = this.ctx.db
+      .prepare(`SELECT * FROM context_injections WHERE id = ?`)
+      .get(id) as any;
+    if (!row) return null;
+    return {
+      id: row.id,
+      session_id: row.session_id,
+      repo_id: row.repo_id,
+      query: row.query,
+      files: parseJSON<string[]>(row.files_json, []),
+      memory_ids: parseJSON<number[]>(row.memory_ids_json, []),
+      surface: row.surface,
+      created_at: row.created_at,
+    };
   }
 
   /** Mark a memory superseded by `supersededBy`, locking it out of default
@@ -439,6 +522,7 @@ export class Store {
     event: MemoryFeedbackEvent;
     contextInjectionId?: string;
     source?: string;
+    correctionText?: string;
     nowMs?: number;
   }): { recorded: boolean; memoryId?: number; reason?: string } {
     const memoryId = this.resolveMemoryId(input.id);
@@ -465,9 +549,9 @@ export class Store {
       this.ctx.db.prepare(`
         INSERT INTO memory_feedback (
           id, memory_id, doc_id, event_type, weight, source,
-          context_injection_id, created_at
+          context_injection_id, correction_text, created_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         `feedback_${randomUUID()}`,
         memoryId,
@@ -476,6 +560,7 @@ export class Store {
         next.weight,
         input.source ?? "mcp",
         input.contextInjectionId ?? null,
+        input.correctionText ?? null,
         nowMs,
       );
 
@@ -504,9 +589,83 @@ export class Store {
         SET importance = ?, confidence = ?, updated_at = ?
         WHERE id = ?
       `).run(next.importance, next.confidence, nowMs, `memory:${memoryId}`);
+
+      // Enqueue a verification job when a correction is recorded so the
+      // pipeline can create a grounded replacement and supersede the old memory.
+      if (input.event === "corrected") {
+        this.ctx.db.prepare(`
+          INSERT OR IGNORE INTO jobs (id, kind, subject_type, subject_id, state, attempt_count, max_attempts, next_run_at, created_at, updated_at)
+          VALUES (?, 'verify_memory', 'memory', ?, 'pending', 0, 5, ?, ?, ?)
+        `).run(`verify_${randomUUID()}`, String(memoryId), nowMs, nowMs, nowMs);
+      }
     });
 
     return { recorded: true, memoryId };
+  }
+
+  /** List dead-lettered jobs with their error details. */
+  getDeadJobs(limit = 50): Array<{
+    id: string; kind: string; subject_type: string; subject_id: string;
+    attempt_count: number; last_error: string | null; updated_at: number;
+  }> {
+    return this.ctx.db.prepare(`
+      SELECT id, kind, subject_type, subject_id, attempt_count, last_error, updated_at
+      FROM jobs WHERE state = 'dead' ORDER BY updated_at DESC LIMIT ?
+    `).all(limit) as any[];
+  }
+
+  /** Retry a dead-lettered job by resetting it to pending. Returns false if the
+   *  job doesn't exist or isn't dead. */
+  retryDeadJob(jobId: string): boolean {
+    const result = this.ctx.db.prepare(`
+      UPDATE jobs
+      SET state = 'pending', attempt_count = 0, next_run_at = ?,
+          last_error = NULL, updated_at = ?
+      WHERE id = ? AND state = 'dead'
+    `).run(Date.now(), Date.now(), jobId);
+    return result.changes > 0;
+  }
+
+  /** Dismiss (permanently remove) a dead-lettered job. Returns false if the
+   *  job doesn't exist or isn't dead. */
+  dismissDeadJob(jobId: string): boolean {
+    const result = this.ctx.db.prepare(
+      `DELETE FROM jobs WHERE id = ? AND state = 'dead'`,
+    ).run(jobId);
+    return result.changes > 0;
+  }
+
+  /** Get health diagnostics: queue stats, oldest pending age, dead count. */
+  getHealthDiagnostics(): {
+    queue: { pending: number; leased: number; succeeded: number; failed: number; dead: number };
+    oldestPendingAgeMs: number | null;
+    deadJobs: number;
+  } {
+    const stats = this.ctx.db.prepare(`
+      SELECT
+        SUM(CASE WHEN state='pending' THEN 1 ELSE 0 END) AS pending,
+        SUM(CASE WHEN state='leased' THEN 1 ELSE 0 END) AS leased,
+        SUM(CASE WHEN state='succeeded' THEN 1 ELSE 0 END) AS succeeded,
+        SUM(CASE WHEN state='failed' THEN 1 ELSE 0 END) AS failed,
+        SUM(CASE WHEN state='dead' THEN 1 ELSE 0 END) AS dead
+      FROM jobs
+    `).get() as { pending: number; leased: number; succeeded: number; failed: number; dead: number };
+
+    const oldest = this.ctx.db.prepare(
+      `SELECT MIN(next_run_at) AS oldest FROM jobs WHERE state IN ('pending','failed')`,
+    ).get() as { oldest: number | null };
+
+    return {
+      queue: {
+        pending: stats.pending ?? 0,
+        leased: stats.leased ?? 0,
+        succeeded: stats.succeeded ?? 0,
+        failed: stats.failed ?? 0,
+        dead: stats.dead ?? 0,
+      },
+      oldestPendingAgeMs: oldest.oldest != null ? Date.now() - oldest.oldest : null,
+      deadJobs: stats.dead ?? 0,
+    };
   }
 
   private resolveMemoryId(id: string): number | null {

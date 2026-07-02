@@ -97,11 +97,8 @@ export async function runRetrievalEval(options: EvalRunOptions = {}): Promise<Ev
   try {
     for (const item of corpus) {
       for (const query of item.queries) {
-        const retrievalText = query.expectedKeywords.length > 0
-          ? query.expectedKeywords.join(" ")
-          : query.query;
         const results = await search.search({
-          query: retrievalText,
+          query: query.query,
           limit: 5,
         });
 
@@ -139,18 +136,13 @@ export async function runRetrievalEval(options: EvalRunOptions = {}): Promise<Ev
     precisionAt5: round(mean(precisionValues)),
   };
 
-  const thresholdFailures: EvalFailure[] = [];
-  if (metrics.recallAt5 < 0.85) {
-    thresholdFailures.push({ caseId: "retrieval", message: `Recall@5 below threshold: ${metrics.recallAt5}` });
-  }
-  if (metrics.mrr < 0.70) {
-    thresholdFailures.push({ caseId: "retrieval", message: `MRR below threshold: ${metrics.mrr}` });
-  }
-  if (metrics.precisionAt5 < 0.50) {
-    thresholdFailures.push({ caseId: "retrieval", message: `Precision@5 below threshold: ${metrics.precisionAt5}` });
-  }
-
-  const allFailures = [...failures, ...thresholdFailures];
+  // EVAL-001: thresholds removed because the previous thresholds were only
+  // achievable through answer-key leakage (expected keywords appended to
+  // indexed documents and used as retrieval queries). The non-leaked
+  // baseline with the character-hash test embedder is recall ~0.30,
+  // MRR ~0.15 — these reflect the embedder, not production quality.
+  // The suite reports raw metrics and per-case failures for honest review.
+  const allFailures = [...failures];
   return {
     suite: "retrieval",
     passed: allFailures.length === 0,
@@ -328,16 +320,14 @@ async function seedCorpus(
 
   for (const item of corpus) {
     for (const fixture of item.expectedMemories) {
-      const queryText = item.queries.map((query) => query.query).join("\n");
-      const keywordText = fixture.keywords?.join(" ") ?? "";
-      const content = `${fixture.title}\n${fixture.description}\n${keywordText}\n${queryText}`;
+      const content = `${fixture.title}\n${fixture.description}`;
       const memory = store.insertMemory({
         session_id: "eval-session",
         repo_id: "eval-repo",
         workspace_root: "/eval",
         type: fixture.type,
         title: fixture.title,
-        description: `${fixture.description}\n\nEval keywords: ${keywordText}\nEval queries: ${queryText}`,
+        description: fixture.description,
         files_read: fixture.filesRead ?? [],
         files_modified: fixture.filesModified ?? [],
         source_observation_ids: [],

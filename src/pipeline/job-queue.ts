@@ -13,7 +13,9 @@ export type JobKind =
   | "consolidate_memory"
   | "embed_memory"
   | "dedupe_memories"
-  | "update_summary";
+  | "update_summary"
+  | "decay_memories"
+  | "verify_memory";
 
 export type JobSubjectType = "trace" | "observation" | "memory" | "summary" | "episode";
 

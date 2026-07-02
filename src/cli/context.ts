@@ -44,8 +44,10 @@ export async function contextCommand(options: {
       query: options.query,
       maxMemories: options.limit ?? 50,
       currentFiles: options.currentFiles,
+      surface: "cli",
     });
     process.stdout.write(result.text + "\n");
+    process.stderr.write(`termyte: context injection id: ${result.contextInjectionId}\n`);
   } finally {
     store.close();
   }

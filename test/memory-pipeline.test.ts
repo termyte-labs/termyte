@@ -126,7 +126,7 @@ describe("MemoryPipeline durable processing", () => {
     pipeline.ingestTrace(trace.id);
     const processed = await pipeline.runUntilIdle("worker-1", { maxJobs: 10 });
 
-    expect(processed).toBe(6);
+    expect(processed).toBe(7);
 
     const observation = store.getRecentObservations(1)[0]!;
     expect(observation.lifecycle_state).toBe("indexed");

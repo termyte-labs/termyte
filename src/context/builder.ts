@@ -2,12 +2,16 @@ import type { Memory, Observation, Summary } from "../core/types.js";
 import type { Store } from "../storage/store.js";
 import type { HybridSearch, HybridSearchResult } from "../retrieval/hybrid.js";
 import { isMemoryEligible } from "../retrieval/eligibility.js";
+import { randomUUID } from "node:crypto";
 
 export interface ContextInput {
   repo_id?: string;
   query?: string;
   maxMemories?: number;
   currentFiles?: string[];
+  sessionId?: string;
+  /** Who is requesting context — used for attribution. */
+  surface?: string;
 }
 
 export interface ContextOutput {
@@ -15,6 +19,7 @@ export interface ContextOutput {
   observations: Observation[];
   summary: Summary | null;
   text: string;
+  contextInjectionId: string;
 }
 
 export class ContextBuilder {
@@ -42,7 +47,30 @@ export class ContextBuilder {
     const summary = repo_id ? this.store.getMostRecentSummaryForRepo(repo_id) : null;
     const text = renderContext(repo_id ?? "unknown", memories, observations, summary);
 
-    return { memories, observations, summary, text };
+    const injectionId = randomUUID();
+    this.store.recordContextInjection({
+      id: injectionId,
+      sessionId: input.sessionId,
+      repoId: repo_id,
+      query: input.query,
+      files: input.currentFiles,
+      memoryIds: memories.map((m) => m.id),
+      surface: input.surface ?? "unknown",
+    });
+
+    // Record a `shown` feedback event for each injected memory so exposure is
+    // attributable to the injection and later `used`/`corrected` events can
+    // link back through the same injection ID.
+    for (const m of memories) {
+      this.store.recordMemoryFeedback({
+        id: `memory:${m.id}`,
+        event: "shown",
+        contextInjectionId: injectionId,
+        source: input.surface ?? "context",
+      });
+    }
+
+    return { memories, observations, summary, text, contextInjectionId: injectionId };
   }
 }
 

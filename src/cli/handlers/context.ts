@@ -15,6 +15,8 @@ export function makeContextHandler(deps: { store: Store; search: HybridSearch; b
     const result = await deps.builder.build({
       repo_id,
       maxMemories: 25,
+      sessionId: event.session_id,
+      surface: "hook",
     });
     if (!result.text || result.text.trim().length === 0) {
       return { handled: true, result: { continue: true, suppressOutput: true } };

@@ -300,6 +300,20 @@ CREATE TABLE IF NOT EXISTS observation_memories (
   PRIMARY KEY (observation_id, memory_id)
 );
 CREATE INDEX IF NOT EXISTS idx_observation_memories_obs ON observation_memories(observation_id);
+
+CREATE TABLE IF NOT EXISTS context_injections (
+  id TEXT PRIMARY KEY,
+  session_id TEXT,
+  repo_id TEXT,
+  query TEXT,
+  files_json TEXT NOT NULL DEFAULT '[]',
+  memory_ids_json TEXT NOT NULL DEFAULT '[]',
+  surface TEXT NOT NULL DEFAULT 'unknown',
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_context_injections_session ON context_injections(session_id);
+CREATE INDEX IF NOT EXISTS idx_context_injections_repo ON context_injections(repo_id);
+CREATE INDEX IF NOT EXISTS idx_context_injections_created ON context_injections(created_at DESC);
 `;
 
 export function runMigrations(db: DB): void {
@@ -307,6 +321,7 @@ export function runMigrations(db: DB): void {
   ensurePipelineColumns(db);
   ensureLifecycleColumns(db);
   ensureProvenanceLinks(db);
+  ensureFeedbackColumns(db);
 }
 
 function ensurePipelineColumns(db: DB): void {
@@ -343,6 +358,10 @@ function addColumnIfMissing(db: DB, table: string, column: string, ddl: string):
   const rows = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
   if (rows.some((row) => row.name === column)) return;
   db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
+}
+
+function ensureFeedbackColumns(db: DB): void {
+  addColumnIfMissing(db, "memory_feedback", "correction_text", "TEXT");
 }
 
 function safeParseIntArray(raw: string): number[] {
