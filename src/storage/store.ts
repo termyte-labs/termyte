@@ -276,24 +276,34 @@ export class Store {
     tx(ids);
   }
 
-  /** Mark an observation complete only after every derived memory is active. */
+  /** Mark a memory's observation complete only after every derived memory is
+   *  active. Bounded by the observation's memory fan-out via the indexed
+   *  observation_memories link table. */
   markObservationProcessedIfMemoriesReady(id: number): boolean {
-    const rows = this.ctx.db.prepare(
-      `SELECT source_observation_ids, lifecycle_state FROM memories`
-    ).all() as Array<{ source_observation_ids: string; lifecycle_state: string }>;
-    const derived = rows.filter((row) => parseJSON<number[]>(row.source_observation_ids, []).includes(id));
-    if (derived.length === 0 || derived.some((row) => row.lifecycle_state !== "active")) return false;
+    const memIds = this.ctx.db
+      .prepare(`SELECT memory_id FROM observation_memories WHERE observation_id = ?`)
+      .all(id) as Array<{ memory_id: number }>;
+    if (memIds.length === 0) return false;
+    const rows = this.ctx.db
+      .prepare(`SELECT lifecycle_state FROM memories WHERE id IN (${memIds.map(() => "?").join(",")})`)
+      .all(...memIds.map((m) => m.memory_id)) as Array<{ lifecycle_state: string }>;
+    if (rows.length === 0 || rows.some((row) => row.lifecycle_state !== "active")) return false;
     this.markObservationProcessed(id);
     return true;
   }
 
-  /** Mark a trace complete only after every derived observation is complete. */
+  /** Mark a trace complete only after every derived observation is complete.
+   *  Bounded by the trace's observation fan-out via the indexed
+   *  trace_observations link table. */
   markTraceProcessedIfObservationsReady(traceId: number): boolean {
-    const rows = this.ctx.db.prepare(
-      `SELECT source_trace_ids, processed_at FROM observations`
-    ).all() as Array<{ source_trace_ids: string; processed_at: number | null }>;
-    const derived = rows.filter((row) => parseJSON<number[]>(row.source_trace_ids, []).includes(traceId));
-    if (derived.length === 0 || derived.some((row) => row.processed_at === null)) return false;
+    const obsIds = this.ctx.db
+      .prepare(`SELECT observation_id FROM trace_observations WHERE trace_id = ?`)
+      .all(traceId) as Array<{ observation_id: number }>;
+    if (obsIds.length === 0) return false;
+    const rows = this.ctx.db
+      .prepare(`SELECT processed_at FROM observations WHERE id IN (${obsIds.map(() => "?").join(",")})`)
+      .all(...obsIds.map((o) => o.observation_id)) as Array<{ processed_at: number | null }>;
+    if (rows.length === 0 || rows.some((row) => row.processed_at === null)) return false;
     this.markTraceProcessed(traceId);
     return true;
   }
@@ -311,6 +321,24 @@ export class Store {
     this.updateObservationLifecycleState(id, "failed");
   }
 
+  /** Record indexed trace→observation provenance links (idempotent). */
+  insertTraceObservationLinks(observationId: number, traceIds: number[]): void {
+    if (traceIds.length === 0) return;
+    const stmt = this.ctx.db.prepare(
+      `INSERT OR IGNORE INTO trace_observations (trace_id, observation_id) VALUES (?, ?)`,
+    );
+    for (const tid of traceIds) stmt.run(tid, observationId);
+  }
+
+  /** Record indexed observation→memory provenance links (idempotent). */
+  insertObservationMemoryLinks(memoryId: number, observationIds: number[]): void {
+    if (observationIds.length === 0) return;
+    const stmt = this.ctx.db.prepare(
+      `INSERT OR IGNORE INTO observation_memories (observation_id, memory_id) VALUES (?, ?)`,
+    );
+    for (const oid of observationIds) stmt.run(oid, memoryId);
+  }
+
   // ---------- memories ----------
 
   insertMemory(memory: Omit<Memory, "id">): Memory {
@@ -318,8 +346,8 @@ export class Store {
       INSERT INTO memories (
         session_id, repo_id, workspace_root, type, title, description,
         files_read, files_modified, source_observation_ids, source_trace_ids,
-        created_at, embedding
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        created_at, embedding, lifecycle_state
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')
     `);
     const info = stmt.run(
       memory.session_id, memory.repo_id, memory.workspace_root,
@@ -329,7 +357,7 @@ export class Store {
       memory.created_at,
       memory.embedding ? toEmbeddingBuffer(memory.embedding) : null,
     );
-    return { id: info.lastInsertRowid as number, ...memory };
+    return { id: info.lastInsertRowid as number, ...memory, lifecycle_state: "active" };
   }
 
   updateMemoryEmbedding(id: number, embedding: Float32Array): void {
@@ -350,6 +378,60 @@ export class Store {
 
   markMemoryFailed(id: number): void {
     this.updateMemoryLifecycleState(id, "failed");
+  }
+
+  /** Persist the deterministic deduplication key for a memory. */
+  updateMemoryCanonicalKey(id: number, canonicalKey: string): void {
+    this.ctx.db.prepare(`UPDATE memories SET canonical_key = ? WHERE id = ?`).run(canonicalKey, id);
+  }
+
+  /** Mark a memory superseded by `supersededBy`, locking it out of default
+   *  retrieval (enforced once lifecycle filtering is wired). */
+  markMemorySuperseded(id: number, supersededBy: number): void {
+    this.ctx.db
+      .prepare(`UPDATE memories SET lifecycle_state = 'superseded', state = 'superseded', superseded_by = ? WHERE id = ?`)
+      .run(supersededBy, id);
+  }
+
+  /** Insert a relationship edge between two memories. Idempotent on
+   *  (source, target, edge_type) via the schema's UNIQUE constraint. */
+  insertMemoryEdge(input: {
+    source: number;
+    target: number;
+    edgeType: "supports" | "contradicts" | "supersedes" | "duplicates" | "derived_from" | "related_to";
+    confidence?: number;
+    nowMs?: number;
+  }): void {
+    const nowMs = input.nowMs ?? Date.now();
+    this.ctx.db
+      .prepare(
+        `INSERT OR IGNORE INTO memory_edges (id, source_memory_id, target_memory_id, edge_type, confidence, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(randomUUID(), input.source, input.target, input.edgeType, input.confidence ?? 0.9, nowMs);
+  }
+
+  /** Read relationship edges involving a memory (as source or target). */
+  getMemoryEdges(memoryId: number): Array<{
+    id: string;
+    source_memory_id: number;
+    target_memory_id: number;
+    edge_type: string;
+    confidence: number;
+    created_at: number;
+  }> {
+    return this.ctx.db
+      .prepare(
+        `SELECT * FROM memory_edges WHERE source_memory_id = ? OR target_memory_id = ? ORDER BY created_at ASC`,
+      )
+      .all(memoryId, memoryId) as Array<{
+      id: string;
+      source_memory_id: number;
+      target_memory_id: number;
+      edge_type: string;
+      confidence: number;
+      created_at: number;
+    }>;
   }
 
   recordMemoryFeedback(input: {

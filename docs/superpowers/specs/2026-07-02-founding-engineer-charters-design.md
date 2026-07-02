@@ -98,7 +98,7 @@ Descriptions must trigger on both domain work and explicit requests to involve t
 - Check that each charter contains all required structural sections.
 - Check repository paths and commands against the current checkout.
 - Run `npm run typecheck`, `npm test`, and `npm run build` after editing.
-- Run the built Termyte evaluation command from the emitted `dist/src/cli/index.js` path.
+- Run the built Termyte evaluation command from the emitted `dist/cli/index.js` path.
 
 ## Acceptance Criteria
 

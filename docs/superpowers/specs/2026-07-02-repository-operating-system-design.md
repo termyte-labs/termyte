@@ -109,7 +109,7 @@ Documentation validation will include:
 - check README and AGENTS for obsolete table counts, inline-processing claims, hosted embedding variables, and automatic-synthesis claims;
 - check every PLAN task has an owner, dependencies, acceptance criteria, and validation;
 - run `npm run typecheck`, `npm test`, and `npm run build` to confirm the documented baseline;
-- run the built evaluation command from `dist/src/cli/index.js` while clearly documenting that current retrieval metrics are contaminated and not product proof;
+- run the built evaluation command from `dist/cli/index.js` while clearly documenting that current retrieval metrics are contaminated and not product proof;
 - run `git diff --check` on edited files.
 
 ## Acceptance Criteria

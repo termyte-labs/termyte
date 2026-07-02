@@ -21,13 +21,14 @@ import { loadConfig } from "./config.js";
 import { Store } from "../storage/store.js";
 import { installFor, listSupportedPlatforms } from "../integrations/installers/index.js";
 import { runMcpServer } from "../mcp/server.js";
+import { isMemoryEligible, ALL_MEMORY_STATES } from "../retrieval/eligibility.js";
 
 const USAGE = `termyte - memory layer for coding agents
 
 Usage:
-  termyte search    <query>  [--repo r] [--limit n] [--json] [--files f1,f2] [--type trace|observation|memory|summary|episode|all]
+  termyte search    <query>  [--repo r] [--limit n] [--json] [--files f1,f2] [--type trace|observation|memory|summary|episode|all] [--all-states]
   termyte context            [--repo r] [--query q] [--limit n] [--files f1,f2] [--type trace|observation|memory|summary|episode|all]
-  termyte memories           [--repo r] [--limit n] [--type t]
+  termyte memories           [--repo r] [--limit n] [--type t] [--all-states]
   termyte memory    <id>     [--json]
   termyte trace     <id>     [--json]
   termyte session   <id>     [--json]
@@ -35,7 +36,7 @@ Usage:
   termyte install   <platform> [--target user|project]
   termyte eval      [--suite retrieval|durability|lifecycle|all] [--json]
   termyte viewer    [--host 127.0.0.1] [--port 7331]
-  termyte synth     [options]              (background memory synthesis)
+  termyte synth     [options]              (generate observations from captured traces)
   termyte stats                                 (local stats — no network)
   termyte mcp                (stdio MCP server)
   termyte help
@@ -87,6 +88,7 @@ async function main(): Promise<void> {
           json: opts["json"] === true,
           currentFiles: typeof opts["files"] === "string" ? (opts["files"] as string).split(",").map((s: string) => s.trim()).filter(Boolean) : undefined,
           type: typeof opts["type"] === "string" ? opts["type"] : undefined,
+          allStates: opts["all-states"] === true,
         });
         break;
       }
@@ -105,6 +107,7 @@ async function main(): Promise<void> {
           repo_id: typeof opts["repo"] === "string" ? opts["repo"] : undefined,
           limit: typeof opts["limit"] === "string" ? parseInt(opts["limit"], 10) : undefined,
           type: typeof opts["type"] === "string" ? opts["type"] : undefined,
+          includeAllStates: opts["all-states"] === true,
         });
         break;
       }
@@ -191,12 +194,15 @@ async function main(): Promise<void> {
   }
 }
 
-async function memoriesCommand(opts: { repo_id?: string; limit?: number; type?: string }): Promise<void> {
+async function memoriesCommand(opts: { repo_id?: string; limit?: number; type?: string; includeAllStates?: boolean }): Promise<void> {
   const config = loadConfig();
   const store = new Store(config.dbPath);
   try {
     const limit = opts.limit ?? 50;
-    const memories = store.getRecentMemories(limit, opts.repo_id);
+    const allMemories = store.getRecentMemories(limit, opts.repo_id);
+    const memories = opts.includeAllStates
+      ? allMemories
+      : allMemories.filter((m) => isMemoryEligible(m));
     const filtered = opts.type ? memories.filter(m => m.type === opts.type) : memories;
     if (filtered.length === 0) { process.stdout.write("(no memories)\n"); return; }
     for (const m of filtered) {

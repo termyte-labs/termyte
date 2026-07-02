@@ -7,10 +7,11 @@ import { LocalEmbeddingsProvider } from "../retrieval/local-embeddings.js";
 import { renderHybridResults } from "../context/builder.js";
 import { parseRetrievalTypeName } from "../mcp/schemas.js";
 import { DocumentStore, type DocumentType, type SparseHit } from "../storage/documents.js";
+import { ALL_MEMORY_STATES } from "../retrieval/eligibility.js";
 
 export async function searchCommand(
   query: string,
-  options: { repo_id?: string; limit?: number; json?: boolean; currentFiles?: string[]; type?: string },
+  options: { repo_id?: string; limit?: number; json?: boolean; currentFiles?: string[]; type?: string; allStates?: boolean },
 ): Promise<void> {
   const parsedType = parseRetrievalTypeName(options.type);
   if (!parsedType.ok) throw new Error(parsedType.error.message);
@@ -42,6 +43,7 @@ export async function searchCommand(
       repo_id: options.repo_id,
       limit,
       currentFiles: options.currentFiles,
+      eligibleStates: options.allStates ? ALL_MEMORY_STATES : undefined,
     });
 
     if (options.json) {

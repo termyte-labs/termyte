@@ -20,34 +20,36 @@ Before implementation, load the lead skill from `.agents/skills`. Load supportin
 ## Current baseline
 
 - Typecheck: passing
-- Tests: 194 passing across 27 files
+- Tests: 237 passing across 33 files
 - Build: passing from source checkout
 - Component evaluation command: passing, but retrieval results are contaminated and not product evidence
-- Package binaries: broken because declared and emitted paths differ
-- Automatic memory processing after hook capture: not implemented
+- Package binaries: working — declared and emitted paths align; clean tarball install executes every binary
+- Automatic memory processing after hook capture: implemented (detached, single-instance-locked worker spawned by the hook)
 - Closed self-correction loop: not implemented
 
 ## Phase 0 — Restore a truthful, executable product
 
 ### PKG-001 — Fix package layout and binary entry points
 
-- **Status:** pending
+- **Status:** completed
 - **Lead:** `agent-runtime-execution-systems-lead`
 - **Support:** `evaluation-benchmarking-lead`
 - **Depends on:** none
 - **Problem:** `package.json` targets `dist/index.js` and `dist/cli/*`; TypeScript emits `dist/src/index.js` and `dist/src/cli/*`.
 - **Deliverables:** align compiler layout or package entry paths; fix OpenCode built-plugin lookup; add packed-install validation.
+- **Outcome:** set `tsconfig.json` `rootDir` to `src` so the flat `dist/cli/*`, `dist/index.js`, `dist/mcp/server.js`, and `dist/integrations/opencode-plugin/index.js` emit matches `package.json` and installer probes; added `test/packaging.test.ts` as a regression guard; verified with a clean temporary `npm pack` install that `termyte`, `termyte-hook`, and `termyte-worker` execute and the package imports.
 - **Acceptance:** a clean temporary install of `npm pack` output can import the package and execute `termyte`, `termyte-hook`, and `termyte-worker`.
 - **Validate:** typecheck, tests, build, `npm pack`, clean tarball install, execute every binary.
 
 ### DOC-001 — Remove false runtime and product claims
 
-- **Status:** pending
+- **Status:** completed
 - **Lead:** `evaluation-benchmarking-lead`
 - **Support:** `agent-runtime-execution-systems-lead`
 - **Depends on:** none
 - **Problem:** installer messages claim automatic synthesis that installed commands do not perform; older docs describe obsolete schemas and configuration.
 - **Deliverables:** make installer output match executable behavior; audit remaining tracked documentation and CLI help.
+- **Outcome:** replaced false "synthesis will run automatically" messages in the Claude Code, Codex, Gemini, and OpenCode installers with truthful capture/enqueue messages stating the worker is not run automatically; removed a dead `PLACEHOLDER_CONTEXT` constant that claimed context "will appear"; corrected the OpenCode plugin doc comment from "memories injected automatically" to a placeholder disclaimer; reworded `termyte synth` help from "background memory synthesis" to "generate observations from captured traces"; updated doc `dist/src` path references. Added `test/installer-claims.test.ts` asserting no installer emits forbidden automatic-processing claims and that the worker-not-automatic wording is present.
 - **Acceptance:** repository-wide claim audit finds no automatic-processing, schema, packaging, or self-correction claim unsupported by a validated path.
 - **Validate:** focused installer tests, generated-config inspection, documentation search, Tier 2 checks.
 
@@ -55,34 +57,37 @@ Before implementation, load the lead skill from `.agents/skills`. Load supportin
 
 ### RUN-001 — Define and implement worker supervision
 
-- **Status:** pending
+- **Status:** completed
 - **Lead:** `agent-runtime-execution-systems-lead`
 - **Support:** `memory-modeling-knowledge-architecture-lead`
 - **Depends on:** PKG-001
 - **Problem:** hooks enqueue jobs but nothing installed guarantees queue execution.
 - **Deliverables:** choose a low-friction cross-platform worker trigger/supervision model; ensure hooks remain non-blocking; expose worker ownership and shutdown behavior.
+- **Outcome:** added `src/pipeline/worker-supervisor.ts` with a `DetachedWorkerSupervisor` that spawns `termyte-worker --until-idle --supervised` detached and unref'd from `termyte-hook` after every successful ingest, plus a single-instance lockfile (`<db>.worker.lock`) so redundant spawns exit immediately and a crashed worker's stale PID lock is taken over. The worker acquires/releases the lock around its run (`src/cli/worker.ts`). `TERMYTE_AUTO_WORKER=0` disables supervision; `TERMYTE_WORKER_PATH` overrides the worker binary. Installer messages and docs were updated to state the worker starts automatically. The hook is non-blocking (fire-and-forget spawn).
 - **Acceptance:** after a supported agent hook records a trace, memory reaches active state without a manually invoked worker and without blocking the agent.
 - **Validate:** built-package installation plus live or faithful platform smoke test, crash/restart test, latency measurement.
 
 ### RUN-002 — Complete durable job handlers
 
-- **Status:** pending
+- **Status:** completed
 - **Lead:** `memory-modeling-knowledge-architecture-lead`
 - **Support:** `agent-runtime-execution-systems-lead`
 - **Depends on:** RUN-001
 - **Problem:** `dedupe_memories` and `update_summary` are marked successful without doing work.
 - **Deliverables:** implement handlers or remove unsupported job kinds; define idempotency and failure behavior.
+- **Outcome:** implemented a real `dedupe_memories` handler (canonical-key computation, same-repo candidate comparison, winner selection, `markMemorySuperseded` + `memory_edges` row + soft-delete of the loser's document) and a real `update_summary` handler (session trace aggregation, summary prompt, parser, idempotent `upsertSummary` per session, `<skip_summary/>` no-op). Added a `default` case that dead-letters unsupported job kinds so no kind silently succeeds. Added store methods `updateMemoryCanonicalKey`, `markMemorySuperseded`, `insertMemoryEdge`, `getMemoryEdges`. Both handlers are idempotent (unique job subjects, unique edges, ON CONFLICT summary, early-return for already-superseded subjects).
 - **Acceptance:** no declared job kind succeeds without performing its contract; retries cannot duplicate memories or summaries.
 - **Validate:** focused job tests, fault injection, full pipeline integration test, Tier 2 checks.
 
 ### RUN-003 — Remove full-table completion scans
 
-- **Status:** pending
+- **Status:** completed
 - **Lead:** `agent-runtime-execution-systems-lead`
 - **Support:** `memory-modeling-knowledge-architecture-lead`
 - **Depends on:** RUN-002
 - **Problem:** trace and observation completion checks scan and parse every derived row.
 - **Deliverables:** indexed provenance lookup or explicit completion accounting.
+- **Outcome:** added indexed `trace_observations` and `observation_memories` link tables (populated idempotently at observation/memory insert in the pipeline, with a one-time JSON backfill in `runMigrations`). Rewrote `markTraceProcessedIfObservationsReady` and `markObservationProcessedIfMemoriesReady` to look up derived rows via these indexes, bounded by the subject's fan-out instead of a full-table scan. Added store helpers `insertTraceObservationLinks` / `insertObservationMemoryLinks`.
 - **Acceptance:** completion work is bounded by the current trace/observation fan-out and remains correct under retries.
 - **Validate:** query-plan inspection, large-corpus test, retry and concurrent-worker tests.
 
@@ -90,12 +95,13 @@ Before implementation, load the lead skill from `.agents/skills`. Load supportin
 
 ### MEM-001 — Execute deduplication in production
 
-- **Status:** pending
+- **Status:** completed
 - **Lead:** `memory-modeling-knowledge-architecture-lead`
 - **Support:** `retrieval-search-ranking-lead`, `evaluation-benchmarking-lead`
 - **Depends on:** RUN-002
 - **Problem:** dedupe helpers and canonical keys exist but have no production caller.
 - **Deliverables:** compute canonical keys; compare scoped candidates; choose winner; persist duplicate/supersession edge; update lifecycle and document state.
+- **Outcome:** implemented by the `dedupe_memories` durable handler (RUN-002): computes/persists canonical keys, compares same-repo active candidates via `shouldDeduplicate` (exact canonical-key or high cosine + file overlap), chooses a winner with `chooseDuplicateWinner`, marks the loser `superseded` with `superseded_by` + a `memory_edges` row, and soft-deletes the loser's search document. Provenance columns are preserved. The loser is excluded from default retrieval by RET-001.
 - **Acceptance:** equivalent memories converge idempotently; the loser cannot be returned by default retrieval; provenance is retained.
 - **Validate:** exact, semantic, false-positive, retry, and concurrency cases.
 
@@ -112,23 +118,25 @@ Before implementation, load the lead skill from `.agents/skills`. Load supportin
 
 ### RET-001 — Enforce lifecycle eligibility in retrieval
 
-- **Status:** pending
+- **Status:** completed
 - **Lead:** `retrieval-search-ranking-lead`
 - **Support:** `memory-modeling-knowledge-architecture-lead`
 - **Depends on:** MEM-001, MEM-002
 - **Problem:** stale, conflicted, superseded, deleted, and failed memories remain retrievable.
 - **Deliverables:** central eligibility policy used by FTS, vector, recent-memory context, MCP, and CLI paths; explicit diagnostic override.
+- **Outcome:** added `src/retrieval/eligibility.ts` (default eligible = `active`; `ALL_MEMORY_STATES` override). Applied it in `FTSSearch` (bound `lifecycle_state IN (...)` clause), `VectorSearch` (in-memory filter), `HybridSearch` (passthrough), `ContextBuilder` (no-query recent path filtered), and CLI `search`/`memories` via a new `--all-states` diagnostic flag. MCP search/context inherit filtering through HybridSearch/ContextBuilder. `insertMemory` now defaults new memories to `active` so directly-seeded and pipeline memories are eligible; the pipeline overrides to `awaiting_embedding` then `active`. (MEM-002's decay transitions are not yet implemented, but `stale` is already excluded by the policy.)
 - **Acceptance:** default retrieval returns only eligible memory states across every entry point.
 - **Validate:** state matrix across FTS, vector, context, MCP, CLI, and recent-memory retrieval.
 
 ### MEM-003 — Implement real summary generation
 
-- **Status:** pending
+- **Status:** completed
 - **Lead:** `memory-modeling-knowledge-architecture-lead`
 - **Support:** `agent-runtime-execution-systems-lead`
 - **Depends on:** RUN-002
 - **Problem:** summary jobs are queued but are no-ops.
 - **Deliverables:** durable summary handler, prompt/parser contract, upsert semantics, provenance or session evidence.
+- **Outcome:** implemented by the durable `update_summary` handler (RUN-002): aggregates a session's traces (user prompts, final response, files), calls the LLM with `buildSummaryPrompt`, parses via `parseAgentXml`, and upserts via `upsertSummary` (`ON CONFLICT(session_id)` keeps exactly one latest summary per session). `<skip_summary/>` and empty results write nothing; malformed XML dead-letters instead of fabricating. The job subject is unique per session and the upsert is idempotent, so retries cannot duplicate.
 - **Acceptance:** session-end summary work survives interruption and produces one deterministic latest summary per session.
 - **Validate:** malformed output, retry, upsert, session-end integration, Tier 2 checks.
 

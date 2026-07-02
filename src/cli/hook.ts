@@ -24,10 +24,12 @@ import { ContextBuilder } from "../context/builder.js";
 import { adapterFor } from "../capture/index.js";
 import type { Platform } from "../core/types.js";
 import { getHandler, type HandlerInput } from "./handlers/index.js";
+import { pathToFileURL } from "node:url";
+import { createHookSupervisor, type WorkerSupervisor } from "../pipeline/worker-supervisor.js";
 
 const KNOWN_PLATFORMS: Platform[] = ["claude-code", "codex", "opencode", "cursor", "gemini-cli", "windsurf", "raw"];
 
-async function main(): Promise<void> {
+async function main(supervisorOverride?: WorkerSupervisor): Promise<void> {
   const platform = process.argv[2] as Platform | undefined;
   const eventName = process.argv[3];
   if (!platform || !KNOWN_PLATFORMS.includes(platform)) {
@@ -46,6 +48,7 @@ async function main(): Promise<void> {
   const vector = new VectorSearch(store);
   const search = new HybridSearch({ fts, vector, embeddings });
   const builder = new ContextBuilder(store, search);
+  const supervisor = supervisorOverride ?? createHookSupervisor(config.dbPath);
 
   try {
     const raw = await readStdin();
@@ -54,38 +57,66 @@ async function main(): Promise<void> {
       return;
     }
     const parsed = JSON.parse(raw);
-
-    // Always ingest the trace; the runner swallows AdapterRejectedInput.
-    await runner.processRaw(platform, parsed);
-
-    if (!eventName) {
-      // The trace and its extraction job are committed. A worker resumes it.
-      return;
-    }
-
-    // Run the event handler. Re-normalize so the handler sees the same
-    // shape the runner saw.
-    const adapter = adapterFor(platform);
-    let event;
-    try {
-      event = adapter.normalize(parsed);
-    } catch {
-      return;
-    }
-    if (!event) return;
-
-    const handler = getHandler(eventName, { store, search, builder, observer });
-    const input: HandlerInput = { event, raw: parsed };
-    const out = await handler(input);
-    const formatted = adapter.formatOutput(out.result);
-    if (formatted && Object.keys(formatted as object).length > 0) {
-      process.stdout.write(JSON.stringify(formatted) + "\n");
-    }
+    await processHookInput(platform, eventName, parsed, { runner, store, search, builder, observer, supervisor });
   } catch (err) {
     process.stderr.write(`termyte-hook: ${err instanceof Error ? err.message : String(err)}\n`);
     process.exitCode = 1;
   } finally {
     store.close();
+  }
+}
+
+export interface HookDeps {
+  runner: HookRunner;
+  store: Store;
+  search: HybridSearch;
+  builder: ContextBuilder;
+  observer: Observer;
+  supervisor: WorkerSupervisor;
+}
+
+/**
+ * Ingest a parsed hook payload, kick off worker supervision for the
+ * enqueued job, and run any registered event handler. Exported so the
+ * supervision wiring can be tested without spawning the CLI binary.
+ */
+export async function processHookInput(
+  platform: Platform,
+  eventName: string | undefined,
+  raw: unknown,
+  deps: HookDeps,
+): Promise<void> {
+  // Always ingest the trace; the runner swallows AdapterRejectedInput.
+  const ingested = await deps.runner.processRaw(platform, raw);
+
+  if (ingested) {
+    // The trace and its extraction job are committed. Kick off a detached
+    // worker to drain the durable queue without blocking the agent.
+    deps.supervisor.maybeLaunch();
+  }
+
+  if (!eventName) {
+    // The trace and its extraction job are committed. A worker resumes it.
+    return;
+  }
+
+  // Run the event handler. Re-normalize so the handler sees the same
+  // shape the runner saw.
+  const adapter = adapterFor(platform);
+  let event;
+  try {
+    event = adapter.normalize(raw);
+  } catch {
+    return;
+  }
+  if (!event) return;
+
+  const handler = getHandler(eventName, { store: deps.store, search: deps.search, builder: deps.builder, observer: deps.observer });
+  const input: HandlerInput = { event, raw };
+  const out = await handler(input);
+  const formatted = adapter.formatOutput(out.result);
+  if (formatted && Object.keys(formatted as object).length > 0) {
+    process.stdout.write(JSON.stringify(formatted) + "\n");
   }
 }
 
@@ -99,4 +130,18 @@ function readStdin(): Promise<string> {
   });
 }
 
-main();
+/** Entry point used by tests to inject a supervisor. Production callers
+ *  run `main()` with no argument, which builds the default detached
+ *  supervisor from the environment. */
+export async function runHook(supervisor?: WorkerSupervisor): Promise<void> {
+  return main(supervisor);
+}
+
+function isMainEntry(): boolean {
+  try {
+    return import.meta.url === pathToFileURL(process.argv[1] ?? "").href;
+  } catch {
+    return false;
+  }
+}
+if (isMainEntry()) void main();

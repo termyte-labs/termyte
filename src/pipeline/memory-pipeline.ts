@@ -8,10 +8,18 @@ import {
   buildConsolidationPrompt,
   buildConsolidationSystemPrompt,
   buildObservationPrompt,
+  buildSummaryPrompt,
   buildSystemPrompt,
+  type SessionForPrompt,
 } from "../observer/prompts.js";
 import { JobQueue, type Job } from "./job-queue.js";
 import { PermanentJobError, RetryableJobError } from "./errors.js";
+import {
+  canonicalMemoryKey,
+  chooseDuplicateWinner,
+  shouldDeduplicate,
+  type DedupeComparable,
+} from "../lifecycle/dedupe.js";
 
 export interface MemoryPipelineConfig {
   store: Store;
@@ -89,10 +97,13 @@ export class MemoryPipeline {
           await this.embedMemory(job);
           break;
         case "dedupe_memories":
-        case "update_summary":
-          // Owned by later modules. These jobs are intentionally durable no-ops
-          // here so the pipeline can reach idle without a missing handler.
+          await this.dedupeMemories(job);
           break;
+        case "update_summary":
+          await this.updateSummary(job);
+          break;
+        default:
+          throw new PermanentJobError(`Unsupported job kind: ${(job as Job).kind}`);
       }
 
       this.queue.markSucceeded(job.id);
@@ -168,6 +179,7 @@ export class MemoryPipeline {
           processed_at: null,
         });
         this.store.updateObservationLifecycleState(observation.id, "awaiting_embedding");
+        this.store.insertTraceObservationLinks(observation.id, observation.source_trace_ids);
         this.queue.enqueueJob({
           kind: "embed_observation",
           subjectType: "observation",
@@ -281,6 +293,7 @@ export class MemoryPipeline {
           embedding: null,
         });
         this.store.updateMemoryLifecycleState(memory.id, "awaiting_embedding");
+        this.store.insertObservationMemoryLinks(memory.id, memory.source_observation_ids);
         this.queue.enqueueJob({
           kind: "embed_memory",
           subjectType: "memory",
@@ -335,6 +348,133 @@ export class MemoryPipeline {
     });
   }
 
+  /**
+   * Deduplicate a freshly active memory against same-repo candidates.
+   * Computes the canonical key, finds equivalent active memories, chooses a
+   * winner, marks the loser superseded with a relationship edge, and removes
+   * the loser's search document. Idempotent: superseded subjects short-circuit
+   * and edges are uniquely constrained.
+   */
+  private async dedupeMemories(job: Job): Promise<void> {
+    const memoryId = Number(job.subjectId);
+    const memory = this.store.getMemory(memoryId);
+    if (!memory) throw new PermanentJobError(`Memory not found: ${job.subjectId}`);
+    if (memory.lifecycle_state === "superseded" || memory.lifecycle_state === "deleted") return;
+
+    if (!memory.canonical_key) {
+      const key = canonicalMemoryKey({
+        type: memory.type,
+        content: artifactText(memory.title, memory.description),
+        files: [...memory.files_read, ...memory.files_modified],
+      });
+      this.store.updateMemoryCanonicalKey(memory.id, key);
+      memory.canonical_key = key;
+    }
+
+    const session = this.store.getSession(memory.session_id);
+    const repoId = session?.repo_id ?? memory.repo_id;
+    const candidates = this.store
+      .getAllMemoriesWithEmbeddings(repoId)
+      .filter((m) => m.id !== memory.id && (m.lifecycle_state ?? "active") === "active");
+
+    for (const candidate of candidates) {
+      if (!candidate.canonical_key) {
+        const key = canonicalMemoryKey({
+          type: candidate.type,
+          content: artifactText(candidate.title, candidate.description),
+          files: [...candidate.files_read, ...candidate.files_modified],
+        });
+        this.store.updateMemoryCanonicalKey(candidate.id, key);
+        candidate.canonical_key = key;
+      }
+      if (!shouldDeduplicate(toComparable(memory), toComparable(candidate))) continue;
+
+      const decision = chooseDuplicateWinner({
+        existing: {
+          id: candidate.id,
+          confidence: candidate.confidence ?? 0.5,
+          importance: candidate.importance ?? 0.5,
+          created_at: candidate.created_at,
+        },
+        incoming: {
+          id: memory.id,
+          confidence: memory.confidence ?? 0.5,
+          importance: memory.importance ?? 0.5,
+          created_at: memory.created_at,
+        },
+      });
+      const winnerId = decision.keep;
+      const loserId = decision.supersede;
+      this.store.transaction(() => {
+        this.store.markMemorySuperseded(loserId, winnerId);
+        this.store.insertMemoryEdge({
+          source: winnerId,
+          target: loserId,
+          edgeType: decision.edgeType,
+          confidence: 0.95,
+        });
+        this.documents.softDeleteDocument(`memory:${loserId}`);
+      });
+    }
+  }
+
+  /**
+   * Generate (or refresh) the durable summary for a session. Idempotent: the
+   * job subject key is unique per session and `upsertSummary` keeps exactly one
+   * latest row per session. A `<skip_summary/>` or empty result records no
+   * summary and succeeds without fabricating one.
+   */
+  private async updateSummary(job: Job): Promise<void> {
+    const sessionId = String(job.subjectId);
+    const session = this.store.getSession(sessionId);
+    if (!session) throw new PermanentJobError(`Session not found: ${sessionId}`);
+
+    const traces = this.store.getTracesForSession(sessionId, 500);
+    if (traces.length === 0) return;
+
+    const files = new Set<string>();
+    const userPrompts: string[] = [];
+    let finalResponse: string | null = null;
+    for (const trace of traces) {
+      if (trace.user_prompt) userPrompts.push(trace.user_prompt);
+      if (trace.final_response) finalResponse = trace.final_response;
+      if (trace.files_modified) for (const f of trace.files_modified) files.add(f);
+    }
+
+    const input: SessionForPrompt = {
+      user_prompts: userPrompts,
+      final_response: finalResponse,
+      files_modified: [...files],
+    };
+
+    const response = await this.llm.chat(
+      [
+        { role: "system", content: buildSystemPrompt() },
+        { role: "user", content: buildSummaryPrompt(input) },
+      ],
+      this.chatOptions,
+    );
+    const parsed = parseAgentXml(response.content);
+    if (!parsed.valid) {
+      throw new PermanentJobError(`Invalid summary XML for session ${sessionId}`);
+    }
+    if (parsed.summary?.skipped || !parsed.summary || !parsed.summary.summary_text) {
+      // Nothing durable to summarize — succeed without writing a falsehood.
+      return;
+    }
+
+    const summaryText = parsed.summary.summary_text;
+    this.store.upsertSummary({
+      session_id: sessionId,
+      repo_id: session.repo_id ?? "unknown",
+      workspace_root: session.workspace_root ?? "",
+      summary: summaryText,
+      key_changes: parsed.summary.key_changes,
+      key_learnings: parsed.summary.key_learnings,
+      created_at: Date.now(),
+    });
+  }
+
   private async embedRequired(content: string): Promise<Float32Array> {
     if (!this.embeddings) {
       throw new RetryableJobError("Embedding provider is not configured");
@@ -384,4 +524,15 @@ function artifactText(title: string, description: string | null): string {
 
 function unique(values: string[]): string[] {
   return [...new Set(values.filter(Boolean))];
+}
+
+function toComparable(m: Memory): DedupeComparable {
+  return {
+    id: m.id,
+    type: m.type,
+    canonical_key: m.canonical_key ?? null,
+    files_read: m.files_read,
+    files_modified: m.files_modified,
+    embedding: m.embedding,
+  };
 }

@@ -53,7 +53,8 @@ export function installCodexHooks(opts: CodexInstallOptions): number {
   mkdirSync(dirname(hooksPath), { recursive: true });
   writeFileSync(hooksPath, JSON.stringify(existing, null, 2) + "\n", "utf-8");
   process.stdout.write(`termyte: wrote Codex hooks to ${hooksPath}\n`);
-  process.stdout.write(`termyte: synthesis will run automatically on session end (uses 'codex exec' in the background).\n`);
+  process.stdout.write(`termyte: hooks capture traces and automatically start a background worker that processes them into memories (requires TERMYTE_LLM_API_KEY).\n`);
+  process.stdout.write(`termyte: set TERMYTE_AUTO_WORKER=0 to disable, or run 'termyte synth' to generate observations via the agent CLI.\n`);
   return 0;
 }
 

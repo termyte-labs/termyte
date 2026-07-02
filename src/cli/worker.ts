@@ -11,11 +11,24 @@ import { Store } from "../storage/store.js";
 import { OpenAICompatibleProvider } from "../observer/openai-provider.js";
 import { LocalEmbeddingsProvider } from "../retrieval/local-embeddings.js";
 import { MemoryPipeline } from "../pipeline/memory-pipeline.js";
+import { acquireWorkerLock, releaseWorkerLock } from "../pipeline/worker-supervisor.js";
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   const config = loadConfig();
   const store = new Store(config.dbPath);
+
+  // Single-instance: a supervised worker is spawned per hook event; only one
+  // may drain a given database. Redundant spawns exit here without work.
+  if (!acquireWorkerLock(config.dbPath, process.pid)) {
+    process.stdout.write("termyte-worker: another worker is already draining this database; exiting.\n");
+    if (args.json) {
+      process.stdout.write(`${JSON.stringify({ enqueued: 0, jobsProcessed: 0, lock: "busy" })}\n`);
+    }
+    store.close();
+    return;
+  }
+
   const llm = new OpenAICompatibleProvider(config.llm);
   const embeddings = new LocalEmbeddingsProvider({ model: config.embeddings.model });
   const pipeline = new MemoryPipeline({ store, llm, embeddings });
@@ -39,6 +52,7 @@ async function main(): Promise<void> {
     process.stderr.write(`termyte-worker: ${err instanceof Error ? err.message : String(err)}\n`);
     process.exit(1);
   } finally {
+    releaseWorkerLock(config.dbPath);
     store.close();
   }
 }
@@ -47,6 +61,7 @@ interface WorkerArgs {
   once: boolean;
   untilIdle: boolean;
   json: boolean;
+  supervised: boolean;
   maxJobs: number;
   batchSize: number;
   workerId: string;
@@ -57,6 +72,7 @@ function parseArgs(argv: string[]): WorkerArgs {
     once: argv.includes("--once"),
     untilIdle: argv.includes("--until-idle"),
     json: argv.includes("--json"),
+    supervised: argv.includes("--supervised"),
     maxJobs: readNumberArg(argv, "--max-jobs", 100),
     batchSize: readNumberArg(argv, "--batch-size", 50),
     workerId: readStringArg(argv, "--worker-id", `worker-${process.pid}`),

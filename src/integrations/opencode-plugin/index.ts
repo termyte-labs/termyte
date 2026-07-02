@@ -8,9 +8,11 @@
  *
  * This plugin forwards every event OpenCode raises to
  * `termyte-hook opencode <event>` so the existing observer pipeline
- * sees the same NormalizedEvent shape. It also writes a context file
- * to `~/.config/opencode/AGENTS.md` after every session, so the next
- * session gets prior memories injected automatically.
+ * sees the same NormalizedEvent shape. It also writes a placeholder
+ * context block to `~/.config/opencode/AGENTS.md` so the next session
+ * knows where termyte context will appear; real memory injection is
+ * not yet wired (run `termyte-worker` and `termyte synth` to build
+ * memories from captured traces).
  *
  * The plugin lives as a separate file (not imported by the CLI) so
  * OpenCode can `import` it without pulling in better-sqlite3 or any

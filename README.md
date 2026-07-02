@@ -21,14 +21,13 @@ Implemented:
 
 Incomplete or currently broken:
 
-- installed hooks enqueue work but do not automatically run the durable worker;
+- installed hooks automatically start a detached `termyte-worker` to drain the durable queue, but only one worker runs per database and processing requires `TERMYTE_LLM_API_KEY`;
 - deduplication and summary jobs are declared but currently execute as no-ops;
 - decay and deduplication algorithms are not connected to production workers;
 - stale, conflicted, superseded, and deleted memories are not excluded from default memory retrieval;
 - context injection IDs and automatic outcome attribution are not implemented;
 - the sqlite-vec document index exists but is not used by the active retrieval path;
 - retrieval evaluation currently leaks expected query terms into candidate documents and is not product-quality evidence;
-- npm entry points target `dist/cli/*`, while the current compiler emits `dist/src/cli/*`.
 
 Do not describe the current version as self-correcting. The target loop is:
 
@@ -63,7 +62,7 @@ Agent hook payload
   -> ContextBuilder / MCP / hook context
 ```
 
-Hooks only capture and enqueue. `termyte-worker` executes the durable pipeline. `termyte synth` is an alternative agent-driven observation path that also queues downstream processing.
+`termyte-hook` captures and enqueues, then asks the `WorkerSupervisor` to start a detached `termyte-worker` that drains the durable pipeline without blocking the agent. A single-instance lockfile ensures only one worker drains a given database. `termyte synth` is an alternative agent-driven observation path that also queues downstream processing.
 
 ## Storage
 
@@ -98,12 +97,12 @@ npm test
 npm run build
 ```
 
-The current build emits CLI files under `dist/src/cli/`. Until packaging task `PKG-001` in `PLAN.md` is completed, invoke the built checkout directly:
+The built CLI lives under `dist/cli/`. Invoke built commands directly:
 
 ```bash
-node dist/src/cli/index.js help
-node dist/src/cli/index.js eval --suite all --json
-node dist/src/cli/worker.js --until-idle --json
+node dist/cli/index.js help
+node dist/cli/index.js eval --suite all --json
+node dist/cli/worker.js --until-idle --json
 ```
 
 ## CLI surface
@@ -126,7 +125,7 @@ termyte stats
 termyte mcp
 ```
 
-Supported installer targets are defined by `src/integrations/installers/index.ts`. Installation currently configures capture and context hooks; it does not supervise `termyte-worker`.
+Supported installer targets are defined by `src/integrations/installers/index.ts`. Installation configures capture and context hooks; each hook automatically starts a detached `termyte-worker` to process captured traces into memories (set `TERMYTE_AUTO_WORKER=0` to disable).
 
 ## Configuration
 
@@ -138,6 +137,8 @@ Supported installer targets are defined by `src/integrations/installers/index.ts
 | `TERMYTE_LLM_MODEL` | `gpt-4o-mini` | Observation and consolidation model |
 | `TERMYTE_EMBED_MODEL_LOCAL` | `nomic-embed` | `nomic-embed` or `bge-small` local embedding model |
 | `TERMYTE_HOOK_PATH` | auto-detected | Override built hook entry path |
+| `TERMYTE_WORKER_PATH` | auto-detected | Override built worker entry path |
+| `TERMYTE_AUTO_WORKER` | `1` | When not `0`/`false`, the hook starts a detached worker after each ingest |
 
 Local embeddings run through `@xenova/transformers`. They do not use the hosted embedding configuration described by older versions of this README.
 
@@ -153,7 +154,7 @@ Memory retrieval uses:
 
 When embeddings fail, hybrid search degrades to FTS-only. Non-memory typed retrieval uses `documents_fts` and does not initialize embeddings.
 
-Current ranking does not yet apply lifecycle-state filtering, confidence, importance, decay, or feedback. Treat retrieved memories as unverified context.
+Default memory retrieval enforces lifecycle eligibility: only `active` memories are returned by FTS, vector, recent-memory context, MCP, and the CLI. Stale, conflicted, superseded, deleted, and failed memories are excluded by default; pass `--all-states` to `termyte search` / `termyte memories` for a diagnostic override. Ranking does not yet apply confidence, importance, decay, or feedback. Treat retrieved memories as unverified context.
 
 ## Testing and evidence
 
@@ -161,7 +162,7 @@ Current ranking does not yet apply lifecycle-state filtering, confidence, import
 npm run typecheck
 npm test
 npm run build
-node dist/src/cli/index.js eval --suite all --json
+node dist/cli/index.js eval --suite all --json
 ```
 
 The test suite is deterministic and network-free. It uses in-memory SQLite, canned LLM XML, and fixed embeddings. Passing tests prove component behavior, not live agent compatibility or improved agent outcomes.

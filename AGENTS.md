@@ -33,6 +33,7 @@ Implemented:
 - adapter normalization for Claude Code, Codex, Cursor, OpenCode, Gemini CLI, Windsurf, and raw payloads;
 - SQLite trace persistence;
 - durable jobs with leases, retries, backoff, idempotent subject keys, and dead-letter state;
+- hook-initiated worker supervision: `termyte-hook` starts a detached, single-instance-locked `termyte-worker` after each ingest;
 - trace to observation to memory processing with provenance;
 - local embeddings, FTS5, in-memory cosine search, and reciprocal-rank fusion;
 - typed document retrieval for trace, observation, memory, summary, and episode documents;
@@ -41,16 +42,13 @@ Implemented:
 
 Known incomplete behavior:
 
-- hooks enqueue pipeline work but installations do not supervise or launch the worker;
-- `dedupe_memories` and `update_summary` jobs are no-ops;
-- decay and dedupe helpers have no production caller;
-- memory retrieval ignores lifecycle state, confidence, importance, decay, and feedback;
+- decay helpers have no production caller (dedupe now runs as a durable job);
+- memory retrieval ignores lifecycle state, confidence, importance, decay, and feedback (lifecycle eligibility is now enforced; confidence/importance/decay/feedback still do not affect ranking);
 - context injection IDs and automatic outcome attribution are absent;
 - sqlite-vec indexing is scaffolded but unused by active search;
 - MCP `explain` and MCP health fields are placeholders;
 - OpenCode writes placeholder context instead of real memory context;
 - retrieval evaluation contaminates candidates with expected terms;
-- npm entry paths do not match emitted `dist/src` paths;
 - trace data is not protected by a comprehensive secret-redaction layer.
 
 ## Architecture
@@ -72,7 +70,7 @@ Agent event
   -> search/context/MCP/hook injection
 ```
 
-`termyte-hook` captures and enqueues; it intentionally does not drain the queue. `termyte-worker` runs durable jobs. `termyte synth` invokes a coding-agent CLI to generate observations, then queues downstream work.
+`termyte-hook` captures and enqueues; it intentionally does not drain the queue itself, but it asks the `WorkerSupervisor` to start a detached `termyte-worker` (single-instance-locked per database) that drains durable jobs without blocking the agent. `termyte synth` invokes a coding-agent CLI to generate observations, then queues downstream work.
 
 ## Persistence model
 
@@ -230,8 +228,8 @@ npm run build
 Run Tier 2 plus the relevant built-artifact checks, for example:
 
 ```bash
-node dist/src/cli/index.js help
-node dist/src/cli/index.js eval --suite all --json
+node dist/cli/index.js help
+node dist/cli/index.js eval --suite all --json
 npm pack --dry-run --json
 ```
 
@@ -254,16 +252,11 @@ For package work, install the tarball into a clean temporary project and execute
 
 ## Important implementation traps
 
-1. `package.json` currently declares `dist/cli/*`; TypeScript emits `dist/src/cli/*`.
-2. Installer success messages currently overstate automatic synthesis.
-3. `MemoryPipeline.runOnce()` marks no-op dedupe and summary jobs successful.
-4. FTS and vector memory searches do not filter lifecycle state.
-5. `getRecentMemories()` returns every state.
-6. Feedback updates memory fields but ranking ignores them.
-7. Context returns no injection identity, preventing outcome attribution.
-8. The evaluation harness injects expected keywords and queries into candidates.
-9. `SqliteVecIndex` exists but the active vector search scans memory BLOBs.
-10. OpenCode's plugin path detection and context behavior do not match emitted package layout or claimed real context injection.
+1. Feedback updates memory fields but ranking ignores them.
+2. Context returns no injection identity, preventing outcome attribution.
+3. The evaluation harness injects expected keywords and queries into candidates.
+4. `SqliteVecIndex` exists but the active vector search scans memory BLOBs.
+5. OpenCode writes placeholder context instead of real memory context.
 
 ## Documentation protocol
 

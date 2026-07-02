@@ -192,7 +192,7 @@ describe("event handlers", () => {
   });
 
   it("summarize handler returns no-op when termyte-synth is missing", async () => {
-    // Ensure TERMYTE_SYNTH_PATH is unset and CWD has no dist/src.
+    // Ensure TERMYTE_SYNTH_PATH is unset and CWD has no dist/ build.
     const before = process.env.TERMYTE_SYNTH_PATH;
     delete process.env.TERMYTE_SYNTH_PATH;
     const beforeCwd = process.cwd();

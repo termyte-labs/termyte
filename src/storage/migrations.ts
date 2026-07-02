@@ -286,12 +286,27 @@ CREATE TABLE IF NOT EXISTS document_embeddings (
   embedding_hash TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_document_embeddings_model ON document_embeddings(model, dimensions);
+
+CREATE TABLE IF NOT EXISTS trace_observations (
+  trace_id INTEGER NOT NULL REFERENCES traces(id) ON DELETE CASCADE,
+  observation_id INTEGER NOT NULL REFERENCES observations(id) ON DELETE CASCADE,
+  PRIMARY KEY (trace_id, observation_id)
+);
+CREATE INDEX IF NOT EXISTS idx_trace_observations_trace ON trace_observations(trace_id);
+
+CREATE TABLE IF NOT EXISTS observation_memories (
+  observation_id INTEGER NOT NULL REFERENCES observations(id) ON DELETE CASCADE,
+  memory_id INTEGER NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+  PRIMARY KEY (observation_id, memory_id)
+);
+CREATE INDEX IF NOT EXISTS idx_observation_memories_obs ON observation_memories(observation_id);
 `;
 
 export function runMigrations(db: DB): void {
   db.exec(SCHEMA);
   ensurePipelineColumns(db);
   ensureLifecycleColumns(db);
+  ensureProvenanceLinks(db);
 }
 
 function ensurePipelineColumns(db: DB): void {
@@ -328,6 +343,39 @@ function addColumnIfMissing(db: DB, table: string, column: string, ddl: string):
   const rows = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
   if (rows.some((row) => row.name === column)) return;
   db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
+}
+
+function safeParseIntArray(raw: string): number[] {
+  try {
+    const v = JSON.parse(raw);
+    return Array.isArray(v) ? v.filter((n): n is number => typeof n === "number") : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Backfill the indexed trace_observations and observation_memories link tables
+ * once from existing JSON provenance. Runs only when the link tables are empty
+ * (i.e. the first migration after introduction), so it is a one-time O(N) scan
+ * rather than a per-completion full-table scan. New inserts populate the link
+ * tables going forward.
+ */
+function ensureProvenanceLinks(db: DB): void {
+  const linkCount = (db.prepare(`SELECT COUNT(*) AS c FROM trace_observations`).get() as { c: number }).c;
+  if (linkCount > 0) return;
+
+  const obsCount = (db.prepare(`SELECT COUNT(*) AS c FROM observations`).get() as { c: number }).c;
+  if (obsCount === 0) return;
+
+  const insTO = db.prepare(`INSERT OR IGNORE INTO trace_observations (trace_id, observation_id) VALUES (?, ?)`);
+  for (const o of db.prepare(`SELECT id, source_trace_ids FROM observations`).all() as Array<{ id: number; source_trace_ids: string }>) {
+    for (const tid of safeParseIntArray(o.source_trace_ids)) insTO.run(tid, o.id);
+  }
+  const insOM = db.prepare(`INSERT OR IGNORE INTO observation_memories (observation_id, memory_id) VALUES (?, ?)`);
+  for (const m of db.prepare(`SELECT id, source_observation_ids FROM memories`).all() as Array<{ id: number; source_observation_ids: string }>) {
+    for (const oid of safeParseIntArray(m.source_observation_ids)) insOM.run(oid, m.id);
+  }
 }
 
 /**

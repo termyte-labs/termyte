@@ -1,11 +1,14 @@
 import type { Store } from "../storage/store.js";
 import type { Memory, MemoryType } from "../core/types.js";
+import { memoryEligibilitySql } from "./eligibility.js";
 
 export interface FTSSearchOptions {
   query: string;
   repo_id?: string;
   limit?: number;
   type?: string;
+  /** Override the default lifecycle eligibility policy. */
+  eligibleStates?: readonly string[];
 }
 
 export class FTSSearch {
@@ -15,8 +18,9 @@ export class FTSSearch {
     const ftsQuery = buildFTSQuery(options.query);
     if (!ftsQuery) return [];
 
-    const params: any[] = [ftsQuery];
-    const where: string[] = ["memories_fts MATCH ?"];
+    const eligibility = memoryEligibilitySql("m", options.eligibleStates);
+    const params: any[] = [ftsQuery, ...eligibility.params];
+    const where: string[] = ["memories_fts MATCH ?", eligibility.clause];
 
     if (options.repo_id) {
       where.push("m.repo_id = ?");
@@ -73,6 +77,8 @@ function mapMemoryRow(row: any): Memory {
     source_trace_ids: parseJSON<number[]>(row.source_trace_ids, []),
     created_at: row.created_at,
     embedding,
+    lifecycle_state: row.lifecycle_state,
+    state: row.state,
   };
 }
 

@@ -1,6 +1,7 @@
 import type { Memory, Observation, Summary } from "../core/types.js";
 import type { Store } from "../storage/store.js";
 import type { HybridSearch, HybridSearchResult } from "../retrieval/hybrid.js";
+import { isMemoryEligible } from "../retrieval/eligibility.js";
 
 export interface ContextInput {
   repo_id?: string;
@@ -33,7 +34,8 @@ export class ContextBuilder {
       });
       memories = results.map((r) => r.memory);
     } else {
-      memories = this.store.getRecentMemories(limit, repo_id);
+      memories = this.store.getRecentMemories(limit, repo_id).filter((m) => isMemoryEligible(m));
+      memories = memories.slice(0, limit);
     }
 
     const observations = this.store.getRecentObservations(20, repo_id);

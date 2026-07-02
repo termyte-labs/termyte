@@ -1,5 +1,6 @@
 import type { Store } from "../storage/store.js";
 import type { Memory } from "../core/types.js";
+import { isMemoryEligible, eligibleMemoryStates } from "./eligibility.js";
 
 export interface VectorSearchOptions {
   query: Float32Array;
@@ -9,6 +10,8 @@ export interface VectorSearchOptions {
   recencyWindowMs?: number;
   /** Files in the current task for file-aware boosting. */
   currentFiles?: string[];
+  /** Override the default lifecycle eligibility policy. */
+  eligibleStates?: readonly string[];
 }
 
 export interface VectorSearchResult {
@@ -34,12 +37,14 @@ export class VectorSearch {
       : null;
 
     const currentFileSet = new Set(options.currentFiles ?? []);
+    const states = eligibleMemoryStates(options.eligibleStates);
 
     const filtered = all.filter((m) => {
       if (!m.embedding) return false;
       if (options.type && m.type !== options.type) return false;
       if (cutoff !== null && m.created_at < cutoff) return false;
       if (options.repo_id && m.repo_id !== options.repo_id) return false;
+      if (!isMemoryEligible(m, states)) return false;
       return true;
     });
 

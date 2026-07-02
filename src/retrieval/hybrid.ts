@@ -11,6 +11,8 @@ export interface HybridSearchOptions {
   recencyWindowMs?: number;
   /** Files in the current task context for file-aware boosting. */
   currentFiles?: string[];
+  /** Override the default lifecycle eligibility policy. */
+  eligibleStates?: readonly string[];
 }
 
 export interface HybridSearchResult {
@@ -44,6 +46,7 @@ export class HybridSearch {
       repo_id: options.repo_id,
       type: options.type,
       limit: limit * 2,
+      eligibleStates: options.eligibleStates,
     });
 
     let vectorResults: VectorSearchResult[] = [];
@@ -56,6 +59,7 @@ export class HybridSearch {
         limit: limit * 2,
         recencyWindowMs: options.recencyWindowMs,
         currentFiles: options.currentFiles,
+        eligibleStates: options.eligibleStates,
       });
     } catch {
       // No embeddings available: FTS-only.

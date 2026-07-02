@@ -31,7 +31,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 function printUsage(): void {
-  process.stdout.write(`termyte-synth — background memory synthesizer
+  process.stdout.write(`termyte-synth — generate observations from captured traces
 
 Usage:
   termyte-synth [options]

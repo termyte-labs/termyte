@@ -74,7 +74,8 @@ export function installOpenCodePlugin(): number {
   mkdirSync(dirname(configPath), { recursive: true });
   writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
   process.stdout.write(`termyte: registered plugin in ${configPath}\n`);
-  process.stdout.write(`termyte: synthesis uses 'opencode run' (or 'opencode serve' HTTP if running).\n`);
+  process.stdout.write(`termyte: the plugin forwards events to termyte-hook, which captures traces and automatically starts a background worker.\n`);
+  process.stdout.write(`termyte: set TERMYTE_AUTO_WORKER=0 to disable, or run 'termyte-worker' / 'termyte synth' manually.\n`);
   return 0;
 }
 
