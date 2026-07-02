@@ -1,164 +1,285 @@
 # AGENTS.md
 
-## Project overview
+## Purpose
 
-Termyte is a memory layer for coding agents — a TypeScript ESM CLI that captures agent tool executions, enriches them via LLM into structured memories, and serves them through hybrid (FTS5 + vector) search. It is a port of `claude-mem`'s core architecture, stripped to MVP essentials.
+This file is the execution contract for engineering Termyte. Use it with `PLAN.md` and the founding-engineer skills under `.agents/skills`.
 
-- **Language**: TypeScript 5.8, strict mode, ESM (NodeNext moduleResolution)
-- **Runtime**: Node >= 20
-- **Database**: SQLite via `better-sqlite3` (WAL mode, foreign keys ON)
-- **Testing**: Vitest (forks pool, single fork, 30s timeout)
-- **Optional native dep**: `sqlite-vec` for vector virtual tables (loaded via `tryCreateVecTable`, fails silently if unavailable)
-- **Optional local ML**: `@xenova/transformers` for offline embeddings (dynamic import, not loaded at module init)
+Termyte is building a self-correcting memory layer for coding agents. The current product is a local-first capture, memory-construction, and retrieval prototype with durable processing foundations. It is not yet self-correcting.
 
-## Essential commands
+## Source of truth
+
+Trust, in order:
+
+1. executable runtime paths;
+2. SQLite schema and migrations;
+3. persistence and enforcement behavior;
+4. tests and built-artifact smoke checks;
+5. generated integration configuration;
+6. documentation.
+
+Do not promote comments, roadmap text, schemas without callers, passing mock tests, or CLI messages into product claims.
+
+Always separate:
+
+- **implemented**: wired into a real runtime path and validated;
+- **partial**: substantial code exists but the end-to-end outcome is incomplete;
+- **scaffolded**: types, schema, helpers, or jobs exist without production wiring;
+- **planned**: tracked in `PLAN.md` only.
+
+## Current product truth
+
+Implemented:
+
+- adapter normalization for Claude Code, Codex, Cursor, OpenCode, Gemini CLI, Windsurf, and raw payloads;
+- SQLite trace persistence;
+- durable jobs with leases, retries, backoff, idempotent subject keys, and dead-letter state;
+- trace to observation to memory processing with provenance;
+- local embeddings, FTS5, in-memory cosine search, and reciprocal-rank fusion;
+- typed document retrieval for trace, observation, memory, summary, and episode documents;
+- hook context handlers, MCP tools, explicit memory feedback persistence, and local diagnostics;
+- deterministic unit and integration tests.
+
+Known incomplete behavior:
+
+- hooks enqueue pipeline work but installations do not supervise or launch the worker;
+- `dedupe_memories` and `update_summary` jobs are no-ops;
+- decay and dedupe helpers have no production caller;
+- memory retrieval ignores lifecycle state, confidence, importance, decay, and feedback;
+- context injection IDs and automatic outcome attribution are absent;
+- sqlite-vec indexing is scaffolded but unused by active search;
+- MCP `explain` and MCP health fields are placeholders;
+- OpenCode writes placeholder context instead of real memory context;
+- retrieval evaluation contaminates candidates with expected terms;
+- npm entry paths do not match emitted `dist/src` paths;
+- trace data is not protected by a comprehensive secret-redaction layer.
+
+## Architecture
+
+```text
+Agent event
+  -> PlatformAdapter.normalize()
+  -> HookRunner
+  -> Ingestor
+  -> traces
+  -> jobs: extract_observation
+  -> observations
+  -> jobs: embed_observation
+  -> documents
+  -> jobs: consolidate_memory
+  -> memories
+  -> jobs: embed_memory
+  -> memory/document indexes
+  -> search/context/MCP/hook injection
+```
+
+`termyte-hook` captures and enqueues; it intentionally does not drain the queue. `termyte-worker` runs durable jobs. `termyte synth` invokes a coding-agent CLI to generate observations, then queues downstream work.
+
+## Persistence model
+
+Core tables in `src/storage/migrations.ts`:
+
+- `sessions`
+- `traces`
+- `jobs`
+- `observations`
+- `memories`
+- `summaries`
+- `memory_edges`
+- `memory_feedback`
+- `documents`
+- `document_embeddings`
+
+Virtual indexes:
+
+- `observations_fts`
+- `memories_fts`
+- `documents_fts`
+- optional `memories_vec` and dimension-specific document vec tables
+
+JSON arrays are stored as TEXT. Embeddings are Float32 BLOBs. Preserve repository, workspace, session, observation, and trace provenance through every derived artifact.
+
+## Founding engineering team
+
+The five skills are persistent technical owners, not advisory checklists. A task should have one lead owner. Add supporting owners only when the change crosses a defined interface.
+
+### Runtime and execution systems
+
+Skill: `.agents/skills/agent-runtime-execution-systems-lead/SKILL.md`
+
+Lead for:
+
+- adapters, hooks, installers, ingestion;
+- process launching, workers, jobs, leases, retries, crash recovery;
+- runtime observability and cross-platform behavior;
+- built CLI and integration execution.
+
+### Code intelligence
+
+Skill: `.agents/skills/code-intelligence-lead/SKILL.md`
+
+Lead for:
+
+- files, paths, diffs, commands, tests, stack traces, symbols, dependencies;
+- repository evidence extraction and normalization;
+- document indexing and technical applicability signals.
+
+### Memory modeling and knowledge architecture
+
+Skill: `.agents/skills/memory-modeling-knowledge-architecture-lead/SKILL.md`
+
+Lead for:
+
+- trace, observation, memory, summary, and episode semantics;
+- provenance, consolidation, lifecycle, confidence, feedback;
+- correction, conflict, deduplication, supersession, and deletion.
+
+### Retrieval, search, and ranking
+
+Skill: `.agents/skills/retrieval-search-ranking-lead/SKILL.md`
+
+Lead for:
+
+- typed routing, FTS, embeddings, vectors, fusion, filters, ranking;
+- context packing, injection selection, and retrieval fallbacks;
+- relevance, harmful recall, and query-time performance.
+
+### Evaluation and benchmarking
+
+Skill: `.agents/skills/evaluation-benchmarking-lead/SKILL.md`
+
+Lead for:
+
+- regression corpora, metrics, thresholds, fault injection;
+- controlled agent experiments and baseline design;
+- proof strength, failure reporting, and public claims.
+
+## Task routing
+
+Route by the first invariant that can fail:
+
+| Task | Lead | Typical support |
+|---|---|---|
+| Hook does not capture or worker does not run | Runtime | Memory Modeling |
+| File, test, stack, or symbol evidence is wrong | Code Intelligence | Runtime |
+| Wrong knowledge is created or lifecycle is inconsistent | Memory Modeling | Code Intelligence, Evaluation |
+| Correct memory exists but is missing or badly ranked | Retrieval | Memory Modeling, Evaluation |
+| A metric or product claim is untrustworthy | Evaluation | Owning implementation skill |
+| Full self-correction loop | Memory Modeling | Runtime, Retrieval, Evaluation, Code Intelligence as needed |
+
+Do not invoke all five skills by default. That dilutes accountability and adds unnecessary context.
+
+## Cross-domain handoffs
+
+A handoff must state:
+
+- the interface being changed;
+- the invariant the receiving owner must preserve;
+- inputs and outputs;
+- failure behavior;
+- acceptance test expected from the receiving owner.
+
+The lead owner remains responsible for the integrated result. “Another subsystem owns it” is not a completion condition.
+
+## Authority and escalation
+
+Within an authorized implementation task, the lead engineer may inspect, design, edit, test, simplify, and validate without requesting approval for routine technical decisions.
+
+Stop for founder direction before:
+
+- changing Termyte's product thesis or public promise;
+- introducing a major external service or new top-level subsystem;
+- changing privacy, sharing, or customer-data policy;
+- publishing packages, pushing branches, deploying, or mutating external systems unless explicitly requested;
+- destructive or irreversible operations;
+- choosing an unresolved product tradeoff between founding domains.
+
+For review, explanation, or diagnosis-only requests, remain read-only.
+
+## Standard execution loop
+
+1. Read `PLAN.md` and select the relevant task ID.
+2. Load the lead founding-engineer skill.
+3. Inspect the current code path and revalidate the task evidence.
+4. Mark the task `in_progress` only when implementation begins.
+5. State the outcome and invariant being protected.
+6. Implement the smallest coherent end-to-end change.
+7. Add tests that fail without the change.
+8. Run narrow validation, then the required repository validation tier.
+9. Update `PLAN.md` evidence and status.
+10. Report code changed, proof obtained, limitations, and next dependency.
+
+Never mark a plan task completed because code was written. Every listed acceptance criterion must pass.
+
+## Validation tiers
+
+### Tier 1: focused change
+
+- affected test file or focused Vitest pattern;
+- `npm run typecheck`.
+
+### Tier 2: repository change
 
 ```bash
-npm install              # install deps (better-sqlite3 is native, needs node-gyp on some platforms)
-npm run build            # TypeScript compilation (tsc -p tsconfig.json → dist/)
-npm run typecheck        # type-check only, no emit (tsc --noEmit)
-npm test                 # full test suite (vitest run)
-npm run test:watch       # watch mode
+npm run typecheck
+npm test
+npm run build
 ```
 
-No deploy, lint, or format commands are configured.
+### Tier 3: packaging, runtime, retrieval, or product claim
 
-## Architecture and data flow
+Run Tier 2 plus the relevant built-artifact checks, for example:
 
-```
-Agent hook payload (stdin JSON)
-  → PlatformAdapter.normalize() → NormalizedEvent
-  → HookRunner (upserts session, calls Ingestor)
-  → Ingestor.ingest() → Store.insertTrace()       [traces table]
-
-Observer (driven by termyte-hook inline, or termyte-worker standalone):
-  Stage 1: processTraceToObservation()
-    → LLM.chat(trace → XML) → parseAgentXml()
-    → Store.insertObservation()                   [observations table]
-    → fire-and-forget embedding compute
-  Stage 2: consolidateObservations()
-    → LLM.chat(observations → XML) → parseAgentXml()
-    → Store.insertMemory() + embedding compute     [memories table]
-  generateSummary()
-    → LLM.chat(session context → XML) → Store.upsertSummary()
-
-Retrieval:
-  HybridSearch = FTS5 (keyword) + VectorSearch (cosine similarity)
-    → Reciprocal Rank Fusion (k=60) → ranked results
-  ContextBuilder → renders markdown for agent prompts
+```bash
+node dist/src/cli/index.js help
+node dist/src/cli/index.js eval --suite all --json
+npm pack --dry-run --json
 ```
 
-**Five SQLite tables** (schema defined in `src/storage/migrations.ts`):
-- `sessions` — one row per agent session
-- `traces` — immutable raw events (JSON columns as TEXT, `processed_at` is operational state for crash-safety)
-- `observations` — extracted by Stage 1 LLM
-- `memories` — consolidated by Stage 2 LLM; embedding stored as BLOB
-- `summaries` — one per session, upserted
+For package work, install the tarball into a clean temporary project and execute every declared binary. For integration work, inspect generated configuration and run representative built-hook payloads. For product claims, require controlled live-agent evidence.
 
-FTS5 virtual tables (`observations_fts`, `memories_fts`) are kept in sync via SQL triggers on INSERT/UPDATE/DELETE — no manual sync needed.
+## Engineering conventions
 
-## Module organization
+- TypeScript strict mode, ESM, NodeNext resolution.
+- Source imports use `.js` extensions.
+- Node.js 20 or newer.
+- SQLite through `better-sqlite3`, WAL mode, foreign keys enabled.
+- Vitest uses `pool: "forks"` with `singleFork: true`.
+- Local embeddings are dynamically loaded from `@xenova/transformers`.
+- Preserve FTS-only retrieval when embeddings fail.
+- Use migrations and compatibility guards for schema changes.
+- Make background jobs idempotent and crash-safe.
+- Never silently swallow durable-work failures; expose retry/dead-letter state.
+- Treat LLM output as untrusted structured input.
+- Redact sensitive data before persistence and before external LLM calls.
 
-```
-src/
-  index.ts              — Public API + createTermyte() convenience function
-  core/types.ts         — All shared types (Trace, Observation, Memory, Summary, Session)
-  capture/              — Platform adapters + Ingestor + file extraction
-    adapter.ts          — NormalizedEvent + PlatformAdapter interface
-    claude-code.ts      — Claude Code adapter
-    codex.ts            — Codex adapter
-    opencode.ts         — OpenCode adapter
-    cursor.ts           — Cursor adapter
-    files.ts            — Shared file-path extraction from tool input/output
-    ingest.ts           — Ingestor: NormalizedEvent → Trace
-    util.ts             — Shared helpers (isObject, pickString)
-  storage/              — SQLite wrapper
-    connection.ts       — openDatabase/closeDatabase + pragmas
-    migrations.ts       — Schema DDL (CREATE TABLE, FTS5, triggers, vec0)
-    store.ts            — Full CRUD for all 5 tables
-  observer/             — LLM-based observation extraction
-    provider.ts         — LLMProvider interface + ChatMessage/ChatOptions types
-    openai-provider.ts  — OpenAI-compatible HTTP chat completion
-    prompts.ts          — System/user prompts for observation/consolidation/summary
-    parser.ts           — XML parser for LLM output (<observation>, <summary>, <skip_summary />)
-    pipeline.ts         — Observer class: 2-stage pipeline + queue + flush
-  retrieval/            — Memory search
-    embeddings.ts       — EmbeddingsProvider interface + OpenAI + NoOp
-    local-embeddings.ts — Transformers.js-based local embeddings (Nomic/BGE)
-    fts.ts              — FTS5 keyword search
-    vector.ts           — In-memory cosine similarity (file-aware boosting)
-    hybrid.ts           — RRF fusion of FTS + vector
-  hooks/                — Hook protocol
-    runner.ts           — HookRunner: stdin → adapter → ingest → observe
-  context/              — Prompt rendering for agents
-    builder.ts          — ContextBuilder + renderContext/renderHybridResults
-  cli/                  — CLI entry points
-    index.ts            — Main CLI (termyte search|context|memories|trace|session|sessions)
-    hook.ts             — termyte-hook <platform> (reads stdin, ingests, flushes)
-    worker.ts           — termyte-worker [--once] (batch processes unprocessed traces)
-    config.ts           — loadConfig() from env vars
-    search.ts           — search subcommand
-    context.ts          — context subcommand
-```
+## Important implementation traps
 
-## Key patterns and conventions
+1. `package.json` currently declares `dist/cli/*`; TypeScript emits `dist/src/cli/*`.
+2. Installer success messages currently overstate automatic synthesis.
+3. `MemoryPipeline.runOnce()` marks no-op dedupe and summary jobs successful.
+4. FTS and vector memory searches do not filter lifecycle state.
+5. `getRecentMemories()` returns every state.
+6. Feedback updates memory fields but ranking ignores them.
+7. Context returns no injection identity, preventing outcome attribution.
+8. The evaluation harness injects expected keywords and queries into candidates.
+9. `SqliteVecIndex` exists but the active vector search scans memory BLOBs.
+10. OpenCode's plugin path detection and context behavior do not match emitted package layout or claimed real context injection.
 
-### Import extensions
-All imports use `.js` extensions despite source being `.ts` — this is required by NodeNext moduleResolution:
-```ts
-import { Store } from "../storage/store.js";
-```
+## Documentation protocol
 
-### SQLite JSON serialization
-- JSON columns (files_read, files_modified, source_trace_ids, etc.) are stored as TEXT via `JSON.stringify()`.
-- Reads use `parseJSON()` / `parseNumberArray()` with fallback to empty values on parse errors.
-- Embeddings are `Float32Array` → `Buffer` for BLOB storage, and reversed on read.
+Update documentation in the same change when commands, schemas, integration behavior, configuration, or product boundaries change.
 
-### Crash safety via `processed_at`
-The `traces.processed_at` column is set after the observer processes a trace. If the process dies mid-batch, the trace remains `NULL` and is picked up by the next `processUnprocessedOnce()` call. Same pattern applies to `observations.processed_at`.
+README describes current user-visible truth. AGENTS describes durable engineering conventions and ownership. PLAN tracks incomplete work. Do not use README as a backlog or PLAN as marketing.
 
-### Observer queue
-The Observer maintains an in-memory queue with `setImmediate`-based scheduling. `enqueue(trace)` adds to queue; `flush()` awaits all pending work. The hook driver calls `flush()` before exit to ensure traces are processed atomically with memory writes.
+## Completion report
 
-### MockLLM
-Tests use `MockLLM` from `test/mock-llm.js`. Call `setResponse(xml)` or `setResponses([...])` to queue canned replies. Throws if called with no response queued.
+Every implementation handoff should include:
 
-### FixedEmbeddings
-Retrieval tests and integration tests define a local `FixedEmbeddings` class (FNV-hash-based, normalized) rather than using live APIs or Transformers.js. This ensures deterministic, network-free tests.
-
-### NoOpEmbeddingsProvider
-When no embedding API key is configured, `NoOpEmbeddingsProvider` is used — `embed()`/`embedBatch()` throw, and `HybridSearch.search()` catches the error and degrades to FTS-only.
-
-## Testing patterns
-
-- **In-memory SQLite**: All tests open `":memory:"` databases in `beforeEach` and close via `store.close()`.
-- **Test file structure**: Each test file is self-contained — setups its own DB, seeds data, asserts, cleans up.
-- **Vitest globals**: `describe`, `it`, `expect`, `beforeEach` are imported explicitly (no global leakage).
-- **Pool config**: `pool: "forks"` with `singleFork: true` because `better-sqlite3` is a native module that doesn't play well with Vitest's default worker threads.
-- **Timeout**: 30 seconds via `testTimeout: 30_000`.
-
-## Important gotchas
-
-1. **`pool: "forks"` + `singleFork: true` is required** — changing this will cause native module errors with better-sqlite3.
-2. **The `.js` extension in imports is mandatory** — TypeScript won't emit correct output without it under NodeNext.
-3. **`@xenova/transformers` is dynamically imported** in `src/retrieval/local-embeddings.ts` — so tests don't pay the ONNX runtime cost.
-4. **`sqlite-vec` is optional** — `tryCreateVecTable` catches failures silently. Vector search falls back to in-memory cosine similarity loaded from BLOBs.
-5. **Embedding persistence is fire-and-forget** — embeddings are computed asynchronously after memory/observation insert and errors are swallowed. The memory may be searchable before its embedding is stored.
-6. **LLM output is XML parsed by regex** — not a real XML parser. Code fences (` ```xml ... ``` `) are stripped before parsing. Unknown observation types default to `"fact"`.
-7. **`ConsolidationBatchSize` defaults differ** — Stage 1 `batchSize` defaults to 5, Stage 2 `consolidationBatchSize` defaults to 10. These control `processUnprocessedOnce()` batching, not the inline hook path.
-8. **The `BaseUrl` must not end with `/`** — `OpenAICompatibleProvider.chat()` strips trailing slashes before appending `/chat/completions`, but it's safer to configure without them.
-
-## Configuration (environment variables)
-
-| Variable | Default | Notes |
-|---|---|---|
-| `TERMYTE_DB` | `./termyte.db` | `:memory:` for tests |
-| `TERMYTE_LLM_BASE_URL` | `https://api.openai.com/v1` | Also reads `OPENAI_BASE_URL` |
-| `TERMYTE_LLM_API_KEY` | (none) | Also reads `OPENAI_API_KEY` |
-| `TERMYTE_LLM_MODEL` | `gpt-4o-mini` | |
-| `TERMYTE_EMBED_BASE_URL` | same as LLM | Also reads `OPENAI_BASE_URL` |
-| `TERMYTE_EMBED_API_KEY` | falls back to `OPENAI_API_KEY` | |
-| `TERMYTE_EMBED_MODEL` | `text-embedding-3-small` | |
-| `TERMYTE_EMBED_DIMENSIONS` | `1536` | |
-
-If no embedding API key is set, semantic search is disabled (FTS-only).
+- task ID and lead skill;
+- changed behavior;
+- affected files;
+- tests and commands run;
+- observable proof;
+- remaining limitations;
+- PLAN status change;
+- any founder decision still required.
