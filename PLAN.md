@@ -193,12 +193,13 @@ Before implementation, load the lead skill from `.agents/skills`. Load supportin
 
 ### COR-002 — Implement memory edges and explainability
 
-- **Status:** pending
+- **Status:** completed
 - **Lead:** `memory-modeling-knowledge-architecture-lead`
 - **Support:** `retrieval-search-ranking-lead`
 - **Depends on:** MEM-001, COR-001
 - **Problem:** `memory_edges` exists without runtime writers and `termyte.explain` returns placeholders.
 - **Deliverables:** edge CRUD and invariants; populated explain output with traces, observations, edges, feedback, state, and timestamps.
+- **Outcome:** added shared explainability plumbing in `src/explain/memory-explain.ts` that resolves memory provenance, source observations, source traces, edges, feedback, and missing deleted-source references; added `Store.getObservationsByIds()` and `Store.getMemoryFeedbackForMemory()`; wired `termyte.explain` in MCP and a new `termyte explain <id>` CLI command to the shared builder; added regression tests for lineage rendering, missing provenance, and CLI JSON output.
 - **Acceptance:** any active, conflicted, or superseded memory can explain its origin and lifecycle history.
 - **Validate:** graph invariant tests, MCP explain contract, deleted-source behavior.
 

@@ -238,6 +238,23 @@ export class Store {
     return mapObservation(row);
   }
 
+  getObservationsByIds(ids: number[]): Observation[] {
+    if (ids.length === 0) return [];
+    const uniqueIds = [...new Set(ids)];
+    const placeholders = uniqueIds.map(() => "?").join(",");
+    const rows = this.ctx.db.prepare(
+      `SELECT * FROM observations WHERE id IN (${placeholders})`,
+    ).all(...uniqueIds) as any[];
+    const byId = new Map(rows.map((row) => {
+      const observation = mapObservation(row);
+      return [observation.id, observation] as const;
+    }));
+    return uniqueIds.flatMap((id) => {
+      const observation = byId.get(id);
+      return observation ? [observation] : [];
+    });
+  }
+
   getObservationsForSession(session_id: string, limit = 100): Observation[] {
     const rows = this.ctx.db.prepare(
       `SELECT * FROM observations WHERE session_id = ? ORDER BY created_at DESC, id DESC LIMIT ?`
@@ -625,6 +642,37 @@ export class Store {
       target_memory_id: number;
       edge_type: string;
       confidence: number;
+      created_at: number;
+    }>;
+  }
+
+  /** Read explicit feedback attached to a memory. */
+  getMemoryFeedbackForMemory(memoryId: number): Array<{
+    id: string;
+    memory_id: number;
+    doc_id: string | null;
+    event_type: MemoryFeedbackEvent;
+    weight: number;
+    source: string;
+    context_injection_id: string | null;
+    correction_text: string | null;
+    created_at: number;
+  }> {
+    return this.ctx.db.prepare(`
+      SELECT id, memory_id, doc_id, event_type, weight, source,
+             context_injection_id, correction_text, created_at
+      FROM memory_feedback
+      WHERE memory_id = ?
+      ORDER BY created_at ASC
+    `).all(memoryId) as Array<{
+      id: string;
+      memory_id: number;
+      doc_id: string | null;
+      event_type: MemoryFeedbackEvent;
+      weight: number;
+      source: string;
+      context_injection_id: string | null;
+      correction_text: string | null;
       created_at: number;
     }>;
   }

@@ -6,6 +6,7 @@
  *   context            [--repo r] [--query q] [--limit n] [--files f1,f2] [--type t]
  *   memories           [--repo r] [--limit n] [--type t]
  *   memory    <id>     [--json]
+ *   explain   <id>     [--json]
  *   trace     <id>     [--json]
  *   session   <id>     [--json]
  *   sessions           [--limit n]
@@ -18,6 +19,7 @@
  */
 import { searchCommand } from "./search.js";
 import { contextCommand } from "./context.js";
+import { explainCommand } from "./explain.js";
 import { loadConfig } from "./config.js";
 import { Store } from "../storage/store.js";
 import { installFor, listSupportedPlatforms } from "../integrations/installers/index.js";
@@ -31,6 +33,7 @@ Usage:
   termyte context            [--repo r] [--query q] [--limit n] [--files f1,f2] [--type trace|observation|memory|summary|episode|all]
   termyte memories           [--repo r] [--limit n] [--type t] [--all-states]
   termyte memory    <id>     [--json]
+  termyte explain   <id>     [--json]
   termyte trace     <id>     [--json]
   termyte session   <id>     [--json]
   termyte sessions           [--limit n]
@@ -123,6 +126,12 @@ async function main(): Promise<void> {
         const id = parseInt(idStr, 10);
         if (isNaN(id)) { process.stderr.write("termyte: invalid id\n"); process.exit(2); }
         await showMemoryCommand(id, opts["json"] === true);
+        break;
+      }
+      case "explain": {
+        const id = positional[0];
+        if (!id) { process.stderr.write("usage: termyte explain <id>\n"); process.exit(2); }
+        await explainCommand({ id, json: opts["json"] === true });
         break;
       }
       case "trace": {

@@ -23,6 +23,7 @@ import { FTSSearch } from "../retrieval/fts.js";
 import { VectorSearch } from "../retrieval/vector.js";
 import { HybridSearch } from "../retrieval/hybrid.js";
 import { ContextBuilder, renderHybridResults, renderMemory } from "../context/builder.js";
+import { buildMemoryExplain, renderMemoryExplain } from "../explain/memory-explain.js";
 import type { EmbeddingsProvider } from "../retrieval/embeddings.js";
 import { NoOpEmbeddingsProvider } from "../retrieval/embeddings.js";
 import { MCP_TOOL_DEFS } from "./tools.js";
@@ -220,14 +221,10 @@ class TermyteMcpServer {
       case "termyte.explain": {
         const input = validateExplainInput(args);
         if (!input.ok) return validationErrorResult(input.error);
+        const explanation = buildMemoryExplain(this.store, input.value.id);
         return textResult(JSON.stringify({
-          id: input.value.id,
-          state: null,
-          sourceTraces: [],
-          sourceObservations: [],
-          edges: [],
-          feedback: [],
-          lastUpdated: null,
+          explanation,
+          markdown: renderMemoryExplain(explanation),
         }, null, 2));
       }
       case "termyte.health": {
