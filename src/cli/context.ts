@@ -37,7 +37,7 @@ export async function contextCommand(options: {
     const fts = new FTSSearch(store);
     const vector = new VectorSearch(store);
     const embeddings = new LocalEmbeddingsProvider({ model: config.embeddings.model });
-    const search = new HybridSearch({ fts, vector, embeddings });
+    const search = new HybridSearch({ fts, vector, embeddings, feedbackStore: store });
     const builder = new ContextBuilder(store, search);
     const result = await builder.build({
       repo_id: options.repo_id,

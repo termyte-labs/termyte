@@ -29,7 +29,7 @@ beforeEach(() => {
   store = new Store(ctx);
   store.upsertSession("s1", "repo", "r1", "/w");
   embeddings = new MockEmbeddings();
-  search = new HybridSearch({ fts: new FTSSearch(store), vector: new VectorSearch(store), embeddings });
+  search = new HybridSearch({ fts: new FTSSearch(store), vector: new VectorSearch(store), embeddings, feedbackStore: store });
   builder = new ContextBuilder(store, search);
 });
 
@@ -119,5 +119,13 @@ describe("FB-001 automatic exposure (shown) recording", () => {
     const events = getFeedbackEvents(memoryId);
     expect(events.filter((e) => e.event_type === "used")).toHaveLength(0);
     expect(events.filter((e) => e.event_type === "shown")).toHaveLength(1);
+  });
+
+  it("shown exposure does not reinforce importance or ranking feedback", async () => {
+    const memoryId = seedMemory("Fact A");
+    const before = store.getMemory(memoryId)!.importance;
+    await builder.build({ repo_id: "r1", surface: "test" });
+    expect(store.getMemory(memoryId)!.importance).toBe(before);
+    expect(store.getMemoryFeedbackScores([memoryId]).get(memoryId)).toBeUndefined();
   });
 });

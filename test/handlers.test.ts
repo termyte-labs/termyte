@@ -113,6 +113,11 @@ describe("event handlers", () => {
     const ctxText = out.result.hookSpecificOutput?.additionalContext ?? "";
     expect(ctxText).toContain("How login works");
     expect(ctxText).toContain("src/auth.ts");
+    const injection = store.getDB().prepare(
+      `SELECT id FROM context_injections WHERE surface = 'file-context' ORDER BY created_at DESC LIMIT 1`,
+    ).get() as { id: string } | undefined;
+    expect(injection).toBeTruthy();
+    expect(store.getContextInjectionItems(injection!.id)).toHaveLength(1);
     store.close();
   });
 

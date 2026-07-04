@@ -2,6 +2,7 @@ import type { Memory } from "../core/types.js";
 import type { EmbeddingsProvider } from "./embeddings.js";
 import { FTSSearch, type FTSSearchOptions } from "./fts.js";
 import { VectorSearch, type VectorSearchOptions, type VectorSearchResult } from "./vector.js";
+import { scoreMemoryCandidate, type RetrievalScoreBreakdown } from "./ranking.js";
 
 export interface HybridSearchOptions {
   query: string;
@@ -20,6 +21,7 @@ export interface HybridSearchResult {
   fts_rank?: number;
   vector_rank?: number;
   combined_score: number;
+  score_breakdown: RetrievalScoreBreakdown;
 }
 
 /**
@@ -31,11 +33,18 @@ export class HybridSearch {
   private fts: FTSSearch;
   private vector: VectorSearch;
   private embeddings: EmbeddingsProvider;
+  private feedbackStore?: { getMemoryFeedbackScores(memoryIds: number[]): Map<number, number> };
 
-  constructor(opts: { fts: FTSSearch; vector: VectorSearch; embeddings: EmbeddingsProvider }) {
+  constructor(opts: {
+    fts: FTSSearch;
+    vector: VectorSearch;
+    embeddings: EmbeddingsProvider;
+    feedbackStore?: { getMemoryFeedbackScores(memoryIds: number[]): Map<number, number> };
+  }) {
     this.fts = opts.fts;
     this.vector = opts.vector;
     this.embeddings = opts.embeddings;
+    this.feedbackStore = opts.feedbackStore;
   }
 
   async search(options: HybridSearchOptions): Promise<HybridSearchResult[]> {
@@ -79,14 +88,27 @@ export class HybridSearch {
     for (const m of ftsResults) byId.set(m.id, m);
     for (const r of vectorResults) byId.set(r.memory.id, r.memory);
 
+    const feedbackScores = this.feedbackStore
+      ? this.feedbackStore.getMemoryFeedbackScores([...seen.keys()])
+      : new Map<number, number>();
     const out: HybridSearchResult[] = [];
     for (const [id, ranks] of seen) {
-      let combined = 0;
-      if (ranks.fts_rank) combined += 1 / (k + ranks.fts_rank);
-      if (ranks.vector_rank) combined += 1 / (k + ranks.vector_rank);
       const memory = byId.get(id);
       if (!memory) continue;
-      out.push({ memory, fts_rank: ranks.fts_rank, vector_rank: ranks.vector_rank, combined_score: combined });
+      const breakdown = scoreMemoryCandidate({
+        memory,
+        ftsRank: ranks.fts_rank,
+        vectorRank: ranks.vector_rank,
+        feedbackScore: feedbackScores.get(id),
+        rrfK: k,
+      });
+      out.push({
+        memory,
+        fts_rank: ranks.fts_rank,
+        vector_rank: ranks.vector_rank,
+        combined_score: breakdown.final_score,
+        score_breakdown: breakdown,
+      });
     }
 
     out.sort((a, b) => b.combined_score - a.combined_score);

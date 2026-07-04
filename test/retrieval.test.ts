@@ -99,6 +99,14 @@ describe("FTSSearch", () => {
     store.close();
   });
 
+  it("retrieves candidates when natural-language framing words are absent", () => {
+    const store = new Store(ctx);
+    seedMemories(store);
+    const results = new FTSSearch(store).search({ query: "Which token behavior should the user remember?" });
+    expect(results.some((memory) => memory.title === "Auth token whitespace")).toBe(true);
+    store.close();
+  });
+
   it("returns no results for nonsense queries", () => {
     const store = new Store(ctx);
     seedMemories(store);
@@ -246,6 +254,31 @@ describe("HybridSearch", () => {
     const search = new HybridSearch({ fts, vector, embeddings: badEmbed });
     const results = await search.search({ query: "auth token" });
     expect(results.length).toBeGreaterThan(0);
+    store.close();
+  });
+
+  it("reranks equally relevant candidates using explicit feedback with a score breakdown", async () => {
+    const store = new Store(ctx);
+    store.upsertSession("s1", "demo", "repo-1", "/workspace");
+    const ids = ["older", "reinforced"].map((title) => store.insertMemory({
+      session_id: "s1", repo_id: "repo-1", workspace_root: "/workspace", type: "fact",
+      title: `shared retrieval ${title}`, description: "shared retrieval evidence",
+      files_read: [], files_modified: [], source_observation_ids: [], source_trace_ids: [],
+      created_at: Date.now(), embedding: null,
+    }).id);
+    store.recordMemoryFeedback({ id: `memory:${ids[1]}`, event: "used", source: "test" });
+    const unavailable: EmbeddingsProvider = {
+      dimensions: 4,
+      async embed(): Promise<Float32Array> { throw new Error("offline"); },
+      async embedBatch(): Promise<Float32Array[]> { throw new Error("offline"); },
+    };
+    const search = new HybridSearch({
+      fts: new FTSSearch(store), vector: new VectorSearch(store), embeddings: unavailable, feedbackStore: store,
+    });
+    const results = await search.search({ query: "shared retrieval", repo_id: "repo-1" });
+    expect(results[0]!.memory.id).toBe(ids[1]);
+    expect(results[0]!.score_breakdown.feedback_adjustment).toBeGreaterThan(0);
+    expect(results[0]!.combined_score).toBe(results[0]!.score_breakdown.final_score);
     store.close();
   });
 });

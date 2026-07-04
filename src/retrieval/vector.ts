@@ -29,7 +29,10 @@ export class VectorSearch {
   constructor(private store: Store) {}
 
   search(options: VectorSearchOptions): VectorSearchResult[] {
-    const all = this.store.getAllMemoriesWithEmbeddings(options.repo_id);
+    const indexed = this.store.searchMemoryVectorIndex(options.query, Math.max((options.limit ?? 20) * 20, 100));
+    const all = indexed === null
+      ? this.store.getAllMemoriesWithEmbeddings(options.repo_id)
+      : indexed.map((hit) => this.store.getMemory(hit.memoryId)).filter((memory): memory is Memory => memory !== null);
     if (all.length === 0) return [];
 
     const cutoff = options.recencyWindowMs
@@ -50,8 +53,9 @@ export class VectorSearch {
 
     if (filtered.length === 0) return [];
 
+    const indexedScores = indexed === null ? null : new Map(indexed.map((hit) => [hit.memoryId, hit.score]));
     const scored: VectorSearchResult[] = filtered.map((m) => {
-      let score = cosineSimilarity(options.query, m.embedding!);
+      let score = indexedScores?.get(m.id) ?? cosineSimilarity(options.query, m.embedding!);
 
       // File-aware boosting: boost memories whose files overlap with
       // the files in the current task (15% per overlapping file).

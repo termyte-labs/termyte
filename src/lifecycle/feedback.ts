@@ -21,7 +21,9 @@ export function feedbackDelta(eventType: MemoryFeedbackEvent): {
 } {
   switch (eventType) {
     case "shown":
-      return { importanceDelta: 0.01, confidenceDelta: 0, usageDelta: 0 };
+      // Exposure is attribution evidence, not usefulness evidence. Boosting on
+      // `shown` creates a self-reinforcing ranking loop.
+      return { importanceDelta: 0, confidenceDelta: 0, usageDelta: 0 };
     case "used":
       return { importanceDelta: 0.06, confidenceDelta: 0.02, usageDelta: 1 };
     case "ignored":

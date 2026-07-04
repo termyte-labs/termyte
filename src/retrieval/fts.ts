@@ -54,7 +54,10 @@ function buildFTSQuery(query: string): string {
     .split(/\s+/)
     .filter(Boolean)
     .map((t) => `"${t.replace(/"/g, '""')}"`)
-    .join(" ");
+    // Natural-language questions contain framing words that rarely appear in
+    // the remembered evidence. OR retrieves a candidate set; BM25, vector
+    // fusion, repository scope, and lifecycle eligibility determine ranking.
+    .join(" OR ");
 }
 
 function mapMemoryRow(row: any): Memory {
@@ -79,6 +82,15 @@ function mapMemoryRow(row: any): Memory {
     embedding,
     lifecycle_state: row.lifecycle_state,
     state: row.state,
+    importance: row.importance,
+    confidence: row.confidence,
+    usage_count: row.usage_count,
+    last_accessed_at: row.last_accessed_at,
+    last_reinforced_at: row.last_reinforced_at,
+    decayed_score: row.decayed_score,
+    content_hash: row.content_hash,
+    canonical_key: row.canonical_key,
+    superseded_by: row.superseded_by,
   };
 }
 

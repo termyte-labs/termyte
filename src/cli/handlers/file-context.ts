@@ -4,11 +4,10 @@
  * them as `additionalContext` so the agent starts with prior knowledge.
  */
 import type { EventHandler } from "../handler-types.js";
-import type { HybridSearch } from "../../retrieval/hybrid.js";
 import type { ContextBuilder } from "../../context/builder.js";
 import { renderHybridResults } from "../../context/builder.js";
 
-export function makeFileContextHandler(deps: { search: HybridSearch; builder: ContextBuilder }): EventHandler {
+export function makeFileContextHandler(deps: { store: import("../../storage/store.js").Store; builder: ContextBuilder }): EventHandler {
   return async ({ event }) => {
     if (event.event_type !== "tool_use" || !event.tool_name) {
       return { handled: true, result: { continue: true, suppressOutput: true } };
@@ -21,11 +20,19 @@ export function makeFileContextHandler(deps: { search: HybridSearch; builder: Co
       return { handled: true, result: { continue: true, suppressOutput: true } };
     }
     try {
-      const results = await deps.search.search({ query: file, limit: 8, currentFiles: [file] });
-      if (results.length === 0) {
+      const session = deps.store.getSession(event.session_id);
+      const context = await deps.builder.build({
+        query: file,
+        repo_id: session?.repo_id ?? undefined,
+        sessionId: event.session_id,
+        currentFiles: [file],
+        maxMemories: 8,
+        surface: "file-context",
+      });
+      if (context.rankedMemories.length === 0) {
         return { handled: true, result: { continue: true, suppressOutput: true } };
       }
-      const text = renderHybridResults(results);
+      const text = renderHybridResults(context.rankedMemories);
       return {
         handled: true,
         result: {

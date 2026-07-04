@@ -3,6 +3,7 @@ import type { Store } from "../storage/store.js";
 import type { HybridSearch, HybridSearchResult } from "../retrieval/hybrid.js";
 import { isMemoryEligible } from "../retrieval/eligibility.js";
 import { randomUUID } from "node:crypto";
+import { scoreMemoryCandidate } from "../retrieval/ranking.js";
 
 export interface ContextInput {
   repo_id?: string;
@@ -16,6 +17,7 @@ export interface ContextInput {
 
 export interface ContextOutput {
   memories: Memory[];
+  rankedMemories: HybridSearchResult[];
   observations: Observation[];
   summary: Summary | null;
   text: string;
@@ -28,20 +30,23 @@ export class ContextBuilder {
   async build(input: ContextInput): Promise<ContextOutput> {
     const limit = input.maxMemories ?? 50;
     const repo_id = input.repo_id;
-    let memories: Memory[];
+    let rankedMemories: HybridSearchResult[];
 
     if (input.query) {
-      const results = await this.search.search({
+      rankedMemories = await this.search.search({
         query: input.query,
         repo_id,
         limit,
         currentFiles: input.currentFiles,
       });
-      memories = results.map((r) => r.memory);
     } else {
-      memories = this.store.getRecentMemories(limit, repo_id).filter((m) => isMemoryEligible(m));
-      memories = memories.slice(0, limit);
+      const recent = this.store.getRecentMemories(limit, repo_id).filter((m) => isMemoryEligible(m));
+      rankedMemories = recent.slice(0, limit).map((memory, index) => {
+        const score_breakdown = scoreMemoryCandidate({ memory, ftsRank: index + 1 });
+        return { memory, combined_score: score_breakdown.final_score, score_breakdown };
+      });
     }
+    const memories = rankedMemories.map((result) => result.memory);
 
     const observations = this.store.getRecentObservations(20, repo_id);
     const summary = repo_id ? this.store.getMostRecentSummaryForRepo(repo_id) : null;
@@ -55,6 +60,15 @@ export class ContextBuilder {
       query: input.query,
       files: input.currentFiles,
       memoryIds: memories.map((m) => m.id),
+      items: rankedMemories.map((result, index) => ({
+        memoryId: result.memory.id,
+        rank: index + 1,
+        score: result.combined_score,
+        ftsRank: result.fts_rank,
+        vectorRank: result.vector_rank,
+        scoreBreakdown: result.score_breakdown,
+        renderedText: renderMemory(result.memory),
+      })),
       surface: input.surface ?? "unknown",
     });
 
@@ -70,7 +84,7 @@ export class ContextBuilder {
       });
     }
 
-    return { memories, observations, summary, text, contextInjectionId: injectionId };
+    return { memories, rankedMemories, observations, summary, text, contextInjectionId: injectionId };
   }
 }
 

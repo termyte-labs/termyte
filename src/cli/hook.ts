@@ -46,7 +46,7 @@ async function main(supervisorOverride?: WorkerSupervisor): Promise<void> {
   const runner = new HookRunner({ store, observer });
   const fts = new FTSSearch(store);
   const vector = new VectorSearch(store);
-  const search = new HybridSearch({ fts, vector, embeddings });
+  const search = new HybridSearch({ fts, vector, embeddings, feedbackStore: store });
   const builder = new ContextBuilder(store, search);
   const supervisor = supervisorOverride ?? createHookSupervisor(config.dbPath);
 

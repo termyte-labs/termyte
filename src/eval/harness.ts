@@ -87,6 +87,7 @@ export async function runRetrievalEval(options: EvalRunOptions = {}): Promise<Ev
     fts: new FTSSearch(store),
     vector: new VectorSearch(store),
     embeddings,
+    feedbackStore: store,
   });
 
   const recallValues: number[] = [];

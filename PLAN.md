@@ -20,7 +20,7 @@ Before implementation, load the lead skill from `.agents/skills`. Load supportin
 ## Current baseline
 
 - Typecheck: passing
-- Tests: 263 passing across 37 files
+- Tests: 279 passing across 40 files
 - Build: passing from source checkout
 - Component evaluation command: passing (leakage removed; honest non-inflated metrics)
 - Package binaries: working — declared and emitted paths align; clean tarball install executes every binary
@@ -169,12 +169,13 @@ Before implementation, load the lead skill from `.agents/skills`. Load supportin
 
 ### FB-002 — Feed lifecycle signals into ranking
 
-- **Status:** pending
+- **Status:** in_progress
 - **Lead:** `retrieval-search-ranking-lead`
 - **Support:** `memory-modeling-knowledge-architecture-lead`, `evaluation-benchmarking-lead`
 - **Depends on:** FB-001, MEM-002
 - **Problem:** importance, confidence, usage, decay, and feedback do not affect ranking.
 - **Deliverables:** transparent scoring features or reranking stage; diagnostic score breakdown; conservative defaults.
+- **Implemented evidence:** added a transparent `RetrievalScoreBreakdown` and bounded 0.75–1.25 multiplier over RRF using confidence, importance, decay, bounded usage, and explicit feedback. Automatic `shown` events no longer mutate importance and are excluded from ranking aggregates. Production CLI, hook, MCP, SDK, eval, and benchmark constructors consume the feedback store. Context injection items persist the complete score breakdown. Focused positive, negative, cap, exposure-loop, reranking, and persistence tests pass. The existing independent retrieval regression reports Recall@5 0.80 but still fails 4/20 cases, so weight calibration and latency/harm evaluation remain open.
 - **Acceptance:** controlled fixtures demonstrate useful reinforcement and harmful-memory suppression without unacceptable recall loss.
 - **Validate:** independent positive/negative corpus, score-breakdown tests, latency benchmark.
 
@@ -288,11 +289,12 @@ Before implementation, load the lead skill from `.agents/skills`. Load supportin
 
 ### OPS-002 — Validate scale and concurrency limits
 
-- **Status:** pending
+- **Status:** in_progress
 - **Lead:** `evaluation-benchmarking-lead`
 - **Support:** `agent-runtime-execution-systems-lead`, `retrieval-search-ranking-lead`
 - **Depends on:** RUN-003, RET-001
-- **Problem:** active vector retrieval scans embedding BLOBs and lifecycle completion has not been tested at production corpus sizes.
+- **Problem:** lifecycle completion and filtered vector retrieval have not been validated at production corpus sizes.
+- **Implemented evidence:** active memory retrieval now writes and queries dimension-specific sqlite-vec cosine indexes, lazily backfills legacy embedding BLOBs, and falls back to the existing in-memory cosine scan when the native extension or index operation is unavailable. Direct sqlite-vec and retrieval/lifecycle tests pass.
 - **Deliverables:** benchmark corpus sizes; latency/memory thresholds; concurrent worker tests; decision on wiring sqlite-vec or retaining bounded scans.
 - **Acceptance:** documented supported limits and no duplicate/corrupt state under expected worker concurrency.
 - **Validate:** repeatable performance suite with p50/p95/p99 and memory usage.
@@ -324,3 +326,33 @@ Termyte may call itself a self-correcting memory layer only when:
 8. sensitive information is redacted before storage and external model calls;
 9. at least one live coding-agent integration passes the full loop repeatedly;
 10. README claims match built and observed behavior.
+
+## Six-week implementation program
+
+### EVAL-004 — Establish the zero-paid benchmark runtime
+
+- **Status:** in_progress
+- **Lead:** `evaluation-benchmarking-lead`
+- **Support:** `retrieval-search-ranking-lead`, `agent-runtime-execution-systems-lead`
+- **Depends on:** EVAL-001
+- **Implemented evidence:** added `MemoryBenchmarkAdapter`, immutable dataset validation, answer-key leakage guards, isolated LongMemEval-S normalization, deterministic seeded scale generation, grep control, Termyte FTS and real local hybrid adapters, multi-adapter runs, Recall/Precision/MRR/NDCG/abstention/harm/latency metrics, dataset SHA-256 manifests, query/failure NDJSON, resource usage, Markdown reports, and the built `termyte bench run` command. Focused benchmark and retrieval tests, the full 274-test suite, typecheck, build, and built local-hybrid smoke pass with `sqlite_vec_active: 1`.
+- **Remaining:** LoCoMo/MemoryAgentBench loaders, raw-session pipeline track, AgentMemory/Mem0/claude-mem adapters, cross-system comparison reports, and full public-dataset result runs. The Termyte adapter now uses active sqlite-vec retrieval when available.
+- **Acceptance:** all approved public retrieval suites and scale tiers run without paid models and emit reproducible artifacts with normalized competitor baselines.
+
+### RUN-004 — Make recurring durable jobs recur safely
+
+- **Status:** completed
+- **Lead:** `agent-runtime-execution-systems-lead`
+- **Support:** `memory-modeling-knowledge-architecture-lead`
+- **Depends on:** RUN-002
+- **Outcome:** added `jobs.dedupe_key` and migrated the old permanent `(kind, subject_type, subject_id)` uniqueness constraint without losing existing job state. Summary jobs key each run to a trace watermark; decay jobs key each run to a UTC day. Identical runs remain idempotent while later runs for the same subject can execute.
+- **Acceptance:** focused queue regression tests, full suite, typecheck, and build pass.
+
+### CTX-002 — Persist normalized ranked injection items
+
+- **Status:** completed
+- **Lead:** `retrieval-search-ranking-lead`
+- **Support:** `agent-runtime-execution-systems-lead`, `evaluation-benchmarking-lead`
+- **Depends on:** CTX-001
+- **Outcome:** added `context_injection_items` with rank, combined score, FTS/vector ranks, and rendered text. `ContextBuilder` preserves ranked results, and file-context routes through it with repository/session attribution instead of bypassing injection tracking.
+- **Acceptance:** focused context and handler tests prove persisted file-context injections; full suite, typecheck, and build pass.

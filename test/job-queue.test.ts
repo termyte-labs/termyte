@@ -14,6 +14,29 @@ beforeEach(() => {
 });
 
 describe("JobQueue", () => {
+  it("migrates the legacy permanent subject uniqueness without losing jobs", () => {
+    const legacy = openDatabase(":memory:");
+    legacy.db.exec(`
+      CREATE TABLE jobs (
+        id TEXT PRIMARY KEY, kind TEXT NOT NULL, subject_type TEXT NOT NULL, subject_id TEXT NOT NULL,
+        state TEXT NOT NULL, attempt_count INTEGER NOT NULL DEFAULT 0, max_attempts INTEGER NOT NULL DEFAULT 5,
+        lease_owner TEXT, lease_until INTEGER, next_run_at INTEGER NOT NULL, last_error TEXT,
+        created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+        UNIQUE(kind, subject_type, subject_id)
+      );
+      INSERT INTO jobs VALUES ('legacy', 'update_summary', 'summary', 's1', 'succeeded', 1, 5, NULL, NULL, 0, NULL, 1, 2);
+    `);
+
+    runMigrations(legacy.db);
+    const migrated = new JobQueue(legacy.db);
+    expect(migrated.getJob("legacy")?.dedupeKey).toBe("once");
+    expect(migrated.getJob("legacy")?.state).toBe("succeeded");
+    expect(migrated.enqueueJob({
+      kind: "update_summary", subjectType: "summary", subjectId: "s1", dedupeKey: "trace:2", id: "next",
+    }).id).toBe("next");
+    legacy.db.close();
+  });
+
   it("enqueues jobs idempotently by kind and subject", () => {
     const first = queue.enqueueJob({
       kind: "extract_observation",
@@ -33,6 +56,38 @@ describe("JobQueue", () => {
 
     expect(second.id).toBe(first.id);
     expect(queue.getQueueStats().pending).toBe(1);
+  });
+
+  it("allows recurring jobs for the same subject when the dedupe key advances", () => {
+    const first = queue.enqueueJob({
+      kind: "update_summary",
+      subjectType: "summary",
+      subjectId: "sess-1",
+      dedupeKey: "trace:10",
+      id: "summary-10",
+      nowMs: 100,
+    });
+    const duplicate = queue.enqueueJob({
+      kind: "update_summary",
+      subjectType: "summary",
+      subjectId: "sess-1",
+      dedupeKey: "trace:10",
+      id: "duplicate",
+      nowMs: 101,
+    });
+    const next = queue.enqueueJob({
+      kind: "update_summary",
+      subjectType: "summary",
+      subjectId: "sess-1",
+      dedupeKey: "trace:11",
+      id: "summary-11",
+      nowMs: 102,
+    });
+
+    expect(duplicate.id).toBe(first.id);
+    expect(next.id).toBe("summary-11");
+    expect(next.dedupeKey).toBe("trace:11");
+    expect(queue.getQueueStats().pending).toBe(2);
   });
 
   it("claims one ready job atomically and leases it", () => {

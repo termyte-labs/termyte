@@ -64,6 +64,13 @@ describe("CTX-001 context injection persistence", () => {
     expect(record!.query).toBe("fact");
     expect(record!.files).toEqual(["src/a.ts"]);
     expect(record!.memory_ids.length).toBeGreaterThan(0);
+    const items = store.getContextInjectionItems(out.contextInjectionId);
+    expect(items).toHaveLength(record!.memory_ids.length);
+    expect(items[0]!.rank).toBe(1);
+    expect(items[0]!.score).toBeGreaterThan(0);
+    expect(items[0]!.rendered_text).toContain("Fact");
+    expect(items[0]!.score_breakdown.final_score).toBe(items[0]!.score);
+    expect(items[0]!.score_breakdown.base_score).toBeGreaterThan(0);
   });
 
   it("each build call produces a unique injection ID", async () => {
@@ -89,5 +96,7 @@ describe("CTX-001 context injection persistence", () => {
     expect(table).toBeTruthy();
     const indexes = store.getDB().prepare(`SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_context_injections%'`).all() as Array<{ name: string }>;
     expect(indexes.length).toBeGreaterThanOrEqual(3);
+    const itemsTable = store.getDB().prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='context_injection_items'`).get();
+    expect(itemsTable).toBeTruthy();
   });
 });

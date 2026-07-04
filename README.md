@@ -14,20 +14,21 @@ Implemented:
 - LLM extraction from traces to observations and consolidation from observations to memories;
 - trace-to-observation-to-memory provenance;
 - local embeddings through Transformers.js;
-- memory FTS5 and in-memory cosine retrieval fused with reciprocal-rank fusion;
+- memory FTS5 and sqlite-vec cosine retrieval fused with reciprocal-rank fusion, with an in-memory cosine fallback;
 - typed FTS retrieval for traces, observations, memories, summaries, and episodes through the document corpus;
 - MCP tools, hook handlers, local diagnostics, lifecycle fields, and explicit feedback persistence;
+- attributable context injections with ordered retrieval scores and rendered items;
+- a zero-paid retrieval benchmark runner with leakage checks and reproducible artifacts;
 - deterministic unit and integration tests.
 
-Incomplete or currently broken:
+Incomplete:
 
 - installed hooks automatically start a detached `termyte-worker` to drain the durable queue, but only one worker runs per database and processing requires `TERMYTE_LLM_API_KEY`;
-- deduplication and summary jobs are declared but currently execute as no-ops;
-- decay and deduplication algorithms are not connected to production workers;
-- stale, conflicted, superseded, and deleted memories are not excluded from default memory retrieval;
-- context injection IDs and automatic outcome attribution are not implemented;
-- the sqlite-vec document index exists but is not used by the active retrieval path;
-- retrieval evaluation currently leaks expected query terms into candidate documents and is not product-quality evidence;
+- automatic outcome attribution is not implemented;
+- correction text is not yet verified against repository evidence;
+- confidence, importance, decay, usage, and explicit feedback affect ranking through a bounded multiplier; calibration on public corpora remains incomplete;
+- sqlite-vec retrieval uses bounded candidate overfetch before lifecycle/repository filtering; filtered corpora still need scale validation;
+- public benchmark dataset loaders, competitor adapters, and the pipeline benchmark track are not implemented;
 
 Do not describe the current version as self-correcting. The target loop is:
 
@@ -76,6 +77,7 @@ The schema is defined in `src/storage/migrations.ts` and includes:
 - `summaries`: session summaries;
 - `memory_edges`: relationship schema for support, contradiction, supersession, and duplication;
 - `memory_feedback`: explicit shown/used/ignored/downranked/corrected events;
+- `context_injections` and `context_injection_items`: attributed retrieval sets and ordered score evidence;
 - `documents`: typed searchable corpus;
 - `document_embeddings`: metadata for sqlite-vec document embeddings.
 
@@ -119,6 +121,9 @@ termyte session <id> [--json]
 termyte sessions [--limit n]
 termyte install <platform> [--target user|project]
 termyte eval [--suite retrieval|durability|lifecycle|all] [--json]
+termyte bench run [--dataset <path>] [--suite custom|longmemeval|scale]
+                  [--size n] [--track retrieval]
+                  [--adapter grep,fts,termyte] [--output directory] [--seed n]
 termyte viewer [--host 127.0.0.1] [--port 7331]
 termyte synth [options]
 termyte stats
@@ -148,13 +153,13 @@ Memory retrieval uses:
 
 1. FTS5 over `memories_fts`;
 2. local query embeddings;
-3. cosine similarity over persisted memory BLOBs;
+3. cosine search through a dimension-specific sqlite-vec index, with persisted memory-BLOB scanning when the native extension is unavailable;
 4. reciprocal-rank fusion with `k = 60`;
 5. optional file-overlap boosting in the vector branch.
 
 When embeddings fail, hybrid search degrades to FTS-only. Non-memory typed retrieval uses `documents_fts` and does not initialize embeddings.
 
-Default memory retrieval enforces lifecycle eligibility: only `active` memories are returned by FTS, vector, recent-memory context, MCP, and the CLI. Stale, conflicted, superseded, deleted, and failed memories are excluded by default; pass `--all-states` to `termyte search` / `termyte memories` for a diagnostic override. Ranking does not yet apply confidence, importance, decay, or feedback. Treat retrieved memories as unverified context.
+Default memory retrieval enforces lifecycle eligibility: only `active` memories are returned by FTS, vector, recent-memory context, MCP, and the CLI. Stale, conflicted, superseded, deleted, and failed memories are excluded by default; pass `--all-states` to `termyte search` / `termyte memories` for a diagnostic override. Eligible candidates are fused with RRF and then adjusted by a bounded 0.75–1.25 multiplier using confidence, importance, decay, bounded usage, and explicit feedback. Automatic `shown` events are attribution-only and do not reinforce ranking. JSON search and persisted injection items expose the score breakdown. Treat retrieved memories as unverified context while calibration remains incomplete.
 
 ## Testing and evidence
 
@@ -168,6 +173,8 @@ node dist/cli/index.js eval --suite all --json
 The test suite is deterministic and network-free. It uses in-memory SQLite, canned LLM XML, and fixed embeddings. Passing tests prove component behavior, not live agent compatibility or improved agent outcomes.
 
 The current retrieval evaluation is a regression harness, not credible public benchmark evidence. `EVAL-001` and later tasks in `PLAN.md` replace it with independently labeled corpora and controlled agent trials.
+
+`termyte bench run` accepts an immutable JSON corpus containing `documents` and independently judged `queries`, the official LongMemEval-S shape, or a deterministic synthetic scale corpus. It writes `manifest.json`, per-query and failure NDJSON, aggregate metrics, resource usage, and `report.md`. `grep` is the lexical control, `fts` exercises Termyte FTS, and `termyte` runs the actual local FTS + embedding + vector-scan + RRF path using BGE Small by default. The model may download on first use. Pipeline evaluation, LoCoMo/MemoryAgentBench loaders, sqlite-vec retrieval, and external competitor adapters remain planned.
 
 ## Security and data handling
 

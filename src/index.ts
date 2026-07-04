@@ -102,7 +102,7 @@ export function createTermyte(options: TermyteOptions): TermyteInstance {
   const observer = new Observer({ store, llm, embeddings });
   const fts = new FTSSearch(store);
   const vector = new VectorSearch(store);
-  const search = new HybridSearch({ fts, vector, embeddings });
+  const search = new HybridSearch({ fts, vector, embeddings, feedbackStore: store });
   const context = new ContextBuilder(store, search);
   const runner = new HookRunner({ store, observer });
   return { store, observer, runner, search, context, close: () => store.close() };

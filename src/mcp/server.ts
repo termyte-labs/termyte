@@ -54,7 +54,7 @@ class TermyteMcpServer {
     }
     const fts = new FTSSearch(this.store);
     const vector = new VectorSearch(this.store);
-    this.search = new HybridSearch({ fts, vector, embeddings: this.embeddings });
+    this.search = new HybridSearch({ fts, vector, embeddings: this.embeddings, feedbackStore: this.store });
     this.contextBuilder = new ContextBuilder(this.store, this.search);
     this.documents = new DocumentStore(this.store.getDB());
   }

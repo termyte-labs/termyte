@@ -115,7 +115,7 @@ describe("memoryDecayScore", () => {
 describe("feedback lifecycle math", () => {
   it("returns deterministic deltas and default weights", () => {
     expect(feedbackDelta("shown")).toEqual({
-      importanceDelta: 0.01,
+      importanceDelta: 0,
       confidenceDelta: 0,
       usageDelta: 0,
     });

@@ -24,6 +24,7 @@ export interface Job {
   kind: JobKind;
   subjectType: JobSubjectType;
   subjectId: string;
+  dedupeKey: string;
   state: JobState;
   attemptCount: number;
   maxAttempts: number;
@@ -39,6 +40,7 @@ export interface EnqueueJobInput {
   kind: JobKind;
   subjectType: JobSubjectType;
   subjectId: string | number;
+  dedupeKey?: string;
   id?: string;
   maxAttempts?: number;
   nextRunAt?: number;
@@ -60,6 +62,7 @@ export class JobQueue {
     const nowMs = input.nowMs ?? Date.now();
     const id = input.id ?? createJobId();
     const subjectId = String(input.subjectId);
+    const dedupeKey = input.dedupeKey ?? "once";
 
     this.db.prepare(`
       INSERT OR IGNORE INTO jobs (
@@ -67,6 +70,7 @@ export class JobQueue {
         kind,
         subject_type,
         subject_id,
+        dedupe_key,
         state,
         attempt_count,
         max_attempts,
@@ -79,6 +83,7 @@ export class JobQueue {
         @kind,
         @subjectType,
         @subjectId,
+        @dedupeKey,
         'pending',
         0,
         @maxAttempts,
@@ -91,13 +96,14 @@ export class JobQueue {
       kind: input.kind,
       subjectType: input.subjectType,
       subjectId,
+      dedupeKey,
       maxAttempts: input.maxAttempts ?? 5,
       nextRunAt: input.nextRunAt ?? nowMs,
       createdAt: nowMs,
       updatedAt: nowMs,
     });
 
-    const job = this.getBySubject(input.kind, input.subjectType, subjectId);
+    const job = this.getBySubject(input.kind, input.subjectType, subjectId, dedupeKey);
     if (!job) {
       throw new Error(`Failed to enqueue job ${input.kind}:${input.subjectType}:${subjectId}`);
     }
@@ -223,12 +229,12 @@ export class JobQueue {
     return row ? mapJob(row) : null;
   }
 
-  private getBySubject(kind: JobKind, subjectType: JobSubjectType, subjectId: string): Job | null {
+  private getBySubject(kind: JobKind, subjectType: JobSubjectType, subjectId: string, dedupeKey: string): Job | null {
     const row = this.db.prepare(`
       SELECT *
       FROM jobs
-      WHERE kind = ? AND subject_type = ? AND subject_id = ?
-    `).get(kind, subjectType, subjectId);
+      WHERE kind = ? AND subject_type = ? AND subject_id = ? AND dedupe_key = ?
+    `).get(kind, subjectType, subjectId, dedupeKey);
     return row ? mapJob(row) : null;
   }
 
@@ -265,6 +271,7 @@ function mapJob(row: any): Job {
     kind: row.kind,
     subjectType: row.subject_type,
     subjectId: row.subject_id,
+    dedupeKey: row.dedupe_key,
     state: row.state,
     attemptCount: row.attempt_count,
     maxAttempts: row.max_attempts,

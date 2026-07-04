@@ -11,6 +11,7 @@
  *   sessions           [--limit n]
  *   install   <platform> [--target user|project]
  *   eval               [--suite retrieval|durability|lifecycle|all] [--json]
+ *   bench run          --dataset path [--track retrieval|pipeline] [--adapter fts|termyte] [--output dir]
  *   viewer             [--host 127.0.0.1] [--port 7331]
  *   mcp                (stdio server for MCP-capable IDEs)
  *   help
@@ -35,6 +36,7 @@ Usage:
   termyte sessions           [--limit n]
   termyte install   <platform> [--target user|project]
   termyte eval      [--suite retrieval|durability|lifecycle|all] [--json]
+  termyte bench run [--dataset <path>] [--suite custom|longmemeval|scale] [--size n] [--track retrieval|pipeline] [--adapter grep,fts,termyte] [--embedding-model bge-small|nomic-embed] [--output dir] [--seed n]
   termyte viewer    [--host 127.0.0.1] [--port 7331]
   termyte synth     [options]              (generate observations from captured traces)
   termyte stats                                 (local stats — no network)
@@ -162,6 +164,12 @@ async function main(): Promise<void> {
           json: opts["json"] === true,
         });
         process.exit(0);
+      }
+      case "bench": {
+        if (positional[0] !== "run") throw new Error("usage: termyte bench run --dataset <path>");
+        const mod = await import("./bench.js");
+        await mod.benchCommand(opts);
+        break;
       }
       case "viewer": {
         const mod = await import("./viewer.js");

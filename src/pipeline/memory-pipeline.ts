@@ -351,11 +351,13 @@ export class MemoryPipeline {
         kind: "update_summary",
         subjectType: "summary",
         subjectId: memory.session_id,
+        dedupeKey: `trace:${Math.max(0, ...memory.source_trace_ids)}`,
       });
       this.queue.enqueueJob({
         kind: "decay_memories",
         subjectType: "memory",
         subjectId: memory.repo_id || "global",
+        dedupeKey: new Date().toISOString().slice(0, 10),
       });
     });
   }

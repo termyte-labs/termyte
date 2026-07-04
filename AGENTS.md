@@ -35,7 +35,7 @@ Implemented:
 - durable jobs with leases, retries, backoff, idempotent subject keys, and dead-letter state;
 - hook-initiated worker supervision: `termyte-hook` starts a detached, single-instance-locked `termyte-worker` after each ingest;
 - trace to observation to memory processing with provenance;
-- local embeddings, FTS5, in-memory cosine search, and reciprocal-rank fusion;
+- local embeddings, FTS5, sqlite-vec cosine search with an in-memory fallback, and reciprocal-rank fusion;
 - typed document retrieval for trace, observation, memory, summary, and episode documents;
 - hook context handlers, MCP tools, explicit memory feedback persistence, and local diagnostics;
 - deterministic unit and integration tests.
@@ -43,9 +43,9 @@ Implemented:
 Known incomplete behavior:
 
 - decay helpers have no production caller (dedupe now runs as a durable job);
-- memory retrieval ignores lifecycle state, confidence, importance, decay, and feedback (lifecycle eligibility is now enforced; confidence/importance/decay/feedback still do not affect ranking);
+- lifecycle eligibility and bounded confidence/importance/decay/usage/feedback ranking are active; public-corpus calibration and automatic outcome attribution remain incomplete;
 - context injection IDs and automatic outcome attribution are absent;
-- sqlite-vec indexing is scaffolded but unused by active search;
+- sqlite-vec memory search is active; typed document-vector retrieval remains scaffolded;
 - MCP `explain` and MCP health fields are placeholders;
 - OpenCode writes placeholder context instead of real memory context;
 - retrieval evaluation contaminates candidates with expected terms;
@@ -252,10 +252,10 @@ For package work, install the tarball into a clean temporary project and execute
 
 ## Important implementation traps
 
-1. Feedback updates memory fields but ranking ignores them.
+1. Ranking consumes feedback and lifecycle fields, but its bounded weights are not yet calibrated on public corpora.
 2. Context returns no injection identity, preventing outcome attribution.
 3. The evaluation harness injects expected keywords and queries into candidates.
-4. `SqliteVecIndex` exists but the active vector search scans memory BLOBs.
+4. sqlite-vec memory search uses bounded candidate overfetch before lifecycle and repository filtering; validate filtered-corpus recall at scale.
 5. OpenCode writes placeholder context instead of real memory context.
 
 ## Documentation protocol

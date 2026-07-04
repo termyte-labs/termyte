@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS jobs (
   kind TEXT NOT NULL,
   subject_type TEXT NOT NULL,
   subject_id TEXT NOT NULL,
+  dedupe_key TEXT NOT NULL DEFAULT 'once',
   state TEXT NOT NULL CHECK(state IN
     ('pending', 'leased', 'succeeded', 'failed', 'dead')),
   attempt_count INTEGER NOT NULL DEFAULT 0,
@@ -71,7 +72,7 @@ CREATE TABLE IF NOT EXISTS jobs (
   last_error TEXT,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
-  UNIQUE(kind, subject_type, subject_id)
+  UNIQUE(kind, subject_type, subject_id, dedupe_key)
 );
 CREATE INDEX IF NOT EXISTS jobs_ready_idx ON jobs(state, next_run_at, kind);
 CREATE INDEX IF NOT EXISTS jobs_lease_idx ON jobs(state, lease_until);
@@ -314,14 +315,78 @@ CREATE TABLE IF NOT EXISTS context_injections (
 CREATE INDEX IF NOT EXISTS idx_context_injections_session ON context_injections(session_id);
 CREATE INDEX IF NOT EXISTS idx_context_injections_repo ON context_injections(repo_id);
 CREATE INDEX IF NOT EXISTS idx_context_injections_created ON context_injections(created_at DESC);
+
+CREATE TABLE IF NOT EXISTS context_injection_items (
+  injection_id TEXT NOT NULL REFERENCES context_injections(id) ON DELETE CASCADE,
+  memory_id INTEGER NOT NULL REFERENCES memories(id),
+  rank INTEGER NOT NULL,
+  score REAL NOT NULL,
+  fts_rank INTEGER,
+  vector_rank INTEGER,
+  score_breakdown_json TEXT NOT NULL DEFAULT '{}',
+  rendered_text TEXT NOT NULL,
+  PRIMARY KEY (injection_id, memory_id)
+);
+CREATE INDEX IF NOT EXISTS idx_context_injection_items_memory
+  ON context_injection_items(memory_id);
 `;
 
 export function runMigrations(db: DB): void {
   db.exec(SCHEMA);
+  ensureJobDedupeKeys(db);
   ensurePipelineColumns(db);
   ensureLifecycleColumns(db);
   ensureProvenanceLinks(db);
   ensureFeedbackColumns(db);
+  ensureContextInjectionColumns(db);
+}
+
+/**
+ * Older databases made a job unique forever by kind and subject. That blocked
+ * recurring summary and decay work after the first successful run. SQLite
+ * cannot alter a table-level UNIQUE constraint, so rebuild the table once and
+ * preserve every queued, leased, failed, and completed row.
+ */
+function ensureJobDedupeKeys(db: DB): void {
+  const columns = db.prepare(`PRAGMA table_info(jobs)`).all() as Array<{ name: string }>;
+  if (columns.some((column) => column.name === "dedupe_key")) return;
+
+  db.transaction(() => {
+    db.exec(`
+      ALTER TABLE jobs RENAME TO jobs_legacy;
+      CREATE TABLE jobs (
+        id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL,
+        subject_type TEXT NOT NULL,
+        subject_id TEXT NOT NULL,
+        dedupe_key TEXT NOT NULL DEFAULT 'once',
+        state TEXT NOT NULL CHECK(state IN ('pending', 'leased', 'succeeded', 'failed', 'dead')),
+        attempt_count INTEGER NOT NULL DEFAULT 0,
+        max_attempts INTEGER NOT NULL DEFAULT 5,
+        lease_owner TEXT,
+        lease_until INTEGER,
+        next_run_at INTEGER NOT NULL,
+        last_error TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        UNIQUE(kind, subject_type, subject_id, dedupe_key)
+      );
+      INSERT INTO jobs (
+        id, kind, subject_type, subject_id, dedupe_key, state,
+        attempt_count, max_attempts, lease_owner, lease_until, next_run_at,
+        last_error, created_at, updated_at
+      )
+      SELECT
+        id, kind, subject_type, subject_id, 'once', state,
+        attempt_count, max_attempts, lease_owner, lease_until, next_run_at,
+        last_error, created_at, updated_at
+      FROM jobs_legacy;
+      DROP TABLE jobs_legacy;
+      CREATE INDEX jobs_ready_idx ON jobs(state, next_run_at, kind);
+      CREATE INDEX jobs_lease_idx ON jobs(state, lease_until);
+      CREATE INDEX jobs_subject_idx ON jobs(subject_type, subject_id);
+    `);
+  })();
 }
 
 function ensurePipelineColumns(db: DB): void {
@@ -362,6 +427,10 @@ function addColumnIfMissing(db: DB, table: string, column: string, ddl: string):
 
 function ensureFeedbackColumns(db: DB): void {
   addColumnIfMissing(db, "memory_feedback", "correction_text", "TEXT");
+}
+
+function ensureContextInjectionColumns(db: DB): void {
+  addColumnIfMissing(db, "context_injection_items", "score_breakdown_json", "TEXT NOT NULL DEFAULT '{}'");
 }
 
 function safeParseIntArray(raw: string): number[] {

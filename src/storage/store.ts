@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import { openDatabase, closeDatabase, defaultDbPath, type DB, type DatabaseContext } from "./connection.js";
 import { runMigrations } from "./migrations.js";
 import { applyFeedback } from "../lifecycle/feedback.js";
+import { MemoryVecIndex, type MemoryVectorHit } from "../indexing/memory-vec-index.js";
+import type { RetrievalScoreBreakdown } from "../retrieval/ranking.js";
 import type {
   Memory,
   MemoryFeedbackEvent,
@@ -18,6 +20,8 @@ import type {
 } from "../core/types.js";
 
 export class Store {
+  private readonly memoryVecIndexes = new Map<number, MemoryVecIndex>();
+  private readonly memoryVecBackfilled = new Set<number>();
   private ctx: DatabaseContext;
 
   constructor(dbPathOrCtx: string | DatabaseContext = defaultDbPath()) {
@@ -357,12 +361,60 @@ export class Store {
       memory.created_at,
       memory.embedding ? toEmbeddingBuffer(memory.embedding) : null,
     );
-    return { id: info.lastInsertRowid as number, ...memory, lifecycle_state: "active" };
+    const inserted: Memory = { id: info.lastInsertRowid as number, ...memory, lifecycle_state: "active" };
+    if (memory.embedding) this.upsertMemoryVector(inserted.id, memory.embedding);
+    return inserted;
   }
 
   updateMemoryEmbedding(id: number, embedding: Float32Array): void {
     this.ctx.db.prepare(`UPDATE memories SET embedding = ? WHERE id = ?`)
       .run(toEmbeddingBuffer(embedding), id);
+    this.upsertMemoryVector(id, embedding);
+  }
+
+  /** Search sqlite-vec when available. Returns null to request scan fallback. */
+  searchMemoryVectorIndex(query: Float32Array, limit: number): MemoryVectorHit[] | null {
+    const index = this.memoryVectorIndex(query.length);
+    if (!index) return null;
+    try {
+      if (!this.memoryVecBackfilled.has(query.length)) {
+        for (const memory of this.getAllMemoriesWithEmbeddings()) {
+          if (memory.embedding?.length === query.length) index.upsert(memory.id, memory.embedding);
+        }
+        this.memoryVecBackfilled.add(query.length);
+      }
+      return index.search(query, limit);
+    } catch {
+      // A native extension failure must not remove local vector retrieval.
+      // Returning null tells VectorSearch to use its cosine-scan fallback.
+      this.memoryVecIndexes.delete(query.length);
+      this.memoryVecBackfilled.delete(query.length);
+      return null;
+    }
+  }
+
+  isMemoryVectorIndexAvailable(dimensions: number): boolean {
+    return this.memoryVectorIndex(dimensions) !== null;
+  }
+
+  private upsertMemoryVector(id: number, embedding: Float32Array): void {
+    const index = this.memoryVectorIndex(embedding.length);
+    if (!index) return;
+    try {
+      index.upsert(id, embedding);
+    } catch {
+      // The embedding BLOB remains authoritative and VectorSearch can scan it.
+      this.memoryVecIndexes.delete(embedding.length);
+      this.memoryVecBackfilled.delete(embedding.length);
+    }
+  }
+
+  private memoryVectorIndex(dimensions: number): MemoryVecIndex | null {
+    const existing = this.memoryVecIndexes.get(dimensions);
+    if (existing) return existing.isAvailable() ? existing : null;
+    const index = new MemoryVecIndex(this.ctx.db, dimensions);
+    this.memoryVecIndexes.set(dimensions, index);
+    return index.ensureSchema() ? index : null;
   }
 
   updateMemoryLifecycleState(id: number, state: MemoryLifecycleState): void {
@@ -419,17 +471,25 @@ export class Store {
     query?: string;
     files?: string[];
     memoryIds: number[];
+    items?: Array<{
+      memoryId: number;
+      rank: number;
+      score: number;
+      ftsRank?: number;
+      vectorRank?: number;
+      scoreBreakdown?: RetrievalScoreBreakdown;
+      renderedText: string;
+    }>;
     surface: string;
     nowMs?: number;
   }): void {
     const nowMs = input.nowMs ?? Date.now();
-    this.ctx.db
-      .prepare(
+    this.transaction(() => {
+      this.ctx.db.prepare(
         `INSERT OR REPLACE INTO context_injections
            (id, session_id, repo_id, query, files_json, memory_ids_json, surface, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
+      ).run(
         input.id,
         input.sessionId ?? null,
         input.repoId ?? null,
@@ -439,6 +499,58 @@ export class Store {
         input.surface,
         nowMs,
       );
+      const insertItem = this.ctx.db.prepare(`
+        INSERT OR REPLACE INTO context_injection_items
+          (injection_id, memory_id, rank, score, fts_rank, vector_rank, score_breakdown_json, rendered_text)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      for (const item of input.items ?? []) {
+        insertItem.run(
+          input.id,
+          item.memoryId,
+          item.rank,
+          item.score,
+          item.ftsRank ?? null,
+          item.vectorRank ?? null,
+          serialize(item.scoreBreakdown ?? {}),
+          item.renderedText,
+        );
+      }
+    });
+  }
+
+  getContextInjectionItems(injectionId: string): Array<{
+    memory_id: number;
+    rank: number;
+    score: number;
+    fts_rank: number | null;
+    vector_rank: number | null;
+    score_breakdown: Record<string, number>;
+    rendered_text: string;
+  }> {
+    const rows = this.ctx.db.prepare(`
+      SELECT memory_id, rank, score, fts_rank, vector_rank, score_breakdown_json, rendered_text
+      FROM context_injection_items
+      WHERE injection_id = ?
+      ORDER BY rank ASC
+    `).all(injectionId) as Array<{
+      memory_id: number;
+      rank: number;
+      score: number;
+      fts_rank: number | null;
+      vector_rank: number | null;
+      score_breakdown_json: string;
+      rendered_text: string;
+    }>;
+    return rows.map((row) => ({
+      memory_id: row.memory_id,
+      rank: row.rank,
+      score: row.score,
+      fts_rank: row.fts_rank,
+      vector_rank: row.vector_rank,
+      score_breakdown: parseJSON<Record<string, number>>(row.score_breakdown_json, {}),
+      rendered_text: row.rendered_text,
+    }));
   }
 
   /** Retrieve a context injection by ID. */
@@ -601,6 +713,20 @@ export class Store {
     });
 
     return { recorded: true, memoryId };
+  }
+
+  /** Aggregate explicit behavioral feedback for bounded query-time ranking.
+   * Automatic `shown` events are excluded to prevent exposure feedback loops. */
+  getMemoryFeedbackScores(memoryIds: number[]): Map<number, number> {
+    if (memoryIds.length === 0) return new Map();
+    const placeholders = memoryIds.map(() => "?").join(",");
+    const rows = this.ctx.db.prepare(`
+      SELECT memory_id, SUM(weight) AS score
+      FROM memory_feedback
+      WHERE memory_id IN (${placeholders}) AND event_type <> 'shown'
+      GROUP BY memory_id
+    `).all(...memoryIds) as Array<{ memory_id: number; score: number }>;
+    return new Map(rows.map((row) => [row.memory_id, Math.max(-1, Math.min(1, row.score))]));
   }
 
   /** List dead-lettered jobs with their error details. */

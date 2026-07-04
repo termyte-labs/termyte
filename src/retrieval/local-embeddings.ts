@@ -32,7 +32,9 @@ const MODEL_CONFIGS: Record<LocalModelId, { name: string; dimensions: number }> 
     dimensions: 768,
   },
   "bge-small": {
-    name: "BAAI/bge-small-en-v1.5",
+    // The upstream BAAI repository does not ship the ONNX file expected by
+    // Transformers.js v2. Xenova publishes the compatible converted weights.
+    name: "Xenova/bge-small-en-v1.5",
     dimensions: 384,
   },
 };
