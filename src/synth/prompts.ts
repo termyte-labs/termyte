@@ -77,14 +77,16 @@ export function buildBatchPrompt(traces: SynthesisTraceInput[]): string {
 }
 
 function formatTrace(t: SynthesisTraceInput): string {
+  const redactedInput = redactValue(t.tool_input, "trace.tool_input").value;
+  const redactedOutput = redactValue(t.tool_output, "trace.tool_output").value;
   const lines: string[] = [];
   lines.push("<trace>");
   lines.push(`  <id>${t.id}</id>`);
   lines.push(`  <time>${new Date(t.timestamp).toISOString()}</time>`);
-  if (t.user_prompt) lines.push(`  <user_prompt>${escape(t.user_prompt)}</user_prompt>`);
+  if (t.user_prompt) lines.push(`  <user_prompt>${escape(redactText(t.user_prompt, "trace.user_prompt"))}</user_prompt>`);
   lines.push(`  <tool>${escape(t.tool_name ?? "unknown")}</tool>`);
-  if (t.tool_input != null) lines.push(`  <input>${escape(truncate(stringify(t.tool_input)))}</input>`);
-  if (t.tool_output != null) lines.push(`  <output>${escape(truncate(stringify(t.tool_output)))}</output>`);
+  if (redactedInput != null) lines.push(`  <input>${escape(truncate(stringify(redactedInput)))}</input>`);
+  if (redactedOutput != null) lines.push(`  <output>${escape(truncate(stringify(redactedOutput)))}</output>`);
   lines.push("</trace>");
   return lines.join("\n");
 }
@@ -101,3 +103,4 @@ function truncate(s: string, max = 4000): string {
 function escape(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
+import { redactText, redactValue } from "../security/redaction.js";

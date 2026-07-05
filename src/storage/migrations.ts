@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS traces (
   files_modified TEXT,
   user_prompt TEXT,
   final_response TEXT,
+  redaction_json TEXT NOT NULL DEFAULT '{}',
   processed_at INTEGER,
   FOREIGN KEY (session_id) REFERENCES sessions(session_id)
 );
@@ -391,6 +392,7 @@ function ensureJobDedupeKeys(db: DB): void {
 
 function ensurePipelineColumns(db: DB): void {
   addColumnIfMissing(db, "traces", "pipeline_state", "TEXT DEFAULT 'captured'");
+  addColumnIfMissing(db, "traces", "redaction_json", "TEXT NOT NULL DEFAULT '{}'");
   addColumnIfMissing(db, "observations", "lifecycle_state", "TEXT DEFAULT 'extracting'");
   addColumnIfMissing(db, "memories", "lifecycle_state", "TEXT DEFAULT 'consolidating'");
 

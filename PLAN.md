@@ -207,7 +207,7 @@ Before implementation, load the lead skill from `.agents/skills`. Load supportin
 
 ### CODE-001 — Normalize code evidence and repository scope
 
-- **Status:** pending
+- **Status:** completed
 - **Lead:** `code-intelligence-lead`
 - **Support:** `agent-runtime-execution-systems-lead`
 - **Depends on:** RUN-001
@@ -267,12 +267,13 @@ Before implementation, load the lead skill from `.agents/skills`. Load supportin
 
 ### SEC-001 — Redact sensitive data before persistence and LLM calls
 
-- **Status:** pending
+- **Status:** completed
 - **Lead:** `agent-runtime-execution-systems-lead`
 - **Support:** `code-intelligence-lead`, `evaluation-benchmarking-lead`
 - **Depends on:** none
 - **Problem:** raw prompts, commands, inputs, and outputs may contain credentials or secrets.
 - **Deliverables:** deterministic redaction pipeline; configurable allow/deny rules; redaction metadata; safe failure behavior.
+- **Outcome:** added a deterministic recursive redaction layer in `src/security/redaction.ts`; `Store.insertTrace()` now redacts and persists trace payloads plus `redaction_json` metadata before they hit SQLite; observer and synthesis prompt builders now sanitize tool inputs, tool outputs, user prompts, and final responses before external LLM calls; added adversarial tests for recursive secrets, JWT/bearer/API key/url-credential/private-key formats, and prompt sanitization.
 - **Acceptance:** known secret formats never appear in persisted traces, prompts sent to external LLMs, logs, or rendered context.
 - **Validate:** adversarial secret corpus, encoded/multiline variants, false-positive review.
 
@@ -295,7 +296,7 @@ Before implementation, load the lead skill from `.agents/skills`. Load supportin
 - **Support:** `agent-runtime-execution-systems-lead`, `retrieval-search-ranking-lead`
 - **Depends on:** RUN-003, RET-001
 - **Problem:** lifecycle completion and filtered vector retrieval have not been validated at production corpus sizes.
-- **Implemented evidence:** active memory retrieval now writes and queries dimension-specific sqlite-vec cosine indexes, lazily backfills legacy embedding BLOBs, and falls back to the existing in-memory cosine scan when the native extension or index operation is unavailable. Direct sqlite-vec and retrieval/lifecycle tests pass.
+- **Implemented evidence:** active memory retrieval now writes and queries dimension-specific sqlite-vec cosine indexes, lazily backfills legacy embedding BLOBs, and falls back to the existing in-memory cosine scan when the native extension or index operation is unavailable. Direct sqlite-vec and retrieval/lifecycle tests pass. Added a queue-concurrency regression that leases 50 jobs across two workers on one database without duplicate claims or stale pending state.
 - **Deliverables:** benchmark corpus sizes; latency/memory thresholds; concurrent worker tests; decision on wiring sqlite-vec or retaining bounded scans.
 - **Acceptance:** documented supported limits and no duplicate/corrupt state under expected worker concurrency.
 - **Validate:** repeatable performance suite with p50/p95/p99 and memory usage.
@@ -357,3 +358,4 @@ Termyte may call itself a self-correcting memory layer only when:
 - **Depends on:** CTX-001
 - **Outcome:** added `context_injection_items` with rank, combined score, FTS/vector ranks, and rendered text. `ContextBuilder` preserves ranked results, and file-context routes through it with repository/session attribution instead of bypassing injection tracking.
 - **Acceptance:** focused context and handler tests prove persisted file-context injections; full suite, typecheck, and build pass.
+

@@ -94,6 +94,10 @@ export interface Trace {
   files_modified: string[] | null;
   user_prompt: string | null;
   final_response: string | null;
+  redaction?: {
+    applied: boolean;
+    findings: string[];
+  } | null;
   /** Internal: when the observer consumed this trace. null = unprocessed. */
   processed_at: number | null;
   pipeline_state?: TracePipelineState;

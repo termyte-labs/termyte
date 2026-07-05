@@ -80,13 +80,15 @@ export interface TraceForPrompt {
 }
 
 export function buildObservationPrompt(trace: TraceForPrompt): string {
+  const redactedInput = redactValue(trace.tool_input, "trace.tool_input").value;
+  const redactedOutput = redactValue(trace.tool_output, "trace.tool_output").value;
   const lines = [
     "<observed_tool_execution>",
     `  <tool>${escape(trace.tool_name || "unknown")}</tool>`,
     `  <time>${new Date(trace.timestamp).toISOString()}</time>`,
     trace.cwd ? `  <directory>${escape(trace.cwd)}</directory>` : "",
-    trace.tool_input != null ? `  <input>${escape(serialize(trace.tool_input))}</input>` : "",
-    trace.tool_output != null ? `  <output>${escape(serialize(trace.tool_output))}</output>` : "",
+    redactedInput != null ? `  <input>${escape(serialize(redactedInput))}</input>` : "",
+    redactedOutput != null ? `  <output>${escape(serialize(redactedOutput))}</output>` : "",
     "</observed_tool_execution>",
     "",
     "Extract observations from this tool execution. Return <observation> blocks or <skip_summary />.",
@@ -132,9 +134,9 @@ export function buildSummaryPrompt(input: SessionForPrompt): string {
     "Generate a summary of this completed agent session.",
     "",
     "User prompts during this session:",
-    ...input.user_prompts.map(p => `- ${p}`),
+    ...input.user_prompts.map((p) => `- ${redactText(p, "session.user_prompt")}`),
     "",
-    input.final_response ? `Final response: ${input.final_response}` : "",
+    input.final_response ? `Final response: ${redactText(input.final_response, "session.final_response")}` : "",
     "",
     "Respond in this XML format:",
     "<summary>",
@@ -167,3 +169,4 @@ function escape(s: string): string {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
 }
+import { redactText, redactValue } from "../security/redaction.js";

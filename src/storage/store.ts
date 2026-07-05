@@ -4,6 +4,7 @@ import { runMigrations } from "./migrations.js";
 import { applyFeedback } from "../lifecycle/feedback.js";
 import { MemoryVecIndex, type MemoryVectorHit } from "../indexing/memory-vec-index.js";
 import type { RetrievalScoreBreakdown } from "../retrieval/ranking.js";
+import { redactTracePayload } from "../security/redaction.js";
 import type {
   Memory,
   MemoryFeedbackEvent,
@@ -85,19 +86,35 @@ export class Store {
   // ---------- traces ----------
 
   insertTrace(trace: Omit<Trace, "id" | "processed_at">): Trace {
+    const redacted = redactTracePayload({
+      tool_input: trace.tool_input,
+      tool_output: trace.tool_output,
+      user_prompt: trace.user_prompt,
+      final_response: trace.final_response,
+    });
     const stmt = this.ctx.db.prepare(`
       INSERT INTO traces (
         session_id, timestamp, event_type, tool_name, tool_input, tool_output,
-        files_read, files_modified, user_prompt, final_response
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        files_read, files_modified, user_prompt, final_response, redaction_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const info = stmt.run(
       trace.session_id, trace.timestamp, trace.event_type,
-      trace.tool_name, serialize(trace.tool_input), serialize(trace.tool_output),
+      trace.tool_name, serialize(redacted.value.tool_input), serialize(redacted.value.tool_output),
       serialize(trace.files_read), serialize(trace.files_modified),
-      trace.user_prompt, trace.final_response,
+      redacted.value.user_prompt, redacted.value.final_response,
+      serialize(redacted.redaction),
     );
-    return { id: info.lastInsertRowid as number, processed_at: null, ...trace };
+    return {
+      id: info.lastInsertRowid as number,
+      processed_at: null,
+      ...trace,
+      tool_input: redacted.value.tool_input,
+      tool_output: redacted.value.tool_output,
+      user_prompt: redacted.value.user_prompt,
+      final_response: redacted.value.final_response,
+      redaction: redacted.redaction,
+    };
   }
 
   getTrace(id: number): Trace | null {
@@ -986,6 +1003,7 @@ function mapTrace(row: any): Trace {
     files_read: parseJSON<string[] | null>(row.files_read, null),
     files_modified: parseJSON<string[] | null>(row.files_modified, null),
     user_prompt: row.user_prompt, final_response: row.final_response,
+    redaction: parseJSON(row.redaction_json, null),
     processed_at: row.processed_at,
     pipeline_state: row.pipeline_state,
   };
