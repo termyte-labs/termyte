@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
@@ -40,6 +40,37 @@ describe("typed document retrieval CLI", () => {
     expect(output).toContain("# Termyte Context");
     expect(output).toContain("observation:typed-1");
     expect(output).toContain("Observation indexing belongs in the document corpus.");
+  });
+
+  it("can write portable repo context to disk", async () => {
+    const ctxDir = mkdtempSync(join(tmpdir(), "termyte-context-export-"));
+    process.env.TERMYTE_DB = join(ctxDir, "termyte.db");
+    const store = new Store(process.env.TERMYTE_DB);
+    try {
+      store.upsertSession("s1", "repo", "github.com/test/repo", "/w");
+      store.insertMemory({
+        session_id: "s1",
+        repo_id: "github.com/test/repo",
+        workspace_root: "/w",
+        type: "fact",
+        title: "Portable memory",
+        description: "This should appear in exported context.",
+        files_read: ["src/export.ts"],
+        files_modified: [],
+        source_observation_ids: [],
+        source_trace_ids: [],
+        created_at: 100,
+        embedding: null,
+      });
+      const outPath = join(ctxDir, "exports", "context.md");
+      await contextCommand({ repo_id: "github.com/test/repo", limit: 5, writeFile: outPath });
+      const content = readFileSync(outPath, "utf-8");
+      expect(content).toContain("Portable memory");
+      expect(content).toContain("This should appear in exported context.");
+    } finally {
+      store.close();
+      rmSync(ctxDir, { recursive: true, force: true });
+    }
   });
 });
 

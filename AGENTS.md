@@ -5,6 +5,7 @@
 This file is the execution contract for engineering Termyte. Use it with `PLAN.md` and the founding-engineer skills under `.agents/skills`.
 
 Termyte is building a self-correcting memory layer for coding agents. The current product is a local-first capture, memory-construction, and retrieval prototype with durable processing foundations. It is not yet self-correcting.
+Whenever Agentmemory, mem0, claude-mem is mentioned and the user asks how certain components of each product works refer to this folder:"C:\Users\Palguna\Desktop\competitors", it contains the code of all the products.
 
 ## Source of truth
 

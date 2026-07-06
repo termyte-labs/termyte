@@ -58,9 +58,6 @@ async function runClaude(bin: string, prompt: string, opts: AgentInvokeOptions):
   if (opts.maxBudgetUsd && opts.maxBudgetUsd > 0) {
     args.push("--max-budget-usd", opts.maxBudgetUsd.toFixed(4));
   }
-  if (opts.cwd) {
-    args.push("--cwd", opts.cwd);
-  }
 
   const startedAt = Date.now();
   // On Windows, .cmd / .bat files require shell:true to be
@@ -71,6 +68,7 @@ async function runClaude(bin: string, prompt: string, opts: AgentInvokeOptions):
     stdio: ["pipe", "pipe", "pipe"],
     windowsHide: true,
     shell: isWindowsCmd,
+    cwd: opts.cwd,
     env: { ...process.env, CLAUDE_CODE_ENTRYPOINT: "cli" },
   });
 

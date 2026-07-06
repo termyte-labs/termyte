@@ -1,7 +1,10 @@
 node_modules
 dist
 .termyte
+termyte.db
 .DS_Store
 *.log
 .crush/
 .agents/
+reference-docs/
+AGENTS.md

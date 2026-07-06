@@ -8,19 +8,16 @@
  *
  * This plugin forwards every event OpenCode raises to
  * `termyte-hook opencode <event>` so the existing observer pipeline
- * sees the same NormalizedEvent shape. It also writes a placeholder
- * context block to `~/.config/opencode/AGENTS.md` so the next session
- * knows where termyte context will appear; real memory injection is
- * not yet wired (run `termyte-worker` and `termyte synth` to build
- * memories from captured traces).
+ * sees the same NormalizedEvent shape. It does not fake context
+ * injection; Termyte already exposes real context through the CLI and
+ * MCP paths, and this plugin stays limited to capture forwarding.
  *
  * The plugin lives as a separate file (not imported by the CLI) so
  * OpenCode can `import` it without pulling in better-sqlite3 or any
  * of the LLM provider code.
  */
-import { spawn } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { homedir } from "node:os";
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 interface OpenCodePluginContext {
@@ -50,6 +47,9 @@ const HOOK_EVENTS = [
   "session.deleted",
 ];
 
+const CONTEXT_TAG_OPEN = "<!-- termyte:context:start -->";
+const CONTEXT_TAG_CLOSE = "<!-- termyte:context:end -->";
+
 /** Locate the termyte-hook binary. Honours TERMYTE_HOOK_PATH; otherwise
  *  probes common dist layouts. */
 function resolveHookPath(): string | null {
@@ -64,8 +64,7 @@ function resolveHookPath(): string | null {
 }
 
 /** Forward an event to termyte-hook without blocking the agent. We use
- *  stdio JSON in and ignore the response — the hook will write context
- *  to the AGENTS.md file when appropriate. */
+ *  stdio JSON in and ignore the response. */
 function forward(eventName: string, payload: HookPayload): void {
   const hookPath = resolveHookPath();
   if (!hookPath) return;
@@ -82,35 +81,70 @@ function forward(eventName: string, payload: HookPayload): void {
   }
 }
 
-function agentsMdPath(): string {
-  return join(homedir(), ".config", "opencode", "AGENTS.md");
+function resolveCliPath(): string | null {
+  const hookPath = resolveHookPath();
+  if (hookPath) {
+    const candidate = hookPath.replace(/hook\.(js|ts)$/, "index.$1");
+    if (existsSync(candidate)) return candidate;
+    const parentCandidate = hookPath.replace(/hook\.(js|ts)$/, "../index.$1");
+    if (existsSync(parentCandidate)) return parentCandidate;
+  }
+  const candidates = [
+    join(process.cwd(), "dist", "cli", "index.js"),
+    join(process.cwd(), "src", "cli", "index.ts"),
+  ];
+  for (const c of candidates) if (existsSync(c)) return c;
+  return null;
 }
 
-const CONTEXT_TAG_OPEN = "<!-- termyte:context:start -->";
-const CONTEXT_TAG_CLOSE = "<!-- termyte:context:end -->";
+function agentsMdPath(): string {
+  return join(process.env.OPENCODE_CONFIG_DIR || join(process.env.HOME ?? process.cwd(), ".config", "opencode"), "AGENTS.md");
+}
 
-/** Append (or refresh) the termyte context block in AGENTS.md. Called
- *  after session.idle. We only write a placeholder if a real context
- *  file was produced by the termyte CLI; otherwise the file is left
- *  alone to avoid noisy edits. */
-function injectContextPlaceholder(): void {
-  const path = agentsMdPath();
-  mkdirSync(join(path, ".."), { recursive: true });
-  let existing = "";
-  if (existsSync(path)) existing = readFileSync(path, "utf-8");
-  if (existing.includes(CONTEXT_TAG_OPEN)) return;
-  const block = [
+function sharedContextPath(worktree?: string): string {
+  const root = worktree && worktree.length > 0 ? worktree : process.cwd();
+  return join(root, ".termyte", "share", "context.md");
+}
+
+function renderContextBlock(content: string): string {
+  return [
     "",
     CONTEXT_TAG_OPEN,
     "# Termyte Context",
     "",
-    "*No memories yet. Use the termyte search CLI to inspect the corpus.*",
+    content.trim(),
     CONTEXT_TAG_CLOSE,
     "",
   ].join("\n");
-  const next = existing.length > 0 && !existing.endsWith("\n")
-    ? existing + "\n" + block
-    : existing + block;
+}
+
+function refreshContext(worktree?: string): void {
+  const sharedPath = sharedContextPath(worktree);
+  if (!existsSync(sharedPath)) {
+    const cliPath = resolveCliPath();
+    if (!cliPath) return;
+    const cwd = worktree && worktree.length > 0 ? worktree : process.cwd();
+    const res = spawnSync(process.execPath, [cliPath, "context", "--limit", "12", "--write-file", sharedPath], {
+      cwd,
+      encoding: "utf8",
+      windowsHide: true,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    if (res.status !== 0 || !existsSync(sharedPath)) return;
+  }
+
+  const path = agentsMdPath();
+  mkdirSync(join(path, ".."), { recursive: true });
+  const sharedText = readFileSync(sharedPath, "utf-8");
+  if (!sharedText.trim()) return;
+  const block = renderContextBlock(sharedText);
+  const existing = existsSync(path) ? readFileSync(path, "utf-8") : "";
+  let next = existing;
+  if (existing.includes(CONTEXT_TAG_OPEN) && existing.includes(CONTEXT_TAG_CLOSE)) {
+    next = existing.replace(new RegExp(`${escapeRegex(CONTEXT_TAG_OPEN)}[\\s\\S]*?${escapeRegex(CONTEXT_TAG_CLOSE)}\\n?`, "m"), block);
+  } else {
+    next = existing.length > 0 && !existing.endsWith("\n") ? existing + "\n" + block : existing + block;
+  }
   writeFileSync(path, next, "utf-8");
 }
 
@@ -127,9 +161,13 @@ const plugin = {
       forward(eventName, payload);
     }
     if (eventName === "session.idle") {
-      injectContextPlaceholder();
+      refreshContext(_ctx.project?.worktree);
     }
   },
 };
 
 export default plugin;
+
+function escapeRegex(input: string): string {
+  return input.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}

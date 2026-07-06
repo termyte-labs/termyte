@@ -4,9 +4,12 @@ import { FTSSearch } from "../retrieval/fts.js";
 import { VectorSearch } from "../retrieval/vector.js";
 import { HybridSearch } from "../retrieval/hybrid.js";
 import { LocalEmbeddingsProvider } from "../retrieval/local-embeddings.js";
+import { NoOpEmbeddingsProvider } from "../retrieval/embeddings.js";
 import { ContextBuilder } from "../context/builder.js";
 import { parseRetrievalTypeName } from "../mcp/schemas.js";
 import { DocumentStore, type DocumentType } from "../storage/documents.js";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 
 export async function contextCommand(options: {
   repo_id?: string;
@@ -14,6 +17,9 @@ export async function contextCommand(options: {
   limit?: number;
   currentFiles?: string[];
   type?: string;
+  writeFile?: string;
+  json?: boolean;
+  silent?: boolean;
 }): Promise<void> {
   const parsedType = parseRetrievalTypeName(options.type);
   if (!parsedType.ok) throw new Error(parsedType.error.message);
@@ -30,13 +36,27 @@ export async function contextCommand(options: {
         types: [parsedType.value as DocumentType],
         limit: options.limit ?? 50,
       });
-      process.stdout.write(renderDocumentContext(hits) + "\n");
+      const markdown = renderDocumentContext(hits);
+      if (options.silent) {
+        return;
+      }
+      if (options.json) {
+        process.stdout.write(JSON.stringify({
+          markdown,
+          selectedIds: hits.map((hit) => hit.document.id),
+          estimatedTokens: Math.ceil(markdown.length / 4),
+        }, null, 2) + "\n");
+      } else {
+        process.stdout.write(markdown + "\n");
+      }
       return;
     }
 
     const fts = new FTSSearch(store);
     const vector = new VectorSearch(store);
-    const embeddings = new LocalEmbeddingsProvider({ model: config.embeddings.model });
+    const embeddings = options.query
+      ? new LocalEmbeddingsProvider({ model: config.embeddings.model })
+      : new NoOpEmbeddingsProvider();
     const search = new HybridSearch({ fts, vector, embeddings, feedbackStore: store });
     const builder = new ContextBuilder(store, search);
     const result = await builder.build({
@@ -46,8 +66,25 @@ export async function contextCommand(options: {
       currentFiles: options.currentFiles,
       surface: "cli",
     });
-    process.stdout.write(result.text + "\n");
-    process.stderr.write(`termyte: context injection id: ${result.contextInjectionId}\n`);
+    if (options.writeFile) {
+      const path = options.writeFile;
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, result.text, "utf-8");
+    }
+    if (options.silent) {
+      return;
+    }
+    if (options.json) {
+      process.stdout.write(JSON.stringify({
+        markdown: result.text,
+        selectedIds: result.memories.map((memory) => `memory:${memory.id}`),
+        estimatedTokens: Math.ceil(result.text.length / 4),
+        contextInjectionId: result.contextInjectionId,
+      }, null, 2) + "\n");
+    } else {
+      process.stdout.write(result.text + "\n");
+      process.stderr.write(`termyte: context injection id: ${result.contextInjectionId}\n`);
+    }
   } finally {
     store.close();
   }

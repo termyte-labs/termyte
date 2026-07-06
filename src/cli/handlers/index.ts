@@ -5,9 +5,9 @@
 import type { EventHandler, EventHandlerName } from "../handler-types.js";
 import { makeContextHandler } from "./context.js";
 import { makeSessionInitHandler } from "./session-init.js";
-import { observationHandler } from "./observation.js";
+import { makeObservationHandler } from "./observation.js";
 import { makeSummarizeHandler } from "./summarize.js";
-import { fileEditHandler } from "./file-edit.js";
+import { makeFileEditHandler } from "./file-edit.js";
 import { makeFileContextHandler } from "./file-context.js";
 import type { Store } from "../../storage/store.js";
 import type { HybridSearch } from "../../retrieval/hybrid.js";
@@ -27,9 +27,9 @@ export function buildHandlers(deps: HandlerDeps): Record<EventHandlerName, Event
   return {
     "context":      makeContextHandler(deps),
     "session-init": makeSessionInitHandler(deps),
-    "observation":  observationHandler,
+    "observation":  makeObservationHandler(deps),
     "summarize":    makeSummarizeHandler(deps),
-    "file-edit":    fileEditHandler,
+    "file-edit":    makeFileEditHandler(deps),
     "file-context": makeFileContextHandler(deps),
   };
 }

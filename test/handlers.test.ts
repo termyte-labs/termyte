@@ -9,6 +9,7 @@ import { ContextBuilder } from "../src/context/builder.js";
 import { NoOpEmbeddingsProvider } from "../src/retrieval/embeddings.js";
 import { LocalEmbeddingsProvider } from "../src/retrieval/local-embeddings.js";
 import { getHandler, buildHandlers } from "../src/cli/handlers/index.js";
+import { makeObservationHandler } from "../src/cli/handlers/observation.js";
 import { adapterFor } from "../src/capture/index.js";
 import { MockLLM } from "./mock-llm.js";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -35,19 +36,37 @@ function seedSession(store: Store, sessionId: string, project = "test") {
 }
 
 describe("event handlers", () => {
-  it("observation handler is a no-op", async () => {
+  it("observation handler can surface related context after a tool use", async () => {
     const store = new Store(dbCtx);
     const llm = new MockLLM();
     const observer = new Observer({ store, llm });
     const deps = makeDeps(store, observer);
+    seedSession(store, "s1");
+    store.insertMemory({
+      session_id: "s1",
+      repo_id: "github.com/test/repo",
+      workspace_root: "/work",
+      type: "fact",
+      title: "src/app.ts read after tool use",
+      description: "Related knowledge for src/app.ts should be returned after the tool finishes.",
+      files_read: ["src/app.ts"],
+      files_modified: [],
+      source_observation_ids: [],
+      source_trace_ids: [],
+      created_at: Date.now(),
+      embedding: null,
+    });
     const adapter = adapterFor("claude-code");
     const event = adapter.normalize({
-      session_id: "s1", cwd: "/work", tool_name: "Read", tool_input: { file_path: "a" },
+      session_id: "s1", cwd: "/work", tool_name: "Read", tool_input: { file_path: "src/app.ts" },
     })!;
     const out = await getHandler("observation", deps)({ event, raw: {} });
     expect(out.handled).toBe(true);
     expect(out.result.continue).toBe(true);
-    expect(out.result.suppressOutput).toBe(true);
+    expect(out.result.hookSpecificOutput?.hookEventName).toBe("PostToolUse");
+    expect(out.result.hookSpecificOutput?.additionalContext).toContain("src/app.ts");
+    const direct = await makeObservationHandler(deps)({ event, raw: {} });
+    expect(direct.result.hookSpecificOutput?.additionalContext).toContain("src/app.ts");
     store.close();
   });
 
@@ -115,6 +134,45 @@ describe("event handlers", () => {
     expect(ctxText).toContain("src/auth.ts");
     const injection = store.getDB().prepare(
       `SELECT id FROM context_injections WHERE surface = 'file-context' ORDER BY created_at DESC LIMIT 1`,
+    ).get() as { id: string } | undefined;
+    expect(injection).toBeTruthy();
+    expect(store.getContextInjectionItems(injection!.id)).toHaveLength(1);
+    store.close();
+  });
+
+  it("file-edit handler injects memories on Write", async () => {
+    const store = new Store(dbCtx);
+    const llm = new MockLLM();
+    const observer = new Observer({ store, llm });
+    const deps = makeDeps(store, observer);
+
+    seedSession(store, "s1");
+    store.insertMemory({
+      session_id: "s1",
+      repo_id: "github.com/test/repo",
+      workspace_root: "/work",
+      type: "warning",
+      title: "File edit convention",
+      description: "Updates to src/auth.ts must preserve JWT validation paths.",
+      files_read: ["src/auth.ts"],
+      files_modified: [],
+      source_observation_ids: [],
+      source_trace_ids: [],
+      created_at: Date.now(),
+      embedding: null,
+    });
+
+    const adapter = adapterFor("claude-code");
+    const event = adapter.normalize({
+      session_id: "s1", cwd: "/work", tool_name: "Write", tool_input: { file_path: "src/auth.ts" },
+    })!;
+    const out = await getHandler("file-edit", deps)({ event, raw: {} });
+    expect(out.handled).toBe(true);
+    const ctxText = out.result.hookSpecificOutput?.additionalContext ?? "";
+    expect(ctxText).toContain("File edit convention");
+    expect(ctxText).toContain("src/auth.ts");
+    const injection = store.getDB().prepare(
+      `SELECT id FROM context_injections WHERE surface = 'file-edit' ORDER BY created_at DESC LIMIT 1`,
     ).get() as { id: string } | undefined;
     expect(injection).toBeTruthy();
     expect(store.getContextInjectionItems(injection!.id)).toHaveLength(1);

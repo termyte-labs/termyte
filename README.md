@@ -4,6 +4,14 @@ Termyte is a local-first memory layer for coding agents. It captures agent execu
 
 The current repository contains a real durable memory pipeline, but it is not yet a self-correcting system. Feedback and lifecycle primitives exist; the closed loop that attributes outcomes to injected memories and automatically corrects future retrieval is still under construction. See [PLAN.md](PLAN.md).
 
+## Quick Start
+
+1. Install Termyte and wire one supported agent with `termyte install <platform>`.
+2. Run `termyte smoke` to confirm hooks, queue health, and write a portable `.termyte/share/context.md` file. Add `--json` if you want a scriptable result. Add `--prompt "..."` and `--adapter <id>` to exercise a live agent adapter when one is installed. For example: `termyte smoke --adapter codex --prompt "Reply with exactly: hello" --json`.
+3. Use `termyte doctor` if you want a narrower install check. It also accepts `--json`.
+
+The first useful loop should be: capture a session, export the shared context, then reuse that context in a second agent.
+
 ## Current status
 
 Implemented:
@@ -113,12 +121,16 @@ node dist/cli/worker.js --until-idle --json
 termyte search <query> [--repo r] [--limit n] [--json]
                        [--files f1,f2]
                        [--type trace|observation|memory|summary|episode|all]
-termyte context [--repo r] [--query q] [--limit n] [--files f1,f2] [--type t]
+termyte context [--repo r] [--query q] [--limit n] [--files f1,f2] [--type t] [--json]
 termyte memories [--repo r] [--limit n] [--type t]
 termyte memory <id> [--json]
 termyte trace <id> [--json]
 termyte session <id> [--json]
 termyte sessions [--limit n]
+termyte start [--repo r] [--query q] [--limit n] [--files f1,f2] [--type t] [--path path] [--json]
+termyte smoke [--repo r] [--query q] [--limit n] [--files f1,f2] [--type t] [--path path] [--adapter id] [--prompt text] [--json]
+termyte share [--repo r] [--query q] [--limit n] [--files f1,f2] [--type t] [--path path]
+termyte doctor [--json]
 termyte install <platform> [--target user|project]
 termyte eval [--suite retrieval|durability|lifecycle|all] [--json]
 termyte bench run [--dataset <path>] [--suite custom|longmemeval|scale]

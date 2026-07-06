@@ -204,11 +204,6 @@ describe("Batcher", () => {
 });
 
 describe("Adapter resolution", () => {
-  it("createAdapter throws for the not-yet-implemented cursor adapter", async () => {
-    const { createAdapter } = await import("../src/synth/index.js");
-    expect(() => createAdapter("cursor")).toThrow(/not yet supported/);
-  });
-
   it("createAdapter returns a FakeAdapter for the fake id", async () => {
     const { createAdapter } = await import("../src/synth/index.js");
     const a = createAdapter("fake");

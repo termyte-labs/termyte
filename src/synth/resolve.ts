@@ -54,9 +54,9 @@ export async function resolveBinaryPath(
   try {
     const cmd = process.platform === "win32" ? "where" : "which";
     const { stdout } = await execFileP(cmd, [name], { windowsHide: true });
-    const first = stdout.split(/\r?\n/).find((l) => l.trim().length > 0);
-    if (first && existsSync(first.trim())) {
-      const resolved = first.trim();
+    const first = pickBestCandidate(stdout.split(/\r?\n/).map((l) => l.trim()).filter(Boolean));
+    if (first && existsSync(first)) {
+      const resolved = first;
       cache.set(name, resolved);
       return resolved;
     }
@@ -65,4 +65,11 @@ export async function resolveBinaryPath(
   }
   cache.set(name, null);
   return null;
+}
+
+function pickBestCandidate(candidates: string[]): string | null {
+  if (candidates.length === 0) return null;
+  if (process.platform !== "win32") return candidates[0] ?? null;
+  const preferred = candidates.find((c) => /\.(cmd|bat|exe)$/i.test(c));
+  return preferred ?? candidates[0] ?? null;
 }

@@ -28,7 +28,6 @@ export function createAdapter(id: AgentAdapterId): AgentAdapter {
     case "codex":       return new CodexAdapter();
     case "opencode":    return new OpenCodeAdapter();
     case "gemini-cli":  return new GeminiCliAdapter();
-    case "cursor":      throw new Error("Cursor synthesis is not yet supported — see docs/background-memory-generation.md §2.4");
     case "fake":        return new FakeAdapter();
     default: {
       const exhaustive: never = id;
@@ -38,9 +37,7 @@ export function createAdapter(id: AgentAdapterId): AgentAdapter {
 }
 
 /** Discover which synthesis-capable agent the user has installed.
- *  Probes in priority order; first hit wins. The Cursor adapter is
- *  intentionally not in the list because it is documented as
- *  partial-coverage only. */
+ *  Probes in priority order; first hit wins. */
 export async function discoverAdapter(): Promise<AgentAdapterId | null> {
   for (const id of ["claude-code", "codex", "opencode", "gemini-cli"] as const) {
     const a = createAdapter(id);

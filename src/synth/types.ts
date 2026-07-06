@@ -20,7 +20,6 @@ export type AgentAdapterId =
   | "codex"
   | "opencode"
   | "gemini-cli"
-  | "cursor"
   | "fake";
 
 export interface AgentInvokeOptions {

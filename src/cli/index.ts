@@ -3,13 +3,16 @@
  *
  * Subcommands:
  *   search    <query>  [--repo r] [--limit n] [--json] [--files f1,f2] [--type t]
- *   context            [--repo r] [--query q] [--limit n] [--files f1,f2] [--type t]
+ *   context            [--repo r] [--query q] [--limit n] [--files f1,f2] [--type t] [--write-file path] [--json]
+ *   share              [--repo r] [--query q] [--limit n] [--files f1,f2] [--type t] [--path path] [--json]
  *   memories           [--repo r] [--limit n] [--type t]
  *   memory    <id>     [--json]
  *   explain   <id>     [--json]
  *   trace     <id>     [--json]
  *   session   <id>     [--json]
  *   sessions           [--limit n]
+ *   start              [--repo r] [--query q] [--limit n] [--files f1,f2] [--type t] [--path path] [--json]
+ *   smoke              [--repo r] [--query q] [--limit n] [--files f1,f2] [--type t] [--path path] [--json]
  *   install   <platform> [--target user|project]
  *   eval               [--suite retrieval|durability|lifecycle|all] [--json]
  *   bench run          --dataset path [--track retrieval|pipeline] [--adapter fts|termyte] [--output dir]
@@ -19,6 +22,9 @@
  */
 import { searchCommand } from "./search.js";
 import { contextCommand } from "./context.js";
+import { shareCommand } from "./share.js";
+import { startCommand } from "./start.js";
+import { smokeCommand } from "./smoke.js";
 import { explainCommand } from "./explain.js";
 import { loadConfig } from "./config.js";
 import { Store } from "../storage/store.js";
@@ -30,19 +36,23 @@ const USAGE = `termyte - memory layer for coding agents
 
 Usage:
   termyte search    <query>  [--repo r] [--limit n] [--json] [--files f1,f2] [--type trace|observation|memory|summary|episode|all] [--all-states]
-  termyte context            [--repo r] [--query q] [--limit n] [--files f1,f2] [--type trace|observation|memory|summary|episode|all]
+  termyte context            [--repo r] [--query q] [--limit n] [--files f1,f2] [--type trace|observation|memory|summary|episode|all] [--write-file path] [--json]
+  termyte share              [--repo r] [--query q] [--limit n] [--files f1,f2] [--type trace|observation|memory|summary|episode|all] [--path path] [--json]
   termyte memories           [--repo r] [--limit n] [--type t] [--all-states]
   termyte memory    <id>     [--json]
   termyte explain   <id>     [--json]
   termyte trace     <id>     [--json]
   termyte session   <id>     [--json]
   termyte sessions           [--limit n]
+  termyte start              [--repo r] [--query q] [--limit n] [--files f1,f2] [--type trace|observation|memory|summary|episode|all] [--path path] [--json]
+  termyte smoke              [--repo r] [--query q] [--limit n] [--files f1,f2] [--type trace|observation|memory|summary|episode|all] [--path path] [--json]
   termyte install   <platform> [--target user|project]
   termyte eval      [--suite retrieval|durability|lifecycle|all] [--json]
   termyte bench run [--dataset <path>] [--suite custom|longmemeval|scale] [--size n] [--track retrieval|pipeline] [--adapter grep,fts,termyte] [--embedding-model bge-small|nomic-embed] [--output dir] [--seed n]
   termyte viewer    [--host 127.0.0.1] [--port 7331]
   termyte synth     [options]              (generate observations from captured traces)
   termyte stats                                 (local stats — no network)
+  termyte doctor     [--json]                (install and health diagnosis)
   termyte health                                (queue health and dead-letter diagnostics)
   termyte dead-letters                          (list dead-lettered jobs)
   termyte retry      <jobId>                    (retry a dead-lettered job)
@@ -108,6 +118,43 @@ async function main(): Promise<void> {
           limit: typeof opts["limit"] === "string" ? parseInt(opts["limit"], 10) : undefined,
           currentFiles: typeof opts["files"] === "string" ? (opts["files"] as string).split(",").map((s: string) => s.trim()).filter(Boolean) : undefined,
           type: typeof opts["type"] === "string" ? opts["type"] : undefined,
+          writeFile: typeof opts["write-file"] === "string" ? opts["write-file"] : undefined,
+        });
+        break;
+      }
+      case "share": {
+        await shareCommand({
+          repo_id: typeof opts["repo"] === "string" ? opts["repo"] : undefined,
+          query: typeof opts["query"] === "string" ? opts["query"] : undefined,
+          limit: typeof opts["limit"] === "string" ? parseInt(opts["limit"], 10) : undefined,
+          currentFiles: typeof opts["files"] === "string" ? (opts["files"] as string).split(",").map((s: string) => s.trim()).filter(Boolean) : undefined,
+          type: typeof opts["type"] === "string" ? opts["type"] : undefined,
+          path: typeof opts["path"] === "string" ? opts["path"] : undefined,
+        });
+        break;
+      }
+      case "start": {
+        await startCommand({
+          repo_id: typeof opts["repo"] === "string" ? opts["repo"] : undefined,
+          query: typeof opts["query"] === "string" ? opts["query"] : undefined,
+          limit: typeof opts["limit"] === "string" ? parseInt(opts["limit"], 10) : undefined,
+          currentFiles: typeof opts["files"] === "string" ? (opts["files"] as string).split(",").map((s: string) => s.trim()).filter(Boolean) : undefined,
+          type: typeof opts["type"] === "string" ? opts["type"] : undefined,
+          path: typeof opts["path"] === "string" ? opts["path"] : undefined,
+        });
+        break;
+      }
+      case "smoke": {
+        await smokeCommand({
+          repo_id: typeof opts["repo"] === "string" ? opts["repo"] : undefined,
+          query: typeof opts["query"] === "string" ? opts["query"] : undefined,
+          limit: typeof opts["limit"] === "string" ? parseInt(opts["limit"], 10) : undefined,
+          currentFiles: typeof opts["files"] === "string" ? (opts["files"] as string).split(",").map((s: string) => s.trim()).filter(Boolean) : undefined,
+          type: typeof opts["type"] === "string" ? opts["type"] : undefined,
+          path: typeof opts["path"] === "string" ? opts["path"] : undefined,
+          adapter: typeof opts["adapter"] === "string" ? opts["adapter"] as any : undefined,
+          prompt: typeof opts["prompt"] === "string" ? opts["prompt"] : undefined,
+          json: opts["json"] === true,
         });
         break;
       }
@@ -203,6 +250,12 @@ async function main(): Promise<void> {
       case "stats": {
         const mod = await import("./stats.js");
         await mod.runMain();
+        process.exit(0);
+      }
+      case "doctor": {
+        const mod = await import("./doctor.js");
+        if (opts["json"] === true) await mod.runDoctorJson();
+        else await mod.runMain();
         process.exit(0);
       }
       case "health": {
