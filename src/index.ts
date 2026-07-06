@@ -64,14 +64,15 @@ export {
 
 import { Store } from "./storage/store.js";
 import { Observer } from "./observer/pipeline.js";
-import { OpenAICompatibleProvider, type OpenAIProviderConfig } from "./observer/openai-provider.js";
+import { type OpenAIProviderConfig } from "./observer/openai-provider.js";
+import { type LocalModelId } from "./retrieval/local-embeddings.js";
 import { NoOpEmbeddingsProvider } from "./retrieval/embeddings.js";
-import { LocalEmbeddingsProvider, type LocalModelId } from "./retrieval/local-embeddings.js";
 import { FTSSearch } from "./retrieval/fts.js";
 import { VectorSearch } from "./retrieval/vector.js";
 import { HybridSearch } from "./retrieval/hybrid.js";
 import { ContextBuilder } from "./context/builder.js";
 import { HookRunner } from "./hooks/runner.js";
+import { createEmbeddingsProvider, createLLMProvider } from "./runtime/providers.js";
 
 export interface TermyteOptions {
   dbPath?: string;
@@ -95,10 +96,10 @@ export interface TermyteInstance {
 
 export function createTermyte(options: TermyteOptions): TermyteInstance {
   const store = new Store(options.dbPath ?? "./termyte.db");
-  const llm = new OpenAICompatibleProvider(options.llm);
-  const embeddings = options.embeddings?.model
-    ? new LocalEmbeddingsProvider({ model: options.embeddings.model })
-    : new NoOpEmbeddingsProvider();
+  const llm = createLLMProvider(options.llm);
+  const embeddings = options.embeddings?.model === null
+    ? new NoOpEmbeddingsProvider()
+    : createEmbeddingsProvider(options.embeddings?.model);
   const observer = new Observer({ store, llm, embeddings });
   const fts = new FTSSearch(store);
   const vector = new VectorSearch(store);

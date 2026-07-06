@@ -8,10 +8,9 @@
  */
 import { loadConfig } from "./config.js";
 import { Store } from "../storage/store.js";
-import { OpenAICompatibleProvider } from "../observer/openai-provider.js";
-import { LocalEmbeddingsProvider } from "../retrieval/local-embeddings.js";
 import { MemoryPipeline } from "../pipeline/memory-pipeline.js";
 import { acquireWorkerLock, releaseWorkerLock } from "../pipeline/worker-supervisor.js";
+import { createEmbeddingsProvider, createLLMProvider } from "../runtime/providers.js";
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
@@ -29,8 +28,8 @@ async function main(): Promise<void> {
     return;
   }
 
-  const llm = new OpenAICompatibleProvider(config.llm);
-  const embeddings = new LocalEmbeddingsProvider({ model: config.embeddings.model });
+  const llm = createLLMProvider(config.llm);
+  const embeddings = createEmbeddingsProvider(config.embeddings.model);
   const pipeline = new MemoryPipeline({ store, llm, embeddings });
 
   try {

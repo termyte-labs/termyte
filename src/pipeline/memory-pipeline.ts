@@ -202,10 +202,10 @@ export class MemoryPipeline {
     if (observation.lifecycle_state === "indexed") return;
 
     const content = artifactText(observation.title, observation.description);
-    const vector = await this.embedRequired(content);
+    const vector = await this.embedOptional(content);
 
     this.store.transaction(() => {
-      this.store.updateObservationEmbedding(observation.id, vector);
+      if (vector) this.store.updateObservationEmbedding(observation.id, vector);
       this.documents.upsertDocument({
         id: `observation:${observation.id}`,
         doc_type: "observation",
@@ -316,10 +316,10 @@ export class MemoryPipeline {
     if (memory.lifecycle_state === "active") return;
 
     const content = artifactText(memory.title, memory.description);
-    const vector = await this.embedRequired(content);
+    const vector = await this.embedOptional(content);
 
     this.store.transaction(() => {
-      this.store.updateMemoryEmbedding(memory.id, vector);
+      if (vector) this.store.updateMemoryEmbedding(memory.id, vector);
       this.documents.upsertDocument({
         id: `memory:${memory.id}`,
         doc_type: "memory",
@@ -592,10 +592,10 @@ export class MemoryPipeline {
 
     // Embed the replacement, then supersede the original.
     const content = artifactText(replacement.title, replacement.description);
-    const vector = await this.embedRequired(content);
+    const vector = await this.embedOptional(content);
 
     this.store.transaction(() => {
-      this.store.updateMemoryEmbedding(replacement.id, vector);
+      if (vector) this.store.updateMemoryEmbedding(replacement.id, vector);
       this.store.updateMemoryLifecycleState(replacement.id, "active");
 
       this.documents.upsertDocument({
@@ -623,17 +623,14 @@ export class MemoryPipeline {
     });
   }
 
-  private async embedRequired(content: string): Promise<Float32Array> {
-    if (!this.embeddings) {
-      throw new RetryableJobError("Embedding provider is not configured");
-    }
+  private async embedOptional(content: string): Promise<Float32Array | null> {
+    if (!this.embeddings || this.embeddings.dimensions <= 0) return null;
     try {
       return await this.embeddings.embed(content);
-    } catch (error) {
-      throw new RetryableJobError(
-        error instanceof Error ? error.message : String(error),
-        { cause: error },
-      );
+    } catch {
+      // Embedding failures must not block durable capture or memory
+      // consolidation. The document corpus and FTS path remain usable.
+      return null;
     }
   }
 

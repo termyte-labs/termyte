@@ -14,8 +14,6 @@
 import { loadConfig } from "./config.js";
 import { Store } from "../storage/store.js";
 import { Observer } from "../observer/pipeline.js";
-import { OpenAICompatibleProvider } from "../observer/openai-provider.js";
-import { LocalEmbeddingsProvider } from "../retrieval/local-embeddings.js";
 import { HookRunner } from "../hooks/runner.js";
 import { FTSSearch } from "../retrieval/fts.js";
 import { VectorSearch } from "../retrieval/vector.js";
@@ -26,6 +24,7 @@ import type { Platform } from "../core/types.js";
 import { getHandler, type HandlerInput } from "./handlers/index.js";
 import { pathToFileURL } from "node:url";
 import { createHookSupervisor, type WorkerSupervisor } from "../pipeline/worker-supervisor.js";
+import { createEmbeddingsProvider, createLLMProvider } from "../runtime/providers.js";
 
 const KNOWN_PLATFORMS: Platform[] = ["claude-code", "codex", "opencode", "cursor", "gemini-cli", "windsurf", "raw"];
 
@@ -40,8 +39,8 @@ async function main(supervisorOverride?: WorkerSupervisor): Promise<void> {
 
   const config = loadConfig();
   const store = new Store(config.dbPath);
-  const llm = new OpenAICompatibleProvider(config.llm);
-  const embeddings = new LocalEmbeddingsProvider({ model: config.embeddings.model });
+  const llm = createLLMProvider(config.llm);
+  const embeddings = createEmbeddingsProvider(config.embeddings.model);
   const observer = new Observer({ store, llm, embeddings });
   const runner = new HookRunner({ store, observer });
   const fts = new FTSSearch(store);
