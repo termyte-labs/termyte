@@ -17,8 +17,8 @@ export interface BenchmarkRunOptions {
 }
 
 export async function runBenchmark(options: BenchmarkRunOptions): Promise<Record<string, number>> {
-  if (options.track !== "retrieval") {
-    throw new Error("Pipeline benchmark track is not implemented yet; use --track retrieval.");
+  if (options.track !== "retrieval" && options.track !== "pipeline") {
+    throw new Error("Unsupported benchmark track. Expected retrieval or pipeline.");
   }
   if (!options.datasetPath && !options.dataset) throw new Error("A benchmark dataset or dataset path is required.");
   const raw = options.datasetPath

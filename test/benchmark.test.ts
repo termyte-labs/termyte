@@ -52,6 +52,29 @@ describe("benchmark framework", () => {
     }
   });
 
+  it("runs the pipeline track and records the track in the artifact bundle", async () => {
+    directory = await mkdtemp(join(tmpdir(), "termyte-bench-"));
+    const datasetPath = join(directory, "dataset.json");
+    const output = join(directory, "pipeline-output");
+    await writeFile(datasetPath, JSON.stringify({
+      name: "smoke-pipeline", version: "1", suite: "custom",
+      documents: [
+        { id: "auth", title: "JWT authentication", content: "The API validates JWT bearer tokens." },
+        { id: "db", title: "SQLite storage", content: "The application stores rows in SQLite." },
+      ],
+      queries: [{ id: "q1", query: "JWT bearer authentication", relevantDocumentIds: ["auth"] }],
+    }));
+    const metrics = await runBenchmark({
+      datasetPath,
+      outputDirectory: output,
+      adapter: new TermyteFtsBenchmarkAdapter(),
+      track: "pipeline",
+    });
+    expect(metrics["recall_at_5"]).toBe(1);
+    const manifest = JSON.parse(await readFile(join(output, "manifest.json"), "utf8"));
+    expect(manifest.track).toBe("pipeline");
+  });
+
   it("normalizes LongMemEval with isolated per-question haystacks", () => {
     const dataset = loadLongMemEval(JSON.stringify([{
       question_id: "q1", question_type: "single-session-user", question: "Which editor?",
