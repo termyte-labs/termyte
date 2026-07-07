@@ -106,5 +106,5 @@ export function validateNoAnswerLeakage(dataset: BenchmarkDataset): void {
 }
 
 function renderReport(dataset: BenchmarkDataset, adapter: string, metrics: Record<string, number>, failures: number): string {
-  return `# Benchmark Report\n\n- Dataset: ${dataset.name} ${dataset.version}\n- Suite: ${dataset.suite}\n- Adapter: ${adapter}\n- Documents: ${dataset.documents.length}\n- Queries: ${dataset.queries.length}\n- Recall@5: ${(metrics["recall_at_5"] ?? 0).toFixed(4)}\n- MRR: ${(metrics["mrr"] ?? 0).toFixed(4)}\n- NDCG@10: ${(metrics["ndcg_at_10"] ?? 0).toFixed(4)}\n- Harmful recall: ${(metrics["harmful_recall"] ?? 0).toFixed(4)}\n- Failed queries: ${failures}\n`;
+  return `# Benchmark Report\n\n- Dataset: ${dataset.name} ${dataset.version}\n- Suite: ${dataset.suite}\n- Adapter: ${adapter}\n- Documents: ${dataset.documents.length}\n- Queries: ${dataset.queries.length}\n- Recall@5: ${(metrics["recall_at_5"] ?? 0).toFixed(4)}\n- MRR: ${(metrics["mrr"] ?? 0).toFixed(4)}\n- NDCG@10: ${(metrics["ndcg_at_10"] ?? 0).toFixed(4)}\n- Harmful recall: ${(metrics["harmful_recall"] ?? 0).toFixed(4)}\n- Query latency p50: ${(metrics["latency_p50_ms"] ?? 0).toFixed(2)} ms\n- Query latency p95: ${(metrics["latency_p95_ms"] ?? 0).toFixed(2)} ms\n- Query latency p99: ${(metrics["latency_p99_ms"] ?? 0).toFixed(2)} ms\n- Failed queries: ${failures}\n`;
 }

@@ -71,8 +71,10 @@ describe("benchmark framework", () => {
       track: "pipeline",
     });
     expect(metrics["recall_at_5"]).toBe(1);
+    expect(metrics["latency_p99_ms"]).toBeGreaterThanOrEqual(0);
     const manifest = JSON.parse(await readFile(join(output, "manifest.json"), "utf8"));
     expect(manifest.track).toBe("pipeline");
+    expect(await readFile(join(output, "report.md"), "utf8")).toContain("Query latency p99");
   });
 
   it("normalizes LongMemEval with isolated per-question haystacks", () => {

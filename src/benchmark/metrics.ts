@@ -51,6 +51,7 @@ export function aggregateEvaluations(rows: readonly QueryEvaluation[]): Record<s
     harmful_recall: mean((row) => row.harmfulRecall),
     latency_p50_ms: percentile(sortedLatencies, 0.5),
     latency_p95_ms: percentile(sortedLatencies, 0.95),
+    latency_p99_ms: percentile(sortedLatencies, 0.99),
   };
 }
 
@@ -70,4 +71,3 @@ function percentile(sorted: readonly number[], fraction: number): number {
   if (sorted.length === 0) return 0;
   return sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * fraction) - 1)]!;
 }
-
