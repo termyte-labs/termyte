@@ -13,6 +13,7 @@ import { loadLongMemEval } from "../src/benchmark/datasets/longmemeval.js";
 import { loadRawSessionDataset } from "../src/benchmark/datasets/raw-session.js";
 import { generateScaleDataset } from "../src/benchmark/datasets/scale.js";
 import { loadCompetitorExecutionAdapters } from "../src/benchmark/competitor-executions.js";
+import { planCompetitorBenchmarkRun, runCompetitorBenchmark } from "../src/benchmark/competitor-executions.js";
 import { loadCompetitorRunArtifacts } from "../src/benchmark/competitor-runs.js";
 
 let directory: string | undefined;
@@ -290,6 +291,53 @@ describe("benchmark framework", () => {
     expect(mem0?.commands.some((command) => command.includes("benchmarks.longmemeval.run"))).toBe(true);
     expect(claudeMem?.executable).toBe(false);
     expect(claudeMem?.publicArtifacts).toContain("docs/public/smart-explore-benchmark.mdx");
+  });
+
+  it("resolves runnable competitor benchmark plans and guards missing submodules", async () => {
+    const agentmemoryPlan = await planCompetitorBenchmarkRun({
+      source: "agentmemory",
+      benchmark: "longmemeval",
+      rootDirectory: "C:/Users/Palguna/Desktop/competitors",
+      mode: "hybrid",
+      dryRun: true,
+    });
+    expect(agentmemoryPlan.executable).toBe(true);
+    expect(agentmemoryPlan.command).toMatch(/npm(\.cmd)?$/);
+    expect(agentmemoryPlan.args).toContain("bench:longmemeval");
+    expect(agentmemoryPlan.expectedArtifacts).toContain("benchmark/data/longmemeval_results_hybrid.json");
+
+    const mem0Plan = await planCompetitorBenchmarkRun({
+      source: "mem0",
+      benchmark: "locomo",
+      rootDirectory: "C:/Users/Palguna/Desktop/competitors",
+      projectName: "termyte-bench",
+      backend: "oss",
+      dryRun: true,
+    });
+    expect(mem0Plan.executable).toBe(true);
+    expect(mem0Plan.command).toMatch(/python(\.exe|3)?$/i);
+    expect(mem0Plan.args).toContain("benchmarks.locomo.run");
+    expect(mem0Plan.reason).toBeUndefined();
+
+    const claudePlan = await planCompetitorBenchmarkRun({
+      source: "claude-mem",
+      benchmark: "locomo",
+      rootDirectory: "C:/Users/Palguna/Desktop/competitors",
+      dryRun: true,
+    });
+    expect(claudePlan.executable).toBe(false);
+    expect(claudePlan.reason).toMatch(/no local benchmark runner/i);
+  });
+
+  it("returns a dry-run result for unsupported competitor execution", async () => {
+    const result = await runCompetitorBenchmark({
+      source: "claude-mem",
+      benchmark: "locomo",
+      rootDirectory: "C:/Users/Palguna/Desktop/competitors",
+      dryRun: true,
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.plan.executable).toBe(false);
   });
 
   it("loads published competitor run artifacts from local checkouts", async () => {

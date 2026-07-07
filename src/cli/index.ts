@@ -17,6 +17,7 @@
  *   eval               [--suite retrieval|durability|lifecycle|all] [--json]
  *   bench run          --dataset path [--track retrieval|pipeline] [--adapter fts|termyte] [--output dir]
  *   bench compare      --runs dir1,dir2 [--output dir]
+ *   bench competitor   --source agentmemory|mem0|claude-mem --benchmark name [--dry-run]
  *   viewer             [--host 127.0.0.1] [--port 7331]
  *   mcp                (stdio server for MCP-capable IDEs)
  *   help
@@ -51,6 +52,7 @@ Usage:
   termyte eval      [--suite retrieval|durability|lifecycle|all] [--json]
   termyte bench run [--dataset <path>] [--suite custom|locomo|longmemeval|memoryagent|raw-session|scale] [--size n] [--track retrieval|pipeline] [--adapter grep,fts,termyte] [--embedding-model bge-small|nomic-embed] [--output dir] [--seed n]
   termyte bench compare [--runs dir1,dir2] [--output dir] [--competitor-root path]
+  termyte bench competitor [--source agentmemory|mem0|claude-mem] [--benchmark longmemeval|quality|scale|real-embeddings|load-100k|locomo|beam] [--competitor-root path] [--benchmark-mode bm25|vector|hybrid] [--project-name name] [--backend oss|cloud] [--dry-run]
   termyte viewer    [--host 127.0.0.1] [--port 7331]
   termyte synth     [options]              (generate observations from captured traces)
   termyte stats                                 (local stats — no network)
