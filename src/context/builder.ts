@@ -153,6 +153,11 @@ export function renderMemory(m: Memory): string {
   if (m.source_observation_ids.length > 0) {
     parts.push(`Source observations: ${m.source_observation_ids.join(", ")}`);
   }
+  if (m.applicability_evidence) {
+    const evidence = m.applicability_evidence;
+    if (evidence.files.length > 0) parts.push(`Applicability files: ${evidence.files.join(", ")}`);
+    if (evidence.commands.length > 0) parts.push(`Applicability commands: ${evidence.commands.join(", ")}`);
+  }
   return parts.join("\n");
 }
 

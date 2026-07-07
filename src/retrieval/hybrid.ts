@@ -100,6 +100,8 @@ export class HybridSearch {
         ftsRank: ranks.fts_rank,
         vectorRank: ranks.vector_rank,
         feedbackScore: feedbackScores.get(id),
+        query: options.query,
+        currentFiles: options.currentFiles,
         rrfK: k,
       });
       out.push({

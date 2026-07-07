@@ -218,11 +218,12 @@ Before implementation, load the lead skill from `.agents/skills`. Load supportin
 
 ### CODE-002 — Add applicability evidence to correction and retrieval
 
-- **Status:** pending
+- **Status:** in_progress
 - **Lead:** `code-intelligence-lead`
 - **Support:** `memory-modeling-knowledge-architecture-lead`, `retrieval-search-ranking-lead`
 - **Depends on:** CODE-001, COR-001
 - **Problem:** similarity and filenames are insufficient to determine whether an old fix still applies.
+- **Implemented evidence:** added persisted `applicability_json` on memories, populated from observation files/commands and preserved across correction replacements; surfaced applicability evidence in explain/context rendering; extended retrieval scoring with a bounded applicability adjustment based on matching evidence files and commands; added regression tests proving the applicability-adjusted memory ranks above an otherwise similar candidate and that the score breakdown exposes the new signal.
 - **Deliverables:** versioned dependency, test, stack-frame, diff, and optional symbol evidence; applicability contract consumed by verification and ranking.
 - **Acceptance:** stale same-text/different-root-cause cases are suppressed while same-subsystem relevant cases are retained.
 - **Validate:** independently labeled applicability corpus and ablation results.

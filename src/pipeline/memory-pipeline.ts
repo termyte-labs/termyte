@@ -21,6 +21,7 @@ import {
   type DedupeComparable,
 } from "../lifecycle/dedupe.js";
 import { memoryDecayScore, nextMemoryStateAfterDecay } from "../lifecycle/decay.js";
+import type { CodeApplicabilityEvidence } from "../core/types.js";
 
 export interface MemoryPipelineConfig {
   store: Store;
@@ -298,6 +299,10 @@ export class MemoryPipeline {
           source_trace_ids: observation.source_trace_ids,
           created_at: Date.now(),
           embedding: null,
+          applicability_evidence: buildApplicabilityEvidence({
+            observation,
+            traceIds: observation.source_trace_ids,
+          }),
         });
         this.store.updateMemoryLifecycleState(memory.id, "awaiting_embedding");
         this.store.insertObservationMemoryLinks(memory.id, memory.source_observation_ids);
@@ -588,6 +593,13 @@ export class MemoryPipeline {
       source_trace_ids: memory.source_trace_ids,
       created_at: Date.now(),
       embedding: null,
+      applicability_evidence: memory.applicability_evidence ?? buildApplicabilityEvidence({
+        filesRead: memory.files_read,
+        filesModified: memory.files_modified,
+        commandsExecuted: [],
+        observationIds: memory.source_observation_ids,
+        traceIds: memory.source_trace_ids,
+      }),
     });
 
     // Embed the replacement, then supersede the original.
@@ -680,4 +692,39 @@ function toComparable(m: Memory): DedupeComparable {
     files_modified: m.files_modified,
     embedding: m.embedding,
   };
+}
+
+function buildApplicabilityEvidence(input: {
+  observation?: Observation;
+  filesRead?: string[];
+  filesModified?: string[];
+  commandsExecuted?: string[];
+  observationIds?: number[];
+  traceIds?: number[];
+}): CodeApplicabilityEvidence {
+  const observation = input.observation;
+  return {
+    files: unique([
+      ...(input.filesRead ?? []),
+      ...(input.filesModified ?? []),
+      ...(observation?.files_read ?? []),
+      ...(observation?.files_modified ?? []),
+    ]),
+    commands: unique([
+      ...(input.commandsExecuted ?? []),
+      ...(observation?.commands_executed ?? []),
+    ]),
+    trace_ids: uniqueNumbers([
+      ...(input.traceIds ?? []),
+      ...(observation?.source_trace_ids ?? []),
+    ]),
+    observation_ids: uniqueNumbers([
+      ...(input.observationIds ?? []),
+      observation?.id ?? 0,
+    ]),
+  };
+}
+
+function uniqueNumbers(values: number[]): number[] {
+  return [...new Set(values.filter((value) => Number.isInteger(value) && value > 0))];
 }

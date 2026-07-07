@@ -62,6 +62,7 @@ export interface ExplainMemory {
   content_hash: string | null | undefined;
   canonical_key: string | null | undefined;
   superseded_by: number | null | undefined;
+  applicability_evidence: Memory["applicability_evidence"];
   created_at: number;
   files_read: string[];
   files_modified: string[];
@@ -175,6 +176,18 @@ export function renderMemoryExplain(output: ExplainOutput): string {
   lines.push(`Superseded by: ${memory.superseded_by != null ? `memory:${memory.superseded_by}` : "(none)"}`);
 
   lines.push("");
+  lines.push("## Applicability Evidence");
+  if (!memory.applicability_evidence) {
+    lines.push("(none)");
+  } else {
+    const evidence = memory.applicability_evidence;
+    lines.push(`Files: ${evidence.files.length > 0 ? evidence.files.join(", ") : "(none)"}`);
+    lines.push(`Commands: ${evidence.commands.length > 0 ? evidence.commands.join(", ") : "(none)"}`);
+    lines.push(`Source traces: ${evidence.trace_ids.length > 0 ? evidence.trace_ids.map((id) => `trace:${id}`).join(", ") : "(none)"}`);
+    lines.push(`Source observations: ${evidence.observation_ids.length > 0 ? evidence.observation_ids.map((id) => `observation:${id}`).join(", ") : "(none)"}`);
+  }
+
+  lines.push("");
   lines.push("## Provenance");
   if (memory.source_observation_ids.length === 0 && output.source_observations.length === 0) {
     lines.push("(no source observations)");
@@ -280,6 +293,7 @@ function summarizeMemory(memory: Memory): ExplainMemory {
     content_hash: memory.content_hash,
     canonical_key: memory.canonical_key,
     superseded_by: memory.superseded_by,
+    applicability_evidence: memory.applicability_evidence,
     created_at: memory.created_at,
     files_read: memory.files_read,
     files_modified: memory.files_modified,

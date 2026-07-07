@@ -38,7 +38,7 @@ beforeEach(() => {
 });
 
 describe("MemoryPipeline durable processing", () => {
-  it("does not index an observation when no embedding provider is configured", async () => {
+  it("still indexes an observation when no embedding provider is configured", async () => {
     store.upsertSession("s1", "demo", "r1", "/w");
     const trace = store.insertTrace({
       session_id: "s1", timestamp: 1, event_type: "tool_use",
@@ -53,13 +53,13 @@ describe("MemoryPipeline durable processing", () => {
     await withoutEmbeddings.runOnce("worker-1");
 
     const observation = store.getRecentObservations(1)[0]!;
-    expect(observation.lifecycle_state).toBe("awaiting_embedding");
+    expect(observation.lifecycle_state).toBe("indexed");
     expect(observation.processed_at).toBeNull();
     expect(store.getTrace(trace.id)!.processed_at).toBeNull();
-    expect(withoutEmbeddings.getQueueStats().failed).toBe(1);
+    expect(withoutEmbeddings.getQueueStats().failed).toBe(0);
   });
 
-  it("does not mark an observation indexed or trace processed when embedding fails", async () => {
+  it("indexes and continues when embedding fails", async () => {
     store.upsertSession("s1", "demo", "r1", "/w");
     const trace = store.insertTrace({
       session_id: "s1",
@@ -88,10 +88,10 @@ describe("MemoryPipeline durable processing", () => {
     await pipeline.runOnce("worker-1");
 
     const observation = store.getRecentObservations(1)[0]!;
-    expect(observation.lifecycle_state).toBe("awaiting_embedding");
+    expect(observation.lifecycle_state).toBe("indexed");
     expect(observation.processed_at).toBeNull();
     expect(store.getTrace(trace.id)!.processed_at).toBeNull();
-    expect(pipeline.getQueueStats().failed).toBe(1);
+    expect(pipeline.getQueueStats().failed).toBe(0);
   });
 
   it("marks trace processed only after memory is active and searchable", async () => {

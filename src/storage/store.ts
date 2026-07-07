@@ -6,6 +6,7 @@ import { MemoryVecIndex, type MemoryVectorHit } from "../indexing/memory-vec-ind
 import type { RetrievalScoreBreakdown } from "../retrieval/ranking.js";
 import { redactTracePayload } from "../security/redaction.js";
 import type {
+  CodeApplicabilityEvidence,
   Memory,
   MemoryFeedbackEvent,
   MemoryLifecycleState,
@@ -384,8 +385,8 @@ export class Store {
       INSERT INTO memories (
         session_id, repo_id, workspace_root, type, title, description,
         files_read, files_modified, source_observation_ids, source_trace_ids,
-        created_at, embedding, lifecycle_state
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')
+        created_at, embedding, applicability_json, lifecycle_state
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')
     `);
     const info = stmt.run(
       memory.session_id, memory.repo_id, memory.workspace_root,
@@ -394,6 +395,7 @@ export class Store {
       serialize(memory.source_observation_ids), serialize(memory.source_trace_ids),
       memory.created_at,
       memory.embedding ? toEmbeddingBuffer(memory.embedding) : null,
+      serializeApplicabilityEvidence(memory.applicability_evidence),
     );
     const inserted: Memory = { id: info.lastInsertRowid as number, ...memory, lifecycle_state: "active" };
     if (memory.embedding) this.upsertMemoryVector(inserted.id, memory.embedding);
@@ -1055,7 +1057,41 @@ function mapMemory(row: any): Memory {
     content_hash: row.content_hash,
     canonical_key: row.canonical_key,
     superseded_by: row.superseded_by,
+    applicability_evidence: parseApplicabilityEvidence(row.applicability_json),
   };
+}
+
+function serializeApplicabilityEvidence(value: CodeApplicabilityEvidence | null | undefined): string {
+  const normalized = normalizeApplicabilityEvidence(value);
+  return JSON.stringify(normalized);
+}
+
+function parseApplicabilityEvidence(raw: string | null | undefined): CodeApplicabilityEvidence | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<CodeApplicabilityEvidence>;
+    return normalizeApplicabilityEvidence(parsed);
+  } catch {
+    return null;
+  }
+}
+
+function normalizeApplicabilityEvidence(
+  value: Partial<CodeApplicabilityEvidence> | null | undefined,
+): CodeApplicabilityEvidence {
+  const files = uniqueStrings(value?.files ?? []);
+  const commands = uniqueStrings(value?.commands ?? []);
+  const trace_ids = uniqueNumbers(value?.trace_ids ?? []);
+  const observation_ids = uniqueNumbers(value?.observation_ids ?? []);
+  return { files, commands, trace_ids, observation_ids };
+}
+
+function uniqueStrings(values: unknown[]): string[] {
+  return [...new Set(values.filter((value): value is string => typeof value === "string" && value.trim().length > 0).map((value) => value.trim()))];
+}
+
+function uniqueNumbers(values: unknown[]): number[] {
+  return [...new Set(values.filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0))];
 }
 
 function mapSummary(row: any): Summary {

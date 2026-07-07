@@ -36,4 +36,22 @@ describe("bounded retrieval ranking signals", () => {
     expect(score.multiplier).toBe(0.75);
     expect(score.final_score).toBeGreaterThan(0);
   });
+
+  it("boosts memories whose applicability evidence matches the query and files", () => {
+    const score = scoreMemoryCandidate({
+      memory: memory({
+        applicability_evidence: {
+          files: ["src/auth/token.ts"],
+          commands: ["npm test"],
+          trace_ids: [10],
+          observation_ids: [20],
+        },
+      }),
+      ftsRank: 1,
+      query: "npm test",
+      currentFiles: ["src/auth/token.ts"],
+    });
+    expect(score.applicability_adjustment).toBeGreaterThan(0);
+    expect(score.multiplier).toBeGreaterThan(1);
+  });
 });

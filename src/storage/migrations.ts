@@ -15,7 +15,7 @@ import type { DB } from "./connection.js";
  *   memories(id, session_id, repo_id, workspace_root, type, title,
  *            description, files_read, files_modified,
  *            source_observation_ids, source_trace_ids, created_at,
- *            embedding)
+ *            embedding, applicability_json)
  *   summaries(id, session_id, repo_id, workspace_root, summary,
  *             key_changes, key_learnings, created_at)
  *
@@ -119,6 +119,7 @@ CREATE TABLE IF NOT EXISTS memories (
   source_trace_ids TEXT NOT NULL DEFAULT '[]',
   created_at INTEGER NOT NULL,
   embedding BLOB,
+  applicability_json TEXT NOT NULL DEFAULT '{}',
   state TEXT NOT NULL DEFAULT 'active' CHECK(state IN
     ('active', 'stale', 'superseded', 'conflicted', 'deleted')),
   importance REAL NOT NULL DEFAULT 0.5,
@@ -414,6 +415,7 @@ function ensureLifecycleColumns(db: DB): void {
   addColumnIfMissing(db, "memories", "content_hash", "TEXT");
   addColumnIfMissing(db, "memories", "canonical_key", "TEXT");
   addColumnIfMissing(db, "memories", "superseded_by", "INTEGER REFERENCES memories(id)");
+  addColumnIfMissing(db, "memories", "applicability_json", "TEXT NOT NULL DEFAULT '{}'");
 
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_memories_state ON memories(state);

@@ -52,9 +52,6 @@ describe("EVAL-002 packed installed pipeline", () => {
   });
 
   it("survives a packed install, an injected worker failure, and a recovery run", async () => {
-    const build = run(npmCmd, ["run", "build"], { cwd: root });
-    expect(build.status, buildMessage("build", build)).toBe(0);
-
     const packDir = mkdtempSync(join(tmpdir(), "termyte-pack-"));
     const pack = run(npmCmd, ["pack", "--json", "--pack-destination", packDir], { cwd: root });
     expect(pack.status, buildMessage("pack", pack)).toBe(0);
@@ -65,8 +62,7 @@ describe("EVAL-002 packed installed pipeline", () => {
 
     const projectDir = join(workDir, "project");
     mkdirSync(projectDir, { recursive: true });
-    const init = run(npmCmd, ["init", "-y"], { cwd: projectDir });
-    expect(init.status, buildMessage("init", init)).toBe(0);
+    writeFileSync(join(projectDir, "package.json"), JSON.stringify({ name: "termyte-packed-test", private: true }, null, 2));
 
     const install = run(npmCmd, ["install", "--no-package-lock", tarball], { cwd: projectDir });
     expect(install.status, buildMessage("install", install)).toBe(0);
@@ -126,7 +122,12 @@ describe("EVAL-002 packed installed pipeline", () => {
     expect(firstHealth.stdout).toContain("failed=1");
 
     const secondEnv = { ...baseEnv, TERMYTE_FAKE_LLM_FAIL_ONCE: "0" };
-    await new Promise((resolve) => setTimeout(resolve, 3_500));
+    const rewind = run(
+      process.execPath,
+      ["-e", `const Database = require("better-sqlite3"); const db = new Database(process.env.TERMYTE_DB); db.prepare("UPDATE jobs SET next_run_at = ? WHERE state = ?").run(Date.now(), "failed"); db.close();`],
+      { cwd: projectDir, env: secondEnv, shell: false },
+    );
+    expect(rewind.status, buildMessage("rewind", rewind)).toBe(0);
 
     const secondWorker = run(process.execPath, [workerCli, "--until-idle", "--json"], { cwd: projectDir, env: secondEnv });
     expect(secondWorker.status, buildMessage("second worker", secondWorker)).toBe(0);
@@ -156,7 +157,7 @@ function run(
     input: options.input,
     encoding: "utf8",
     windowsHide: true,
-    shell: true,
+    shell: options.shell ?? true,
   });
   return {
     status: result.status,

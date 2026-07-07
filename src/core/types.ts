@@ -55,6 +55,13 @@ export type MemoryFeedbackEvent =
   | "downranked"
   | "corrected";
 
+export interface CodeApplicabilityEvidence {
+  files: string[];
+  commands: string[];
+  trace_ids: number[];
+  observation_ids: number[];
+}
+
 export type TracePipelineState =
   | "captured"
   | "observation_pending"
@@ -166,6 +173,7 @@ export interface Memory {
   content_hash?: string | null;
   canonical_key?: string | null;
   superseded_by?: number | null;
+  applicability_evidence?: CodeApplicabilityEvidence | null;
 }
 
 /** Summary row, one per session. */

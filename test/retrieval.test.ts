@@ -88,6 +88,46 @@ function seedMemories(store: Store): void {
   });
 }
 
+function seedApplicabilityMemories(store: Store): void {
+  store.upsertSession("s2", "demo", "repo-1", "/workspace");
+  store.insertMemory({
+    session_id: "s2", repo_id: "repo-1", workspace_root: "/workspace",
+    type: "procedure",
+    title: "Run tests",
+    description: "Use npm test for the auth subsystem.",
+    files_read: ["src/auth/token.ts"],
+    files_modified: ["src/auth/token.ts"],
+    source_observation_ids: [4],
+    source_trace_ids: [13],
+    created_at: Date.now(),
+    embedding: null,
+    applicability_evidence: {
+      files: ["src/auth/token.ts"],
+      commands: ["npm test"],
+      trace_ids: [13],
+      observation_ids: [4],
+    },
+  });
+  store.insertMemory({
+    session_id: "s2", repo_id: "repo-1", workspace_root: "/workspace",
+    type: "procedure",
+    title: "Run tests",
+    description: "Use npm test for the database subsystem.",
+    files_read: ["src/db/query.ts"],
+    files_modified: ["src/db/query.ts"],
+    source_observation_ids: [5],
+    source_trace_ids: [14],
+    created_at: Date.now(),
+    embedding: null,
+    applicability_evidence: {
+      files: ["src/db/query.ts"],
+      commands: ["pnpm lint"],
+      trace_ids: [14],
+      observation_ids: [5],
+    },
+  });
+}
+
 describe("FTSSearch", () => {
   it("finds memories by keyword", () => {
     const store = new Store(ctx);
@@ -221,6 +261,7 @@ describe("VectorSearch", () => {
     expect(boosted[0]!.score).toBeGreaterThan(boosted[1]!.score);
     store.close();
   });
+
 });
 
 describe("HybridSearch", () => {
