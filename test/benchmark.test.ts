@@ -12,6 +12,7 @@ import { runBenchmark, validateNoAnswerLeakage } from "../src/benchmark/runner.j
 import { loadLongMemEval } from "../src/benchmark/datasets/longmemeval.js";
 import { loadRawSessionDataset } from "../src/benchmark/datasets/raw-session.js";
 import { generateScaleDataset } from "../src/benchmark/datasets/scale.js";
+import { loadCompetitorExecutionAdapters } from "../src/benchmark/competitor-executions.js";
 
 let directory: string | undefined;
 afterEach(async () => { if (directory) await rm(directory, { recursive: true, force: true }); });
@@ -238,11 +239,54 @@ describe("benchmark framework", () => {
     expect(renderComparisonReport(summaries)).toBe(report);
   });
 
+  it("renders competitor execution adapters in comparison reports", async () => {
+    const adapters = await loadCompetitorExecutionAdapters("C:/Users/Palguna/Desktop/competitors");
+    const report = renderComparisonReport([
+      {
+        directory: "run-a",
+        manifest: {
+          dataset: { name: "run-a", version: "1", suite: "custom" },
+          adapter: "fts",
+          track: "retrieval",
+        },
+        metrics: { recall_at_5: 0.5, mrr: 0.25, ndcg_at_10: 0.3, harmful_recall: 0, latency_p99_ms: 10 },
+      },
+      {
+        directory: "run-b",
+        manifest: {
+          dataset: { name: "run-b", version: "1", suite: "custom" },
+          adapter: "termyte",
+          track: "retrieval",
+        },
+        metrics: { recall_at_5: 1, mrr: 0.8, ndcg_at_10: 0.9, harmful_recall: 0, latency_p99_ms: 2 },
+      },
+    ], [], adapters);
+
+    expect(report).toContain("## Competitor Execution Adapters");
+    expect(report).toContain("agentmemory");
+    expect(report).toContain("claude-mem");
+  });
+
   it("includes published competitor baselines when a competitor root is provided", async () => {
     const baselines = await (await import("../src/benchmark/competitors.js")).loadPublishedBaselines("C:/Users/Palguna/Desktop/competitors");
     expect(baselines.some((baseline) => baseline.source === "agentmemory" && baseline.benchmark === "LongMemEval-S")).toBe(true);
     expect(baselines.some((baseline) => baseline.source === "mem0" && baseline.benchmark === "LoCoMo")).toBe(true);
     expect(baselines.some((baseline) => baseline.source === "claude-mem" && baseline.benchmark === "Smart Explore")).toBe(true);
+  });
+
+  it("describes competitor execution adapters from local checkouts", async () => {
+    const adapters = await loadCompetitorExecutionAdapters("C:/Users/Palguna/Desktop/competitors");
+    const agentmemory = adapters.find((adapter) => adapter.source === "agentmemory");
+    const mem0 = adapters.find((adapter) => adapter.source === "mem0");
+    const claudeMem = adapters.find((adapter) => adapter.source === "claude-mem");
+
+    expect(agentmemory?.executable).toBe(true);
+    expect(agentmemory?.commands).toContain("npm run bench:longmemeval [bm25|vector|hybrid]");
+    expect(agentmemory?.publicArtifacts).toContain("benchmark/LONGMEMEVAL.md");
+    expect(mem0?.executable).toBe(true);
+    expect(mem0?.commands.some((command) => command.includes("benchmarks.longmemeval.run"))).toBe(true);
+    expect(claudeMem?.executable).toBe(false);
+    expect(claudeMem?.publicArtifacts).toContain("docs/public/smart-explore-benchmark.mdx");
   });
 
   it("generates reproducible independently labeled scale corpora", () => {

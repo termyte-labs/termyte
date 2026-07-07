@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { loadCompetitorExecutionAdapters, type CompetitorExecutionAdapter } from "./competitor-executions.js";
 import { loadPublishedBaselines, type PublishedBaseline } from "./competitors.js";
 
 export interface BenchmarkRunSummary {
@@ -43,25 +44,34 @@ export async function loadBenchmarkRunSummary(directory: string): Promise<Benchm
   };
 }
 
-export async function compareBenchmarkRuns(runDirectories: string[], outputDirectory: string, competitorRoot?: string): Promise<{ runs: BenchmarkRunSummary[]; publishedBaselines: PublishedBaseline[] }> {
+export async function compareBenchmarkRuns(
+  runDirectories: string[],
+  outputDirectory: string,
+  competitorRoot?: string,
+): Promise<{ runs: BenchmarkRunSummary[]; publishedBaselines: PublishedBaseline[]; executionAdapters: CompetitorExecutionAdapter[] }> {
   if (runDirectories.length < 2) {
     throw new Error("Benchmark comparison requires at least two run directories.");
   }
 
   const runs = await Promise.all(runDirectories.map((directory) => loadBenchmarkRunSummary(directory)));
   const publishedBaselines = competitorRoot ? await loadPublishedBaselines(competitorRoot) : [];
+  const executionAdapters = competitorRoot ? await loadCompetitorExecutionAdapters(competitorRoot) : [];
   const output = resolve(outputDirectory);
   await mkdir(output, { recursive: true });
 
   await Promise.all([
-    writeFile(join(output, "comparison.json"), JSON.stringify({ runs, publishedBaselines }, null, 2) + "\n"),
-    writeFile(join(output, "comparison.md"), renderComparisonReport(runs, publishedBaselines)),
+    writeFile(join(output, "comparison.json"), JSON.stringify({ runs, publishedBaselines, executionAdapters }, null, 2) + "\n"),
+    writeFile(join(output, "comparison.md"), renderComparisonReport(runs, publishedBaselines, executionAdapters)),
   ]);
 
-  return { runs, publishedBaselines };
+  return { runs, publishedBaselines, executionAdapters };
 }
 
-export function renderComparisonReport(runs: BenchmarkRunSummary[], publishedBaselines: PublishedBaseline[] = []): string {
+export function renderComparisonReport(
+  runs: BenchmarkRunSummary[],
+  publishedBaselines: PublishedBaseline[] = [],
+  executionAdapters: CompetitorExecutionAdapter[] = [],
+): string {
   const ordered = [...runs].sort((left, right) => {
     const recallDelta = (right.metrics["recall_at_5"] ?? 0) - (left.metrics["recall_at_5"] ?? 0);
     if (recallDelta !== 0) return recallDelta;
@@ -118,6 +128,20 @@ export function renderComparisonReport(runs: BenchmarkRunSummary[], publishedBas
         baseline.label,
         baseline.score,
         baseline.notes,
+      ].map(escapeCell).join(" | ") + " |");
+    }
+  }
+
+  if (executionAdapters.length > 0) {
+    lines.push("", "## Competitor Execution Adapters");
+    lines.push("", "| Source | Executable | Commands | Public artifacts | Notes |", "|---|---|---|---|---|");
+    for (const adapter of executionAdapters) {
+      lines.push([
+        adapter.source,
+        adapter.executable ? "yes" : "no",
+        adapter.commands.join("<br>") || "n/a",
+        adapter.publicArtifacts.join("<br>"),
+        adapter.notes,
       ].map(escapeCell).join(" | ") + " |");
     }
   }
