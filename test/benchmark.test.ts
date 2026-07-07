@@ -13,6 +13,7 @@ import { loadLongMemEval } from "../src/benchmark/datasets/longmemeval.js";
 import { loadRawSessionDataset } from "../src/benchmark/datasets/raw-session.js";
 import { generateScaleDataset } from "../src/benchmark/datasets/scale.js";
 import { loadCompetitorExecutionAdapters } from "../src/benchmark/competitor-executions.js";
+import { loadCompetitorRunArtifacts } from "../src/benchmark/competitor-runs.js";
 
 let directory: string | undefined;
 afterEach(async () => { if (directory) await rm(directory, { recursive: true, force: true }); });
@@ -241,6 +242,7 @@ describe("benchmark framework", () => {
 
   it("renders competitor execution adapters in comparison reports", async () => {
     const adapters = await loadCompetitorExecutionAdapters("C:/Users/Palguna/Desktop/competitors");
+    const runs = await loadCompetitorRunArtifacts("C:/Users/Palguna/Desktop/competitors");
     const report = renderComparisonReport([
       {
         directory: "run-a",
@@ -260,9 +262,10 @@ describe("benchmark framework", () => {
         },
         metrics: { recall_at_5: 1, mrr: 0.8, ndcg_at_10: 0.9, harmful_recall: 0, latency_p99_ms: 2 },
       },
-    ], [], adapters);
+    ], [], adapters, runs);
 
     expect(report).toContain("## Competitor Execution Adapters");
+    expect(report).toContain("## Published Competitor Runs");
     expect(report).toContain("agentmemory");
     expect(report).toContain("claude-mem");
   });
@@ -287,6 +290,13 @@ describe("benchmark framework", () => {
     expect(mem0?.commands.some((command) => command.includes("benchmarks.longmemeval.run"))).toBe(true);
     expect(claudeMem?.executable).toBe(false);
     expect(claudeMem?.publicArtifacts).toContain("docs/public/smart-explore-benchmark.mdx");
+  });
+
+  it("loads published competitor run artifacts from local checkouts", async () => {
+    const runs = await loadCompetitorRunArtifacts("C:/Users/Palguna/Desktop/competitors");
+    expect(runs.some((run) => run.source === "agentmemory" && run.benchmark.includes("LongMemEval-S"))).toBe(true);
+    expect(runs.some((run) => run.source === "mem0" && run.benchmark === "LoCoMo")).toBe(true);
+    expect(runs.some((run) => run.source === "claude-mem" && run.benchmark === "Discovery")).toBe(true);
   });
 
   it("generates reproducible independently labeled scale corpora", () => {

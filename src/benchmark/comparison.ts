@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { loadCompetitorExecutionAdapters, type CompetitorExecutionAdapter } from "./competitor-executions.js";
+import { loadCompetitorRunArtifacts, type CompetitorRunArtifact } from "./competitor-runs.js";
 import { loadPublishedBaselines, type PublishedBaseline } from "./competitors.js";
 
 export interface BenchmarkRunSummary {
@@ -48,7 +49,12 @@ export async function compareBenchmarkRuns(
   runDirectories: string[],
   outputDirectory: string,
   competitorRoot?: string,
-): Promise<{ runs: BenchmarkRunSummary[]; publishedBaselines: PublishedBaseline[]; executionAdapters: CompetitorExecutionAdapter[] }> {
+): Promise<{
+  runs: BenchmarkRunSummary[];
+  publishedBaselines: PublishedBaseline[];
+  executionAdapters: CompetitorExecutionAdapter[];
+  publishedRuns: CompetitorRunArtifact[];
+}> {
   if (runDirectories.length < 2) {
     throw new Error("Benchmark comparison requires at least two run directories.");
   }
@@ -56,21 +62,23 @@ export async function compareBenchmarkRuns(
   const runs = await Promise.all(runDirectories.map((directory) => loadBenchmarkRunSummary(directory)));
   const publishedBaselines = competitorRoot ? await loadPublishedBaselines(competitorRoot) : [];
   const executionAdapters = competitorRoot ? await loadCompetitorExecutionAdapters(competitorRoot) : [];
+  const publishedRuns = competitorRoot ? await loadCompetitorRunArtifacts(competitorRoot) : [];
   const output = resolve(outputDirectory);
   await mkdir(output, { recursive: true });
 
   await Promise.all([
-    writeFile(join(output, "comparison.json"), JSON.stringify({ runs, publishedBaselines, executionAdapters }, null, 2) + "\n"),
-    writeFile(join(output, "comparison.md"), renderComparisonReport(runs, publishedBaselines, executionAdapters)),
+    writeFile(join(output, "comparison.json"), JSON.stringify({ runs, publishedBaselines, executionAdapters, publishedRuns }, null, 2) + "\n"),
+    writeFile(join(output, "comparison.md"), renderComparisonReport(runs, publishedBaselines, executionAdapters, publishedRuns)),
   ]);
 
-  return { runs, publishedBaselines, executionAdapters };
+  return { runs, publishedBaselines, executionAdapters, publishedRuns };
 }
 
 export function renderComparisonReport(
   runs: BenchmarkRunSummary[],
   publishedBaselines: PublishedBaseline[] = [],
   executionAdapters: CompetitorExecutionAdapter[] = [],
+  publishedRuns: CompetitorRunArtifact[] = [],
 ): string {
   const ordered = [...runs].sort((left, right) => {
     const recallDelta = (right.metrics["recall_at_5"] ?? 0) - (left.metrics["recall_at_5"] ?? 0);
@@ -142,6 +150,21 @@ export function renderComparisonReport(
         adapter.commands.join("<br>") || "n/a",
         adapter.publicArtifacts.join("<br>"),
         adapter.notes,
+      ].map(escapeCell).join(" | ") + " |");
+    }
+  }
+
+  if (publishedRuns.length > 0) {
+    lines.push("", "## Published Competitor Runs");
+    lines.push("", "| Source | Benchmark | Artifact | Metric | Value | Notes |", "|---|---|---|---|---|---|");
+    for (const run of publishedRuns) {
+      lines.push([
+        run.source,
+        run.benchmark,
+        run.artifact,
+        run.metric,
+        run.value,
+        run.notes,
       ].map(escapeCell).join(" | ") + " |");
     }
   }
