@@ -1,9 +1,10 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { TermyteFtsBenchmarkAdapter } from "../src/benchmark/adapters/termyte-fts.js";
 import { TermytePipelineBenchmarkAdapter } from "../src/benchmark/adapters/termyte-pipeline.js";
+import { compareBenchmarkRuns, loadBenchmarkRunSummary, renderComparisonReport } from "../src/benchmark/comparison.js";
 import { evaluateQuery } from "../src/benchmark/metrics.js";
 import { runBenchmark, validateNoAnswerLeakage } from "../src/benchmark/runner.js";
 import { loadLongMemEval } from "../src/benchmark/datasets/longmemeval.js";
@@ -147,6 +148,51 @@ describe("benchmark framework", () => {
     const manifest = JSON.parse(await readFile(join(output, "manifest.json"), "utf8"));
     expect(manifest.dataset.suite).toBe("raw-session");
     expect(await readFile(join(output, "report.md"), "utf8")).toContain("Query latency p99");
+  });
+
+  it("renders a comparison report across benchmark runs", async () => {
+    directory = await mkdtemp(join(tmpdir(), "termyte-bench-"));
+    const first = join(directory, "first");
+    const second = join(directory, "second");
+    const output = join(directory, "comparison");
+    await Promise.all([
+      mkdir(first, { recursive: true }),
+      mkdir(second, { recursive: true }),
+    ]);
+    await writeFile(join(first, "manifest.json"), JSON.stringify({
+      schemaVersion: 1,
+      dataset: { name: "run-a", version: "1", suite: "custom" },
+      adapter: "fts",
+      track: "retrieval",
+    }, null, 2) + "\n");
+    await writeFile(join(first, "metrics.json"), JSON.stringify({
+      recall_at_5: 0.4,
+      mrr: 0.25,
+      ndcg_at_10: 0.3,
+      harmful_recall: 0,
+      latency_p99_ms: 14,
+    }, null, 2) + "\n");
+    await writeFile(join(second, "manifest.json"), JSON.stringify({
+      schemaVersion: 1,
+      dataset: { name: "run-b", version: "1", suite: "custom" },
+      adapter: "termyte",
+      track: "retrieval",
+    }, null, 2) + "\n");
+    await writeFile(join(second, "metrics.json"), JSON.stringify({
+      recall_at_5: 1,
+      mrr: 0.8,
+      ndcg_at_10: 0.9,
+      harmful_recall: 0,
+      latency_p99_ms: 2,
+    }, null, 2) + "\n");
+
+    await compareBenchmarkRuns([first, second], output);
+    const report = await readFile(join(output, "comparison.md"), "utf8");
+    const summaries = await Promise.all([loadBenchmarkRunSummary(first), loadBenchmarkRunSummary(second)]);
+    expect(report).toContain("# Benchmark Comparison");
+    expect(report).toContain("Dataset suite: custom");
+    expect(report.indexOf("termyte")).toBeLessThan(report.indexOf("fts"));
+    expect(renderComparisonReport(summaries)).toBe(report);
   });
 
   it("generates reproducible independently labeled scale corpora", () => {

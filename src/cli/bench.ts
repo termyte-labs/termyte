@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 import { TermyteFtsBenchmarkAdapter } from "../benchmark/adapters/termyte-fts.js";
 import { GrepBenchmarkAdapter } from "../benchmark/adapters/grep.js";
+import { compareBenchmarkRuns } from "../benchmark/comparison.js";
 import { loadLongMemEval } from "../benchmark/datasets/longmemeval.js";
 import { loadRawSessionDataset } from "../benchmark/datasets/raw-session.js";
 import { TermyteHybridBenchmarkAdapter } from "../benchmark/adapters/termyte-hybrid.js";
@@ -10,6 +11,20 @@ import type { MemoryBenchmarkAdapter } from "../benchmark/types.js";
 import { runBenchmark } from "../benchmark/runner.js";
 
 export async function benchCommand(options: Record<string, string | boolean>): Promise<void> {
+  const mode = typeof options["mode"] === "string" ? options["mode"] : "run";
+  if (mode === "compare") {
+    const runs = typeof options["runs"] === "string"
+      ? options["runs"].split(",").map((value) => value.trim()).filter(Boolean)
+      : [];
+    if (runs.length < 2) throw new Error("bench compare requires --runs dir1,dir2,...");
+    const output = typeof options["output"] === "string"
+      ? options["output"]
+      : resolve("benchmark-comparisons", new Date().toISOString().replace(/[:.]/g, "-"));
+    const result = await compareBenchmarkRuns(runs, output);
+    process.stdout.write(JSON.stringify({ output: resolve(output), runs: result.runs.length }, null, 2) + "\n");
+    return;
+  }
+
   const dataset = typeof options["dataset"] === "string" ? options["dataset"] : undefined;
   const track = options["track"] === "pipeline" ? "pipeline" : "retrieval";
   const adapterNames = (typeof options["adapter"] === "string" ? options["adapter"] : "fts")

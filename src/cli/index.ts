@@ -16,6 +16,7 @@
  *   install   <platform> [--target user|project]
  *   eval               [--suite retrieval|durability|lifecycle|all] [--json]
  *   bench run          --dataset path [--track retrieval|pipeline] [--adapter fts|termyte] [--output dir]
+ *   bench compare      --runs dir1,dir2 [--output dir]
  *   viewer             [--host 127.0.0.1] [--port 7331]
  *   mcp                (stdio server for MCP-capable IDEs)
  *   help
@@ -49,6 +50,7 @@ Usage:
   termyte install   <platform> [--target user|project]
   termyte eval      [--suite retrieval|durability|lifecycle|all] [--json]
   termyte bench run [--dataset <path>] [--suite custom|longmemeval|scale] [--size n] [--track retrieval|pipeline] [--adapter grep,fts,termyte] [--embedding-model bge-small|nomic-embed] [--output dir] [--seed n]
+  termyte bench compare [--runs dir1,dir2] [--output dir]
   termyte viewer    [--host 127.0.0.1] [--port 7331]
   termyte synth     [options]              (generate observations from captured traces)
   termyte stats                                 (local stats — no network)
@@ -222,9 +224,9 @@ async function main(): Promise<void> {
         process.exit(0);
       }
       case "bench": {
-        if (positional[0] !== "run") throw new Error("usage: termyte bench run --dataset <path>");
+        if (positional[0] !== "run" && positional[0] !== "compare") throw new Error("usage: termyte bench run --dataset <path> | compare --runs <dir1,dir2>");
         const mod = await import("./bench.js");
-        await mod.benchCommand(opts);
+        await mod.benchCommand({ ...opts, mode: positional[0] });
         break;
       }
       case "viewer": {
