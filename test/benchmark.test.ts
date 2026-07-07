@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { TermyteFtsBenchmarkAdapter } from "../src/benchmark/adapters/termyte-fts.js";
 import { TermytePipelineBenchmarkAdapter } from "../src/benchmark/adapters/termyte-pipeline.js";
 import { compareBenchmarkRuns, loadBenchmarkRunSummary, renderComparisonReport } from "../src/benchmark/comparison.js";
+import { loadLoCoMoDataset } from "../src/benchmark/datasets/locomo.js";
 import { evaluateQuery } from "../src/benchmark/metrics.js";
 import { runBenchmark, validateNoAnswerLeakage } from "../src/benchmark/runner.js";
 import { loadLongMemEval } from "../src/benchmark/datasets/longmemeval.js";
@@ -112,6 +113,29 @@ describe("benchmark framework", () => {
     expect(dataset.documents).toHaveLength(2);
     expect(dataset.documents[0]!.scope).toBe("s1");
     expect(dataset.queries[0]!.relevantDocumentIds).toEqual(["s1::turn_000"]);
+  });
+
+  it("normalizes LoCoMo conversations into benchmark documents", () => {
+    const dataset = loadLoCoMoDataset(JSON.stringify([{
+      sample_id: "loc-1",
+      conversation: {
+        speaker_a: "Alice",
+        speaker_b: "Bob",
+        session_1_date_time: "2024-01-01T00:00:00Z",
+        session_1: [
+          { speaker: "Alice", dia_id: "d1", text: "I moved the auth token logic into middleware." },
+          { speaker: "Bob", dia_id: "d2", text: "That keeps JWT handling in one place." },
+        ],
+      },
+      qa: [
+        { question: "Where did the token logic move?", evidence: ["d1"] },
+      ],
+    }]));
+
+    expect(dataset.suite).toBe("locomo");
+    expect(dataset.documents).toHaveLength(2);
+    expect(dataset.documents[0]!.scope).toBe("loc-1");
+    expect(dataset.queries[0]!.relevantDocumentIds).toEqual(["loc-1::session_1::turn_000"]);
   });
 
   it("runs the raw-session pipeline track end to end", async () => {

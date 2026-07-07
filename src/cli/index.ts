@@ -49,7 +49,7 @@ Usage:
   termyte smoke              [--repo r] [--query q] [--limit n] [--files f1,f2] [--type trace|observation|memory|summary|episode|all] [--path path] [--json]
   termyte install   <platform> [--target user|project]
   termyte eval      [--suite retrieval|durability|lifecycle|all] [--json]
-  termyte bench run [--dataset <path>] [--suite custom|longmemeval|scale] [--size n] [--track retrieval|pipeline] [--adapter grep,fts,termyte] [--embedding-model bge-small|nomic-embed] [--output dir] [--seed n]
+  termyte bench run [--dataset <path>] [--suite custom|locomo|longmemeval|raw-session|scale] [--size n] [--track retrieval|pipeline] [--adapter grep,fts,termyte] [--embedding-model bge-small|nomic-embed] [--output dir] [--seed n]
   termyte bench compare [--runs dir1,dir2] [--output dir]
   termyte viewer    [--host 127.0.0.1] [--port 7331]
   termyte synth     [options]              (generate observations from captured traces)

@@ -2,6 +2,7 @@ import { resolve } from "node:path";
 import { TermyteFtsBenchmarkAdapter } from "../benchmark/adapters/termyte-fts.js";
 import { GrepBenchmarkAdapter } from "../benchmark/adapters/grep.js";
 import { compareBenchmarkRuns } from "../benchmark/comparison.js";
+import { loadLoCoMoDataset } from "../benchmark/datasets/locomo.js";
 import { loadLongMemEval } from "../benchmark/datasets/longmemeval.js";
 import { loadRawSessionDataset } from "../benchmark/datasets/raw-session.js";
 import { TermyteHybridBenchmarkAdapter } from "../benchmark/adapters/termyte-hybrid.js";
@@ -35,8 +36,8 @@ export async function benchCommand(options: Record<string, string | boolean>): P
     }
   }
   const suite = typeof options["suite"] === "string" ? options["suite"] : "custom";
-  if (suite !== "custom" && suite !== "longmemeval" && suite !== "raw-session" && suite !== "scale") {
-    throw new Error(`Suite ${suite} is not implemented. Available: custom, longmemeval, raw-session, scale.`);
+  if (suite !== "custom" && suite !== "locomo" && suite !== "longmemeval" && suite !== "raw-session" && suite !== "scale") {
+    throw new Error(`Suite ${suite} is not implemented. Available: custom, locomo, longmemeval, raw-session, scale.`);
   }
   if (!dataset && suite !== "scale") throw new Error("bench run requires --dataset <path> unless --suite scale is used");
   const seed = typeof options["seed"] === "string" ? Number(options["seed"]) : 42;
@@ -56,7 +57,7 @@ export async function benchCommand(options: Record<string, string | boolean>): P
       adapter: createAdapter(adapterName, track, options),
       track,
       seed,
-      datasetLoader: suite === "longmemeval" ? loadLongMemEval : suite === "raw-session" ? loadRawSessionDataset : undefined,
+      datasetLoader: suite === "locomo" ? loadLoCoMoDataset : suite === "longmemeval" ? loadLongMemEval : suite === "raw-session" ? loadRawSessionDataset : undefined,
     });
     runs[adapterName] = { output: resolve(runOutput), metrics };
   }
