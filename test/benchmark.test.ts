@@ -7,6 +7,7 @@ import { TermytePipelineBenchmarkAdapter } from "../src/benchmark/adapters/termy
 import { evaluateQuery } from "../src/benchmark/metrics.js";
 import { runBenchmark, validateNoAnswerLeakage } from "../src/benchmark/runner.js";
 import { loadLongMemEval } from "../src/benchmark/datasets/longmemeval.js";
+import { loadRawSessionDataset } from "../src/benchmark/datasets/raw-session.js";
 import { generateScaleDataset } from "../src/benchmark/datasets/scale.js";
 
 let directory: string | undefined;
@@ -91,6 +92,61 @@ describe("benchmark framework", () => {
     expect(dataset.documents.every((document) => document.scope === "q1")).toBe(true);
     expect(dataset.queries[0]!.relevantDocumentIds).toEqual(["q1::s1"]);
     expect(dataset.queries[0]!.scope).toBe("q1");
+  });
+
+  it("normalizes raw session transcripts into a pipeline-friendly dataset", () => {
+    const dataset = loadRawSessionDataset(JSON.stringify([{
+      session_id: "s1",
+      project: "demo",
+      turns: [
+        { role: "user", content: "We need to validate JWT bearer tokens.", files: ["src/auth/token.ts"] },
+        { role: "assistant", content: "I updated the auth middleware." },
+      ],
+      queries: [
+        { id: "q1", query: "JWT bearer tokens", relevant_turn_indexes: [0] },
+      ],
+    }]));
+
+    expect(dataset.suite).toBe("raw-session");
+    expect(dataset.documents).toHaveLength(2);
+    expect(dataset.documents[0]!.scope).toBe("s1");
+    expect(dataset.queries[0]!.relevantDocumentIds).toEqual(["s1::turn_000"]);
+  });
+
+  it("runs the raw-session pipeline track end to end", async () => {
+    directory = await mkdtemp(join(tmpdir(), "termyte-bench-"));
+    const output = join(directory, "raw-session-output");
+    const dataset = {
+      name: "raw-session-smoke",
+      version: "1",
+      suite: "raw-session",
+      sessions: [
+        {
+          session_id: "s1",
+          project: "demo",
+          turns: [
+            { role: "user", content: "We need to validate JWT bearer tokens.", files: ["src/auth/token.ts"] },
+            { role: "assistant", content: "I updated the auth middleware." },
+          ],
+          queries: [
+            { id: "q1", query: "JWT bearer tokens", relevant_turn_indexes: [0] },
+          ],
+        },
+      ],
+    };
+
+    const metrics = await runBenchmark({
+      dataset: loadRawSessionDataset(JSON.stringify(dataset.sessions)),
+      outputDirectory: output,
+      adapter: new TermytePipelineBenchmarkAdapter(),
+      track: "pipeline",
+    });
+
+    expect(metrics["recall_at_5"]).toBe(1);
+    expect(metrics["latency_p99_ms"]).toBeGreaterThanOrEqual(0);
+    const manifest = JSON.parse(await readFile(join(output, "manifest.json"), "utf8"));
+    expect(manifest.dataset.suite).toBe("raw-session");
+    expect(await readFile(join(output, "report.md"), "utf8")).toContain("Query latency p99");
   });
 
   it("generates reproducible independently labeled scale corpora", () => {

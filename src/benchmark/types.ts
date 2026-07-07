@@ -1,4 +1,4 @@
-export type BenchmarkSuite = "longmemeval" | "locomo" | "memoryagent" | "scale" | "custom";
+export type BenchmarkSuite = "longmemeval" | "locomo" | "memoryagent" | "raw-session" | "scale" | "custom";
 export type BenchmarkTrack = "retrieval" | "pipeline";
 
 export interface BenchmarkDocument {
