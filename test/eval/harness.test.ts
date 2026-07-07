@@ -123,6 +123,16 @@ describe("eval suites", () => {
     expect(report.metrics.duplicateDetected).toBe(1);
   });
 
+  it("runs correction suite", async () => {
+    const report = await runEval({ suite: "correction" });
+
+    expect(report.suite).toBe("correction");
+    expect(report.passed, JSON.stringify(report, null, 2)).toBe(true);
+    expect(report.metrics.replacementCreated).toBe(1);
+    expect(report.metrics.originalSuperseded).toBe(1);
+    expect(report.metrics.conflictedSuppressed).toBe(1);
+  });
+
   it("runs all suites independently and combines metrics", async () => {
     const report = await runEval({ suite: "all" });
 
@@ -130,5 +140,6 @@ describe("eval suites", () => {
     expect(typeof report.metrics["retrieval.recallAt5"]).toBe("number");
     expect(typeof report.metrics["durability.deadLetterJobs"]).toBe("number");
     expect(typeof report.metrics["lifecycle.duplicateDetected"]).toBe("number");
+    expect(typeof report.metrics["correction.replacementCreated"]).toBe("number");
   });
 });

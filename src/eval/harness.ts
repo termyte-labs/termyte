@@ -1,6 +1,7 @@
 import { Store } from "../storage/store.js";
 import { openDatabase } from "../storage/connection.js";
 import { JobQueue } from "../pipeline/job-queue.js";
+import { MemoryPipeline } from "../pipeline/memory-pipeline.js";
 import { RetryableJobError } from "../pipeline/errors.js";
 import { FTSSearch } from "../retrieval/fts.js";
 import { VectorSearch } from "../retrieval/vector.js";
@@ -9,11 +10,12 @@ import type { EmbeddingsProvider } from "../retrieval/embeddings.js";
 import { memoryDecayScore } from "../lifecycle/decay.js";
 import { applyFeedback } from "../lifecycle/feedback.js";
 import { canonicalMemoryKey, shouldDeduplicate } from "../lifecycle/dedupe.js";
+import { buildMemoryExplain } from "../explain/memory-explain.js";
 import { loadRegressionCorpus, type EvalCorpusCase } from "./corpus.js";
 import { mean, mrr, precisionAtK, recallAtK, type RankedResultLike } from "./metrics.js";
 import { assertDurabilityInvariants, FaultInjector } from "./fault-injection.js";
 
-export type EvalSuiteName = "all" | "retrieval" | "durability" | "lifecycle";
+export type EvalSuiteName = "all" | "retrieval" | "durability" | "lifecycle" | "correction";
 
 export interface EvalFailure {
   caseId: string;
@@ -68,12 +70,14 @@ export async function runEval(options: EvalRunOptions = {}): Promise<EvalReport>
       await runRetrievalEval(options),
       await runDurabilityEval(),
       await runLifecycleEval(),
+      await runCorrectionEval(),
     ]);
   }
 
   if (suite === "retrieval") return runRetrievalEval(options);
   if (suite === "durability") return runDurabilityEval();
   if (suite === "lifecycle") return runLifecycleEval();
+  if (suite === "correction") return runCorrectionEval();
 
   throw new Error(`Unknown eval suite: ${suite satisfies never}`);
 }
@@ -309,6 +313,117 @@ export async function runLifecycleEval(): Promise<EvalReport> {
     },
     failures,
   };
+}
+
+export async function runCorrectionEval(): Promise<EvalReport> {
+  const store = new Store(openDatabase(":memory:"));
+  const embeddings = new FixedEmbeddingsProvider();
+  const failures: EvalFailure[] = [];
+
+  try {
+    store.upsertSession("s1", "eval", "repo", "/w");
+    const original = store.insertMemory({
+      session_id: "s1",
+      repo_id: "repo",
+      workspace_root: "/w",
+      type: "fact",
+      title: "Use old API",
+      description: "The old API should be used.",
+      files_read: ["src/api.ts"],
+      files_modified: [],
+      source_observation_ids: [1],
+      source_trace_ids: [1],
+      created_at: Date.now(),
+      embedding: await embeddings.embed("Use old API\nThe old API should be used."),
+    });
+    store.updateMemoryEmbedding(original.id, await embeddings.embed("Use old API\nThe old API should be used."));
+    store.recordMemoryFeedback({
+      id: `memory:${original.id}`,
+      event: "corrected",
+      correctionText: "Use the new API instead of the old one.",
+      source: "eval",
+    });
+
+    const pipeline = new MemoryPipeline({
+      store,
+      llm: {
+        async chat(messages: Array<{ role: string; content: string }>) {
+          const prompt = messages.map((message) => message.content).join("\n");
+          if (prompt.includes("Generate a summary of this completed agent session.")) {
+            return { content: "<skip_summary />", model: "eval" };
+          }
+          return { content: "<skip_summary />", model: "eval" };
+        },
+      },
+      embeddings,
+    });
+
+    await pipeline.runUntilIdle("eval-worker", { maxJobs: 10 });
+
+    const replacement = store.getRecentMemories(10).find((memory) => memory.id !== original.id && memory.title.startsWith("Corrected: "));
+    if (!replacement) {
+      failures.push({ caseId: "replacement", message: "Expected corrected replacement memory" });
+    } else {
+      if (replacement.lifecycle_state !== "active") {
+        failures.push({ caseId: "replacement_state", message: `Replacement memory was ${replacement.lifecycle_state}` });
+      }
+      if (store.getMemory(original.id)?.lifecycle_state !== "superseded") {
+        failures.push({ caseId: "original_state", message: "Original memory was not superseded" });
+      }
+      if (!store.getMemoryEdges(replacement.id).some((edge) => edge.edge_type === "supersedes" && edge.target_memory_id === original.id)) {
+        failures.push({ caseId: "supersedes_edge", message: "Replacement memory did not record a supersedes edge" });
+      }
+      const explain = buildMemoryExplain(store, `memory:${original.id}`);
+      if (!explain.feedback.some((row: { event_type: string }) => row.event_type === "corrected")) {
+        failures.push({ caseId: "feedback", message: "Corrected feedback was not retained on the original memory" });
+      }
+    }
+
+    const conflicted = store.insertMemory({
+      session_id: "s1",
+      repo_id: "repo",
+      workspace_root: "/w",
+      type: "warning",
+      title: "Remove old API",
+      description: "This should be corrected without replacement text.",
+      files_read: ["src/api.ts"],
+      files_modified: [],
+      source_observation_ids: [2],
+      source_trace_ids: [2],
+      created_at: Date.now(),
+      embedding: await embeddings.embed("Remove old API\nThis should be corrected without replacement text."),
+    });
+    store.recordMemoryFeedback({
+      id: `memory:${conflicted.id}`,
+      event: "corrected",
+      source: "eval",
+    });
+    await pipeline.runUntilIdle("eval-worker", { maxJobs: 10 });
+
+    const conflictedMemory = store.getMemory(conflicted.id);
+    if (!conflictedMemory || conflictedMemory.lifecycle_state !== "conflicted") {
+      failures.push({ caseId: "conflicted", message: "Expected conflicted memory without replacement text" });
+    }
+
+    const ftSearch = new FTSSearch(store);
+    const results = ftSearch.search({ query: "old API", repo_id: "repo", limit: 10 });
+    if (results.some((memory) => memory.id === conflicted.id)) {
+      failures.push({ caseId: "conflicted_search", message: "Conflicted memory remained retrievable by default" });
+    }
+
+    return {
+      suite: "correction",
+      passed: failures.length === 0,
+      metrics: {
+        replacementCreated: replacement ? 1 : 0,
+        originalSuperseded: store.getMemory(original.id)?.lifecycle_state === "superseded" ? 1 : 0,
+        conflictedSuppressed: conflictedMemory?.lifecycle_state === "conflicted" ? 1 : 0,
+      },
+      failures,
+    };
+  } finally {
+    store.close();
+  }
 }
 
 async function seedCorpus(

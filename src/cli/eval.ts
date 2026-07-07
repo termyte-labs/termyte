@@ -24,10 +24,10 @@ export async function evalCommand(options: EvalCommandOptions = {}): Promise<Eva
 
 export function parseSuite(value: string | undefined): EvalSuiteName {
   if (!value) return "all";
-  if (value === "all" || value === "retrieval" || value === "durability" || value === "lifecycle") {
+  if (value === "all" || value === "retrieval" || value === "durability" || value === "lifecycle" || value === "correction") {
     return value;
   }
-  throw new Error(`Invalid eval suite "${value}". Expected all, retrieval, durability, or lifecycle.`);
+  throw new Error(`Invalid eval suite "${value}". Expected all, retrieval, durability, lifecycle, or correction.`);
 }
 
 export function renderEvalReport(report: EvalReport): string {

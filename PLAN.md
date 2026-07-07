@@ -256,13 +256,14 @@ Before implementation, load the lead skill from `.agents/skills`. Load supportin
 
 ### EVAL-003 — Measure self-correction outcomes
 
-- **Status:** pending
+- **Status:** in progress
 - **Lead:** `evaluation-benchmarking-lead`
 - **Support:** all founding skills at their owned interfaces
 - **Depends on:** FB-002, COR-001, CODE-002
 - **Problem:** no experiment proves that memory or correction improves agent execution.
 - **Deliverables:** paired baseline/memory/correction trials; frozen repos; randomized order; fresh sessions; deterministic task tests; harm metrics.
 - **Acceptance:** report sample size, raw failures, median and spread for completion, cost, latency, retries, unrelated edits, wrong-memory use, and correction success.
+- **Implemented evidence:** added `runCorrectionEval()` to the eval harness with deterministic replacement-memory and conflict paths, wired `correction` into CLI parsing, and covered the suite in `test/eval/harness.test.ts`.
 - **Validate:** reproducibility rerun and blinded review of residual quality.
 
 ## Phase 6 — Security and operational readiness
