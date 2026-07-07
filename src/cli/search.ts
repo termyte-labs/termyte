@@ -3,11 +3,11 @@ import { Store } from "../storage/store.js";
 import { FTSSearch } from "../retrieval/fts.js";
 import { VectorSearch } from "../retrieval/vector.js";
 import { HybridSearch } from "../retrieval/hybrid.js";
-import { LocalEmbeddingsProvider } from "../retrieval/local-embeddings.js";
 import { renderHybridResults } from "../context/builder.js";
 import { parseRetrievalTypeName } from "../mcp/schemas.js";
 import { DocumentStore, type DocumentType, type SparseHit } from "../storage/documents.js";
 import { ALL_MEMORY_STATES } from "../retrieval/eligibility.js";
+import { createEmbeddingsProvider } from "../runtime/providers.js";
 
 export async function searchCommand(
   query: string,
@@ -36,7 +36,7 @@ export async function searchCommand(
 
     const fts = new FTSSearch(store);
     const vector = new VectorSearch(store);
-    const embeddings = new LocalEmbeddingsProvider({ model: config.embeddings.model });
+    const embeddings = createEmbeddingsProvider(config.embeddings.model);
     const search = new HybridSearch({ fts, vector, embeddings, feedbackStore: store });
     const results = await search.search({
       query,

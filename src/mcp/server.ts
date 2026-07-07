@@ -18,7 +18,6 @@
  */
 import { loadConfig } from "../cli/config.js";
 import { Store } from "../storage/store.js";
-import { LocalEmbeddingsProvider } from "../retrieval/local-embeddings.js";
 import { FTSSearch } from "../retrieval/fts.js";
 import { VectorSearch } from "../retrieval/vector.js";
 import { HybridSearch } from "../retrieval/hybrid.js";
@@ -37,6 +36,7 @@ import {
   type RetrievalType,
 } from "./schemas.js";
 import type { JsonRpcRequest, JsonRpcResponse } from "./types.js";
+import { createEmbeddingsProvider } from "../runtime/providers.js";
 
 class TermyteMcpServer {
   private store: Store;
@@ -49,7 +49,7 @@ class TermyteMcpServer {
     const config = loadConfig();
     this.store = new Store(config.dbPath);
     try {
-      this.embeddings = new LocalEmbeddingsProvider({ model: config.embeddings.model });
+      this.embeddings = createEmbeddingsProvider(config.embeddings.model);
     } catch {
       this.embeddings = new NoOpEmbeddingsProvider();
     }

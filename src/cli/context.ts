@@ -3,13 +3,12 @@ import { Store } from "../storage/store.js";
 import { FTSSearch } from "../retrieval/fts.js";
 import { VectorSearch } from "../retrieval/vector.js";
 import { HybridSearch } from "../retrieval/hybrid.js";
-import { LocalEmbeddingsProvider } from "../retrieval/local-embeddings.js";
-import { NoOpEmbeddingsProvider } from "../retrieval/embeddings.js";
 import { ContextBuilder } from "../context/builder.js";
 import { parseRetrievalTypeName } from "../mcp/schemas.js";
 import { DocumentStore, type DocumentType } from "../storage/documents.js";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
+import { createEmbeddingsProvider } from "../runtime/providers.js";
 
 export async function contextCommand(options: {
   repo_id?: string;
@@ -54,9 +53,7 @@ export async function contextCommand(options: {
 
     const fts = new FTSSearch(store);
     const vector = new VectorSearch(store);
-    const embeddings = options.query
-      ? new LocalEmbeddingsProvider({ model: config.embeddings.model })
-      : new NoOpEmbeddingsProvider();
+    const embeddings = createEmbeddingsProvider(config.embeddings.model);
     const search = new HybridSearch({ fts, vector, embeddings, feedbackStore: store });
     const builder = new ContextBuilder(store, search);
     const result = await builder.build({

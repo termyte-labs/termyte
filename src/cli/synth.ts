@@ -22,13 +22,13 @@
  */
 import { loadConfig } from "./config.js";
 import { Store } from "../storage/store.js";
-import { LocalEmbeddingsProvider } from "../retrieval/local-embeddings.js";
 import { Batcher } from "../synth/batcher.js";
 import { Lock, LockBusyError } from "../synth/lock.js";
 import { createAdapter, discoverAdapter, type AgentAdapterId } from "../synth/index.js";
 import { buildBatchPrompt } from "../synth/prompts.js";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { createEmbeddingsProvider } from "../runtime/providers.js";
 
 function printUsage(): void {
   process.stdout.write(`termyte-synth — generate observations from captured traces
@@ -96,10 +96,10 @@ async function main(): Promise<void> {
 
   const config = loadConfig();
   const store = new Store(config.dbPath);
-  const embeddings = new LocalEmbeddingsProvider({ model: config.embeddings.model });
-  // Embeddings are warmed but not used by synthesis directly. We
-  // keep a reference so the future observation-embedding pipeline
-  // can use the same instance.
+  const embeddings = createEmbeddingsProvider(config.embeddings.model);
+  // Embeddings are warmed but not used by synthesis directly. We keep
+  // a reference so the future observation-embedding pipeline can use
+  // the same selection path without booting a different model.
   void embeddings;
 
   const lockPath = join(homedir(), ".termyte", "synth.lock");
