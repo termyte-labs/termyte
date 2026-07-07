@@ -3,6 +3,7 @@ import { TermyteFtsBenchmarkAdapter } from "../benchmark/adapters/termyte-fts.js
 import { GrepBenchmarkAdapter } from "../benchmark/adapters/grep.js";
 import { loadLongMemEval } from "../benchmark/datasets/longmemeval.js";
 import { TermyteHybridBenchmarkAdapter } from "../benchmark/adapters/termyte-hybrid.js";
+import { TermytePipelineBenchmarkAdapter } from "../benchmark/adapters/termyte-pipeline.js";
 import { generateScaleDataset } from "../benchmark/datasets/scale.js";
 import type { MemoryBenchmarkAdapter } from "../benchmark/types.js";
 import { runBenchmark } from "../benchmark/runner.js";
@@ -36,7 +37,7 @@ export async function benchCommand(options: Record<string, string | boolean>): P
       datasetPath: suite === "scale" ? undefined : dataset,
       dataset: generatedDataset,
       outputDirectory: runOutput,
-      adapter: createAdapter(adapterName, options),
+      adapter: createAdapter(adapterName, track, options),
       track,
       seed,
       datasetLoader: suite === "longmemeval" ? loadLongMemEval : undefined,
@@ -46,9 +47,10 @@ export async function benchCommand(options: Record<string, string | boolean>): P
   process.stdout.write(JSON.stringify({ runs }, null, 2) + "\n");
 }
 
-function createAdapter(name: string, options: Record<string, string | boolean>): MemoryBenchmarkAdapter {
+function createAdapter(name: string, track: "retrieval" | "pipeline", options: Record<string, string | boolean>): MemoryBenchmarkAdapter {
   if (name === "grep") return new GrepBenchmarkAdapter();
   if (name === "termyte") {
+    if (track === "pipeline") return new TermytePipelineBenchmarkAdapter();
     return new TermyteHybridBenchmarkAdapter(
       options["embedding-model"] === "nomic-embed" ? "nomic-embed" : "bge-small",
     );

@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { TermyteFtsBenchmarkAdapter } from "../src/benchmark/adapters/termyte-fts.js";
+import { TermytePipelineBenchmarkAdapter } from "../src/benchmark/adapters/termyte-pipeline.js";
 import { evaluateQuery } from "../src/benchmark/metrics.js";
 import { runBenchmark, validateNoAnswerLeakage } from "../src/benchmark/runner.js";
 import { loadLongMemEval } from "../src/benchmark/datasets/longmemeval.js";
@@ -67,7 +68,7 @@ describe("benchmark framework", () => {
     const metrics = await runBenchmark({
       datasetPath,
       outputDirectory: output,
-      adapter: new TermyteFtsBenchmarkAdapter(),
+      adapter: new TermytePipelineBenchmarkAdapter(),
       track: "pipeline",
     });
     expect(metrics["recall_at_5"]).toBe(1);

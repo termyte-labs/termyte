@@ -78,7 +78,7 @@ export class FakeLLMProvider implements LLMProvider {
   }
 
   private buildConsolidation(prompt: string): string {
-    const observationTitles = [...prompt.matchAll(/<title>([\s\S]*?)<\/title>/g)]
+    const observationTitles = [...prompt.matchAll(/<observation_summary\b[\s\S]*?<title>([\s\S]*?)<\/title>/g)]
       .map((match) => match[1]!.trim())
       .filter(Boolean);
     const firstTitle = observationTitles[0] ?? "deterministic offline memory";
