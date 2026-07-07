@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { loadPublishedBaselines, type PublishedBaseline } from "./competitors.js";
 
 export interface BenchmarkRunSummary {
   directory: string;
@@ -42,24 +43,25 @@ export async function loadBenchmarkRunSummary(directory: string): Promise<Benchm
   };
 }
 
-export async function compareBenchmarkRuns(runDirectories: string[], outputDirectory: string): Promise<{ runs: BenchmarkRunSummary[] }> {
+export async function compareBenchmarkRuns(runDirectories: string[], outputDirectory: string, competitorRoot?: string): Promise<{ runs: BenchmarkRunSummary[]; publishedBaselines: PublishedBaseline[] }> {
   if (runDirectories.length < 2) {
     throw new Error("Benchmark comparison requires at least two run directories.");
   }
 
   const runs = await Promise.all(runDirectories.map((directory) => loadBenchmarkRunSummary(directory)));
+  const publishedBaselines = competitorRoot ? await loadPublishedBaselines(competitorRoot) : [];
   const output = resolve(outputDirectory);
   await mkdir(output, { recursive: true });
 
   await Promise.all([
-    writeFile(join(output, "comparison.json"), JSON.stringify({ runs }, null, 2) + "\n"),
-    writeFile(join(output, "comparison.md"), renderComparisonReport(runs)),
+    writeFile(join(output, "comparison.json"), JSON.stringify({ runs, publishedBaselines }, null, 2) + "\n"),
+    writeFile(join(output, "comparison.md"), renderComparisonReport(runs, publishedBaselines)),
   ]);
 
-  return { runs };
+  return { runs, publishedBaselines };
 }
 
-export function renderComparisonReport(runs: BenchmarkRunSummary[]): string {
+export function renderComparisonReport(runs: BenchmarkRunSummary[], publishedBaselines: PublishedBaseline[] = []): string {
   const ordered = [...runs].sort((left, right) => {
     const recallDelta = (right.metrics["recall_at_5"] ?? 0) - (left.metrics["recall_at_5"] ?? 0);
     if (recallDelta !== 0) return recallDelta;
@@ -104,6 +106,20 @@ export function renderComparisonReport(runs: BenchmarkRunSummary[]): string {
       `- Track: ${run.manifest.track}`,
       `- Directory: ${run.directory}`,
     );
+  }
+
+  if (publishedBaselines.length > 0) {
+    lines.push("", "## Published Competitor Baselines");
+    lines.push("", "| Source | Benchmark | Label | Score | Notes |", "|---|---|---|---|---|");
+    for (const baseline of publishedBaselines) {
+      lines.push([
+        baseline.source,
+        baseline.benchmark,
+        baseline.label,
+        baseline.score,
+        baseline.notes,
+      ].map(escapeCell).join(" | ") + " |");
+    }
   }
 
   return lines.join("\n") + "\n";

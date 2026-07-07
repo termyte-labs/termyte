@@ -238,6 +238,13 @@ describe("benchmark framework", () => {
     expect(renderComparisonReport(summaries)).toBe(report);
   });
 
+  it("includes published competitor baselines when a competitor root is provided", async () => {
+    const baselines = await (await import("../src/benchmark/competitors.js")).loadPublishedBaselines("C:/Users/Palguna/Desktop/competitors");
+    expect(baselines.some((baseline) => baseline.source === "agentmemory" && baseline.benchmark === "LongMemEval-S")).toBe(true);
+    expect(baselines.some((baseline) => baseline.source === "mem0" && baseline.benchmark === "LoCoMo")).toBe(true);
+    expect(baselines.some((baseline) => baseline.source === "claude-mem" && baseline.benchmark === "Smart Explore")).toBe(true);
+  });
+
   it("generates reproducible independently labeled scale corpora", () => {
     const first = generateScaleDataset(100, 7);
     const second = generateScaleDataset(100, 7);

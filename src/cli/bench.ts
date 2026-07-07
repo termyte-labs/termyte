@@ -1,4 +1,5 @@
 import { resolve } from "node:path";
+import { existsSync } from "node:fs";
 import { TermyteFtsBenchmarkAdapter } from "../benchmark/adapters/termyte-fts.js";
 import { GrepBenchmarkAdapter } from "../benchmark/adapters/grep.js";
 import { compareBenchmarkRuns } from "../benchmark/comparison.js";
@@ -22,7 +23,12 @@ export async function benchCommand(options: Record<string, string | boolean>): P
     const output = typeof options["output"] === "string"
       ? options["output"]
       : resolve("benchmark-comparisons", new Date().toISOString().replace(/[:.]/g, "-"));
-    const result = await compareBenchmarkRuns(runs, output);
+    const competitorRoot = typeof options["competitor-root"] === "string"
+      ? options["competitor-root"]
+      : existsSync(resolve(process.cwd(), "..", "competitors"))
+        ? resolve(process.cwd(), "..", "competitors")
+        : undefined;
+    const result = await compareBenchmarkRuns(runs, output, competitorRoot);
     process.stdout.write(JSON.stringify({ output: resolve(output), runs: result.runs.length }, null, 2) + "\n");
     return;
   }
