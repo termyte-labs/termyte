@@ -244,7 +244,7 @@ Before implementation, load the lead skill from `.agents/skills`. Load supportin
 
 ### EVAL-002 — Test the real installed pipeline
 
-- **Status:** in_progress
+- **Status:** completed
 - **Lead:** `evaluation-benchmarking-lead`
 - **Support:** `agent-runtime-execution-systems-lead`, `memory-modeling-knowledge-architecture-lead`
 - **Depends on:** PKG-001, RUN-001, RUN-002
