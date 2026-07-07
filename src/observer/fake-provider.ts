@@ -1,3 +1,4 @@
+import { existsSync, writeFileSync } from "node:fs";
 import type { ChatMessage, ChatOptions, ChatResponse, LLMProvider } from "./provider.js";
 
 /**
@@ -10,7 +11,13 @@ import type { ChatMessage, ChatOptions, ChatResponse, LLMProvider } from "./prov
  * - session -> summary
  */
 export class FakeLLMProvider implements LLMProvider {
+  private static readonly failMarker = process.env.TERMYTE_FAKE_LLM_FAIL_MARKER ?? null;
+
   async chat(messages: ChatMessage[], _options?: ChatOptions): Promise<ChatResponse> {
+    if (this.shouldFailOnce()) {
+      throw new Error("FakeLLMProvider: injected failure");
+    }
+
     const prompt = messages.map((message) => message.content).join("\n");
 
     if (prompt.includes("<summary>") || prompt.includes("Generate a summary of this completed agent session.")) {
@@ -22,6 +29,19 @@ export class FakeLLMProvider implements LLMProvider {
     }
 
     return { content: this.buildObservation(prompt), model: "fake" };
+  }
+
+  private shouldFailOnce(): boolean {
+    if (process.env.TERMYTE_FAKE_LLM_FAIL_ONCE !== "1") return false;
+    const marker = FakeLLMProvider.failMarker;
+    if (!marker) return false;
+    try {
+      if (existsSync(marker)) return false;
+      writeFileSync(marker, "failed-once", "utf-8");
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   private buildObservation(prompt: string): string {

@@ -243,11 +243,12 @@ Before implementation, load the lead skill from `.agents/skills`. Load supportin
 
 ### EVAL-002 — Test the real installed pipeline
 
-- **Status:** pending
+- **Status:** in_progress
 - **Lead:** `evaluation-benchmarking-lead`
 - **Support:** `agent-runtime-execution-systems-lead`, `memory-modeling-knowledge-architecture-lead`
 - **Depends on:** PKG-001, RUN-001, RUN-002
 - **Problem:** current component evals do not prove installed trace-to-memory behavior.
+- **Implemented evidence:** added `test/installed-pipeline.test.ts`, a packed-install harness that builds the repo, packs the tarball, installs that tarball into an isolated temp project, executes the installed `doctor`, `hook`, `worker`, and `context` entry points, injects a fake-LLM failure on the first worker pass, waits for queue backoff, and verifies recovery on the second pass plus context retrieval from the installed package.
 - **Deliverables:** clean-install harness; representative hook payload; worker execution; memory retrieval; interruption and retry scenarios.
 - **Acceptance:** packed installation completes capture to retrievable memory and recovers from injected failure.
 - **Validate:** isolated filesystem/process test on supported operating systems.
