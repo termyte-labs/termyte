@@ -6,6 +6,7 @@ import { TermyteFtsBenchmarkAdapter } from "../src/benchmark/adapters/termyte-ft
 import { TermytePipelineBenchmarkAdapter } from "../src/benchmark/adapters/termyte-pipeline.js";
 import { compareBenchmarkRuns, loadBenchmarkRunSummary, renderComparisonReport } from "../src/benchmark/comparison.js";
 import { loadLoCoMoDataset } from "../src/benchmark/datasets/locomo.js";
+import { loadMemoryAgentBenchDataset } from "../src/benchmark/datasets/memoryagentbench.js";
 import { evaluateQuery } from "../src/benchmark/metrics.js";
 import { runBenchmark, validateNoAnswerLeakage } from "../src/benchmark/runner.js";
 import { loadLongMemEval } from "../src/benchmark/datasets/longmemeval.js";
@@ -136,6 +137,24 @@ describe("benchmark framework", () => {
     expect(dataset.documents).toHaveLength(2);
     expect(dataset.documents[0]!.scope).toBe("loc-1");
     expect(dataset.queries[0]!.relevantDocumentIds).toEqual(["loc-1::session_1::turn_000"]);
+  });
+
+  it("normalizes MemoryAgentBench contexts into benchmark documents", () => {
+    const dataset = loadMemoryAgentBenchDataset(JSON.stringify([{
+      sample_id: "sample-1",
+      context: [
+        "We refactored the auth middleware.",
+        "JWT bearer tokens are validated before protected routes.",
+      ],
+      query_and_answers: [
+        { qa_pair_id: "qa-1", query: "What validates JWT bearer tokens?", answer: "The auth middleware." },
+      ],
+    }]));
+
+    expect(dataset.suite).toBe("memoryagent");
+    expect(dataset.documents).toHaveLength(2);
+    expect(dataset.documents[0]!.scope).toBe("sample-1");
+    expect(dataset.queries[0]!.relevantDocumentIds).toEqual(["sample-1::chunk_000"]);
   });
 
   it("runs the raw-session pipeline track end to end", async () => {
