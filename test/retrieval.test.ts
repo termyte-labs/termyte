@@ -322,4 +322,57 @@ describe("HybridSearch", () => {
     expect(results[0]!.combined_score).toBe(results[0]!.score_breakdown.final_score);
     store.close();
   });
+
+  it("prefers the memory whose applicability evidence matches the current task over same-text stale context", async () => {
+    const store = new Store(ctx);
+    store.upsertSession("s2", "demo", "repo-1", "/workspace");
+    const sharedVector = new Float32Array([1, 0, 0, 0]);
+    const applicable = store.insertMemory({
+      session_id: "s2", repo_id: "repo-1", workspace_root: "/workspace", type: "procedure",
+      title: "Use npm test", description: "Run the test suite before shipping.",
+      files_read: ["src/auth/token.ts"], files_modified: ["src/auth/token.ts"],
+      source_observation_ids: [10], source_trace_ids: [20],
+      created_at: Date.now(), embedding: sharedVector,
+      applicability_evidence: {
+        files: ["src/auth/token.ts"],
+        commands: ["npm test"],
+        trace_ids: [20],
+        observation_ids: [10],
+      },
+    }).id;
+    const stale = store.insertMemory({
+      session_id: "s2", repo_id: "repo-1", workspace_root: "/workspace", type: "procedure",
+      title: "Use npm test", description: "Run the test suite before shipping.",
+      files_read: ["src/db/query.ts"], files_modified: ["src/db/query.ts"],
+      source_observation_ids: [11], source_trace_ids: [21],
+      created_at: Date.now(), embedding: sharedVector,
+      applicability_evidence: {
+        files: ["src/db/query.ts"],
+        commands: ["pnpm lint"],
+        trace_ids: [21],
+        observation_ids: [11],
+      },
+    }).id;
+    const embeddings = new FixedEmbeddings();
+    embeddings.set("npm test", sharedVector);
+    const search = new HybridSearch({
+      fts: new FTSSearch(store),
+      vector: new VectorSearch(store),
+      embeddings,
+      feedbackStore: store,
+    });
+
+    const results = await search.search({
+      query: "npm test",
+      repo_id: "repo-1",
+      currentFiles: ["src/auth/token.ts"],
+      limit: 2,
+    });
+
+    expect(results[0]!.memory.id).toBe(applicable);
+    expect(results[0]!.score_breakdown.applicability_adjustment).toBeGreaterThan(0);
+    expect(results.some((result) => result.memory.id === stale)).toBe(true);
+    expect(results.find((result) => result.memory.id === stale)!.combined_score).toBeLessThan(results[0]!.combined_score);
+    store.close();
+  });
 });
