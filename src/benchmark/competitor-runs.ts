@@ -14,35 +14,9 @@ export async function loadCompetitorRunArtifacts(rootDirectory: string): Promise
   const root = resolve(rootDirectory);
   const runs: CompetitorRunArtifact[] = [];
 
-  for (const mode of ["bm25", "hybrid"] as const) {
-    const path = join(root, "agentmemory", "benchmark", "data", `longmemeval_results_${mode}.json`);
-    const raw = await tryRead(path);
-    if (!raw) continue;
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
-    runs.push(...[
-      ["recall_any_at_5", "R@5"],
-      ["recall_any_at_10", "R@10"],
-      ["recall_any_at_20", "R@20"],
-      ["ndcg_at_10", "NDCG@10"],
-      ["mrr", "MRR"],
-    ].flatMap(([key, metric]) => {
-      const value = parsed[key];
-      return typeof value === "number" ? [{
-        source: "agentmemory" as const,
-        benchmark: `LongMemEval-S (${mode})`,
-        artifact: path,
-        metric,
-        value: formatValue(value),
-        notes: `questions=${stringOrNumber(parsed["questions"])}; mode=${mode}`,
-      }] : [];
-    }));
-  }
-
   const mem0 = await tryRead(join(root, "mem0", "docs", "core-concepts", "memory-evaluation.mdx"));
   if (mem0) {
     runs.push(...extractMarkdownRuns("mem0", "memory-evaluation.mdx", mem0, [
-      "LoCoMo",
-      "LongMemEval",
       "BEAM (1M)",
       "BEAM (10M)",
     ]));
@@ -121,8 +95,4 @@ function trim(value: string): string {
 
 function formatValue(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(4);
-}
-
-function stringOrNumber(value: unknown): string {
-  return typeof value === "string" || typeof value === "number" ? String(value) : "n/a";
 }

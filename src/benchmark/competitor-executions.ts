@@ -13,7 +13,7 @@ export interface CompetitorExecutionAdapter {
 
 export interface CompetitorBenchmarkRequest {
   source: CompetitorExecutionAdapter["source"];
-  benchmark: "longmemeval" | "quality" | "scale" | "real-embeddings" | "load-100k" | "locomo" | "beam";
+  benchmark: "quality" | "scale" | "real-embeddings" | "load-100k" | "beam";
   rootDirectory: string;
   mode?: "bm25" | "vector" | "hybrid";
   projectName?: string;
@@ -51,7 +51,6 @@ export async function loadCompetitorExecutionAdapters(rootDirectory: string): Pr
       repository: join(root, "agentmemory"),
       executable: true,
       commands: [
-        "npm run bench:longmemeval [bm25|vector|hybrid]",
         "npm run bench:quality",
         "npm run bench:scale",
         "npm run bench:real-embeddings",
@@ -73,8 +72,6 @@ export async function loadCompetitorExecutionAdapters(rootDirectory: string): Pr
       repository: join(root, "mem0"),
       executable: true,
       commands: [
-        "python -m benchmarks.locomo.run --project-name <name> --top-k 200",
-        "python -m benchmarks.longmemeval.run --project-name <name> --all-questions --top-k 200",
         "python -m benchmarks.beam.run --project-name <name> --chat-sizes 1M|10M --conversations 0-99 --top-k 200",
       ],
       publicArtifacts: [
@@ -159,8 +156,6 @@ export async function runCompetitorBenchmark(request: CompetitorBenchmarkRequest
 
 function benchmarkArgsForAgentMemory(benchmark: CompetitorBenchmarkRequest["benchmark"], mode?: "bm25" | "vector" | "hybrid"): string[] {
   switch (benchmark) {
-    case "longmemeval":
-      return ["run", "bench:longmemeval", "--", mode ?? "hybrid"];
     case "quality":
       return ["run", "bench:quality"];
     case "scale":
@@ -176,8 +171,6 @@ function benchmarkArgsForAgentMemory(benchmark: CompetitorBenchmarkRequest["benc
 
 function artifactsForAgentMemory(benchmark: CompetitorBenchmarkRequest["benchmark"], mode?: "bm25" | "vector" | "hybrid"): string[] {
   switch (benchmark) {
-    case "longmemeval":
-      return [`benchmark/data/longmemeval_results_${mode ?? "hybrid"}.json`, "benchmark/LONGMEMEVAL.md"];
     case "quality":
       return ["benchmark/QUALITY.md"];
     case "scale":
@@ -210,10 +203,6 @@ function benchmarkArgsForMem0(
 
 function artifactsForMem0(benchmark: CompetitorBenchmarkRequest["benchmark"]): string[] {
   switch (benchmark) {
-    case "locomo":
-      return ["results/locomo/"];
-    case "longmemeval":
-      return ["results/longmemeval/"];
     case "beam":
       return ["results/beam/"];
     default:

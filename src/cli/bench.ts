@@ -3,9 +3,7 @@ import { existsSync } from "node:fs";
 import { TermyteFtsBenchmarkAdapter } from "../benchmark/adapters/termyte-fts.js";
 import { GrepBenchmarkAdapter } from "../benchmark/adapters/grep.js";
 import { compareBenchmarkRuns } from "../benchmark/comparison.js";
-import { loadLoCoMoDataset } from "../benchmark/datasets/locomo.js";
 import { loadMemoryAgentBenchDataset } from "../benchmark/datasets/memoryagentbench.js";
-import { loadLongMemEval } from "../benchmark/datasets/longmemeval.js";
 import { loadRawSessionDataset } from "../benchmark/datasets/raw-session.js";
 import { TermyteHybridBenchmarkAdapter } from "../benchmark/adapters/termyte-hybrid.js";
 import { TermytePipelineBenchmarkAdapter } from "../benchmark/adapters/termyte-pipeline.js";
@@ -24,7 +22,7 @@ export async function benchCommand(options: Record<string, string | boolean>): P
     }
     const result = await runCompetitorBenchmark({
       source: source as "agentmemory" | "mem0" | "claude-mem",
-      benchmark: benchmark as "longmemeval" | "quality" | "scale" | "real-embeddings" | "load-100k" | "locomo" | "beam",
+      benchmark: benchmark as "quality" | "scale" | "real-embeddings" | "load-100k" | "beam",
       rootDirectory: typeof options["competitor-root"] === "string"
         ? options["competitor-root"]
         : resolve(process.cwd(), "..", "competitors"),
@@ -66,8 +64,8 @@ export async function benchCommand(options: Record<string, string | boolean>): P
     }
   }
   const suite = typeof options["suite"] === "string" ? options["suite"] : "custom";
-  if (suite !== "custom" && suite !== "locomo" && suite !== "longmemeval" && suite !== "memoryagent" && suite !== "raw-session" && suite !== "scale") {
-    throw new Error(`Suite ${suite} is not implemented. Available: custom, locomo, longmemeval, memoryagent, raw-session, scale.`);
+  if (suite !== "custom" && suite !== "memoryagent" && suite !== "raw-session" && suite !== "scale") {
+    throw new Error(`Suite ${suite} is not implemented. Available: custom, memoryagent, raw-session, scale.`);
   }
   if (!dataset && suite !== "scale") throw new Error("bench run requires --dataset <path> unless --suite scale is used");
   const seed = typeof options["seed"] === "string" ? Number(options["seed"]) : 42;
@@ -87,7 +85,7 @@ export async function benchCommand(options: Record<string, string | boolean>): P
       adapter: createAdapter(adapterName, track, options),
       track,
       seed,
-      datasetLoader: suite === "locomo" ? loadLoCoMoDataset : suite === "memoryagent" ? loadMemoryAgentBenchDataset : suite === "longmemeval" ? loadLongMemEval : suite === "raw-session" ? loadRawSessionDataset : undefined,
+      datasetLoader: suite === "memoryagent" ? loadMemoryAgentBenchDataset : suite === "raw-session" ? loadRawSessionDataset : undefined,
     });
     runs[adapterName] = { output: resolve(runOutput), metrics };
   }

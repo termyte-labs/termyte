@@ -11,6 +11,7 @@ export class TermyteHybridBenchmarkAdapter implements MemoryBenchmarkAdapter {
   private store = new Store(":memory:");
   private ids = new Map<number, string>();
   private readonly embeddings: LocalEmbeddingsProvider;
+  private static readonly batchSize = 32;
 
   constructor(model: LocalModelId = "bge-small") {
     this.name = `termyte-hybrid-${model}`;
@@ -24,6 +25,8 @@ export class TermyteHybridBenchmarkAdapter implements MemoryBenchmarkAdapter {
   }
 
   async ingest(documents: readonly BenchmarkDocument[]): Promise<void> {
+    const pendingMemoryIds: number[] = [];
+    const pendingContents: string[] = [];
     for (const document of documents) {
       const scope = document.scope ?? "benchmark";
       const sessionId = `benchmark:${scope}`;
@@ -42,8 +45,18 @@ export class TermyteHybridBenchmarkAdapter implements MemoryBenchmarkAdapter {
         created_at: Date.now(),
         embedding: null,
       });
-      this.store.updateMemoryEmbedding(memory.id, await this.embeddings.embed(document.content));
+      pendingMemoryIds.push(memory.id);
+      pendingContents.push(document.content);
       this.ids.set(memory.id, document.id);
+    }
+
+    for (let index = 0; index < pendingMemoryIds.length; index += TermyteHybridBenchmarkAdapter.batchSize) {
+      const batchMemoryIds = pendingMemoryIds.slice(index, index + TermyteHybridBenchmarkAdapter.batchSize);
+      const batchContents = pendingContents.slice(index, index + TermyteHybridBenchmarkAdapter.batchSize);
+      const vectors = await this.embeddings.embedBatch(batchContents);
+      vectors.forEach((vector, batchIndex) => {
+        this.store.updateMemoryEmbedding(batchMemoryIds[batchIndex]!, vector);
+      });
     }
   }
 

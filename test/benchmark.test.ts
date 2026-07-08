@@ -5,11 +5,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import { TermyteFtsBenchmarkAdapter } from "../src/benchmark/adapters/termyte-fts.js";
 import { TermytePipelineBenchmarkAdapter } from "../src/benchmark/adapters/termyte-pipeline.js";
 import { compareBenchmarkRuns, loadBenchmarkRunSummary, renderComparisonReport } from "../src/benchmark/comparison.js";
-import { loadLoCoMoDataset } from "../src/benchmark/datasets/locomo.js";
 import { loadMemoryAgentBenchDataset } from "../src/benchmark/datasets/memoryagentbench.js";
 import { evaluateQuery } from "../src/benchmark/metrics.js";
 import { runBenchmark, validateNoAnswerLeakage } from "../src/benchmark/runner.js";
-import { loadLongMemEval } from "../src/benchmark/datasets/longmemeval.js";
 import { loadRawSessionDataset } from "../src/benchmark/datasets/raw-session.js";
 import { generateScaleDataset } from "../src/benchmark/datasets/scale.js";
 import { loadCompetitorExecutionAdapters } from "../src/benchmark/competitor-executions.js";
@@ -85,21 +83,6 @@ describe("benchmark framework", () => {
     expect(await readFile(join(output, "report.md"), "utf8")).toContain("Query latency p99");
   });
 
-  it("normalizes LongMemEval with isolated per-question haystacks", () => {
-    const dataset = loadLongMemEval(JSON.stringify([{
-      question_id: "q1", question_type: "single-session-user", question: "Which editor?",
-      answer_session_ids: ["s1"], haystack_session_ids: ["s1", "s2"],
-      haystack_sessions: [
-        [{ role: "user", content: "I use Neovim." }],
-        [{ role: "user", content: "I use SQLite." }],
-      ],
-    }]));
-    expect(dataset.documents.map((document) => document.id)).toEqual(["q1::s1", "q1::s2"]);
-    expect(dataset.documents.every((document) => document.scope === "q1")).toBe(true);
-    expect(dataset.queries[0]!.relevantDocumentIds).toEqual(["q1::s1"]);
-    expect(dataset.queries[0]!.scope).toBe("q1");
-  });
-
   it("normalizes raw session transcripts into a pipeline-friendly dataset", () => {
     const dataset = loadRawSessionDataset(JSON.stringify([{
       session_id: "s1",
@@ -117,29 +100,6 @@ describe("benchmark framework", () => {
     expect(dataset.documents).toHaveLength(2);
     expect(dataset.documents[0]!.scope).toBe("s1");
     expect(dataset.queries[0]!.relevantDocumentIds).toEqual(["s1::turn_000"]);
-  });
-
-  it("normalizes LoCoMo conversations into benchmark documents", () => {
-    const dataset = loadLoCoMoDataset(JSON.stringify([{
-      sample_id: "loc-1",
-      conversation: {
-        speaker_a: "Alice",
-        speaker_b: "Bob",
-        session_1_date_time: "2024-01-01T00:00:00Z",
-        session_1: [
-          { speaker: "Alice", dia_id: "d1", text: "I moved the auth token logic into middleware." },
-          { speaker: "Bob", dia_id: "d2", text: "That keeps JWT handling in one place." },
-        ],
-      },
-      qa: [
-        { question: "Where did the token logic move?", evidence: ["d1"] },
-      ],
-    }]));
-
-    expect(dataset.suite).toBe("locomo");
-    expect(dataset.documents).toHaveLength(2);
-    expect(dataset.documents[0]!.scope).toBe("loc-1");
-    expect(dataset.queries[0]!.relevantDocumentIds).toEqual(["loc-1::session_1::turn_000"]);
   });
 
   it("normalizes MemoryAgentBench contexts into benchmark documents", () => {
@@ -273,8 +233,8 @@ describe("benchmark framework", () => {
 
   it("includes published competitor baselines when a competitor root is provided", async () => {
     const baselines = await (await import("../src/benchmark/competitors.js")).loadPublishedBaselines("C:/Users/Palguna/Desktop/competitors");
-    expect(baselines.some((baseline) => baseline.source === "agentmemory" && baseline.benchmark === "LongMemEval-S")).toBe(true);
-    expect(baselines.some((baseline) => baseline.source === "mem0" && baseline.benchmark === "LoCoMo")).toBe(true);
+    expect(baselines.some((baseline) => baseline.source === "mem0" && baseline.benchmark === "BEAM (1M)")).toBe(true);
+    expect(baselines.some((baseline) => baseline.source === "mem0" && baseline.benchmark === "BEAM (10M)")).toBe(true);
     expect(baselines.some((baseline) => baseline.source === "claude-mem" && baseline.benchmark === "Smart Explore")).toBe(true);
   });
 
@@ -285,10 +245,10 @@ describe("benchmark framework", () => {
     const claudeMem = adapters.find((adapter) => adapter.source === "claude-mem");
 
     expect(agentmemory?.executable).toBe(true);
-    expect(agentmemory?.commands).toContain("npm run bench:longmemeval [bm25|vector|hybrid]");
-    expect(agentmemory?.publicArtifacts).toContain("benchmark/LONGMEMEVAL.md");
+    expect(agentmemory?.commands).toContain("npm run bench:quality");
+    expect(agentmemory?.publicArtifacts).toContain("benchmark/QUALITY.md");
     expect(mem0?.executable).toBe(true);
-    expect(mem0?.commands.some((command) => command.includes("benchmarks.longmemeval.run"))).toBe(true);
+    expect(mem0?.commands.some((command) => command.includes("benchmarks.beam.run"))).toBe(true);
     expect(claudeMem?.executable).toBe(false);
     expect(claudeMem?.publicArtifacts).toContain("docs/public/smart-explore-benchmark.mdx");
   });
@@ -296,19 +256,18 @@ describe("benchmark framework", () => {
   it("resolves runnable competitor benchmark plans and guards missing submodules", async () => {
     const agentmemoryPlan = await planCompetitorBenchmarkRun({
       source: "agentmemory",
-      benchmark: "longmemeval",
+      benchmark: "quality",
       rootDirectory: "C:/Users/Palguna/Desktop/competitors",
-      mode: "hybrid",
       dryRun: true,
     });
     expect(agentmemoryPlan.executable).toBe(true);
     expect(agentmemoryPlan.command).toMatch(/npm(\.cmd)?$/);
-    expect(agentmemoryPlan.args).toContain("bench:longmemeval");
-    expect(agentmemoryPlan.expectedArtifacts).toContain("benchmark/data/longmemeval_results_hybrid.json");
+    expect(agentmemoryPlan.args).toContain("bench:quality");
+    expect(agentmemoryPlan.expectedArtifacts).toContain("benchmark/QUALITY.md");
 
     const mem0Plan = await planCompetitorBenchmarkRun({
       source: "mem0",
-      benchmark: "locomo",
+      benchmark: "beam",
       rootDirectory: "C:/Users/Palguna/Desktop/competitors",
       projectName: "termyte-bench",
       backend: "oss",
@@ -316,12 +275,12 @@ describe("benchmark framework", () => {
     });
     expect(mem0Plan.executable).toBe(true);
     expect(mem0Plan.command).toMatch(/python(\.exe|3)?$/i);
-    expect(mem0Plan.args).toContain("benchmarks.locomo.run");
+    expect(mem0Plan.args).toContain("benchmarks.beam.run");
     expect(mem0Plan.reason).toBeUndefined();
 
     const claudePlan = await planCompetitorBenchmarkRun({
       source: "claude-mem",
-      benchmark: "locomo",
+      benchmark: "beam",
       rootDirectory: "C:/Users/Palguna/Desktop/competitors",
       dryRun: true,
     });
@@ -332,7 +291,7 @@ describe("benchmark framework", () => {
   it("returns a dry-run result for unsupported competitor execution", async () => {
     const result = await runCompetitorBenchmark({
       source: "claude-mem",
-      benchmark: "locomo",
+      benchmark: "beam",
       rootDirectory: "C:/Users/Palguna/Desktop/competitors",
       dryRun: true,
     });
@@ -342,8 +301,8 @@ describe("benchmark framework", () => {
 
   it("loads published competitor run artifacts from local checkouts", async () => {
     const runs = await loadCompetitorRunArtifacts("C:/Users/Palguna/Desktop/competitors");
-    expect(runs.some((run) => run.source === "agentmemory" && run.benchmark.includes("LongMemEval-S"))).toBe(true);
-    expect(runs.some((run) => run.source === "mem0" && run.benchmark === "LoCoMo")).toBe(true);
+    expect(runs.some((run) => run.source === "mem0" && run.benchmark === "BEAM (1M)")).toBe(true);
+    expect(runs.some((run) => run.source === "mem0" && run.benchmark === "BEAM (10M)")).toBe(true);
     expect(runs.some((run) => run.source === "claude-mem" && run.benchmark === "Discovery")).toBe(true);
   });
 

@@ -84,12 +84,34 @@ export class LocalEmbeddingsProvider implements EmbeddingsProvider {
 
   async embedBatch(texts: string[]): Promise<Float32Array[]> {
     await this.ready;
-    const results: Float32Array[] = [];
-    for (const text of texts) {
-      results.push(await this.embed(text));
+    if (texts.length === 0) return [];
+    const output = await this._extractor(texts, {
+      pooling: "mean",
+      normalize: true,
+    });
+    const data = output.data instanceof Float32Array
+      ? output.data
+      : new Float32Array(Object.values(output.data));
+    const split = splitEmbeddingBatch(data, this.dimensions, texts.length);
+    if (!split) {
+      const results: Float32Array[] = [];
+      for (const text of texts) {
+        results.push(await this.embed(text));
+      }
+      return results;
     }
-    return results;
+    return split;
   }
+}
+
+export function splitEmbeddingBatch(data: Float32Array, dimensions: number, count: number): Float32Array[] | null {
+  if (dimensions <= 0 || count <= 0) return null;
+  if (data.length !== count * dimensions) return null;
+  const results: Float32Array[] = [];
+  for (let index = 0; index < count; index += 1) {
+    results.push(data.slice(index * dimensions, (index + 1) * dimensions));
+  }
+  return results;
 }
 
 /**

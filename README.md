@@ -133,7 +133,7 @@ termyte share [--repo r] [--query q] [--limit n] [--files f1,f2] [--type t] [--p
 termyte doctor [--json]
 termyte install <platform> [--target user|project]
 termyte eval [--suite retrieval|durability|lifecycle|all] [--json]
-termyte bench run [--dataset <path>] [--suite custom|longmemeval|scale]
+termyte bench run [--dataset <path>] [--suite custom|memoryagent|raw-session|scale]
                   [--size n] [--track retrieval]
                   [--adapter grep,fts,termyte] [--output directory] [--seed n]
 termyte viewer [--host 127.0.0.1] [--port 7331]
@@ -186,7 +186,7 @@ The test suite is deterministic and network-free. It uses in-memory SQLite, cann
 
 The current retrieval evaluation is a regression harness, not credible public benchmark evidence. `EVAL-001` and later tasks in `PLAN.md` replace it with independently labeled corpora and controlled agent trials.
 
-`termyte bench run` accepts an immutable JSON corpus containing `documents` and independently judged `queries`, the official LongMemEval-S shape, or a deterministic synthetic scale corpus. It writes `manifest.json`, per-query and failure NDJSON, aggregate metrics, resource usage, and `report.md`. `grep` is the lexical control, `fts` exercises Termyte FTS, and `termyte` runs the actual local FTS + embedding + vector-scan + RRF path using BGE Small by default. The model may download on first use. Pipeline evaluation, LoCoMo/MemoryAgentBench loaders, sqlite-vec retrieval, and external competitor adapters remain planned.
+`termyte bench run` accepts an immutable JSON corpus containing `documents` and independently judged `queries`, a MemoryAgentBench-style corpus, a raw-session corpus, or a deterministic synthetic scale corpus. It writes `manifest.json`, per-query and failure NDJSON, aggregate metrics, resource usage, and `report.md`. `grep` is the lexical control, `fts` exercises Termyte FTS, and `termyte` runs the actual local FTS + embedding + vector-scan + RRF path using BGE Small by default. The model may download on first use. MemoryAgentBench is the only supported public benchmark loader right now. Pipeline evaluation and external competitor adapters remain planned.
 
 ## Security and data handling
 
@@ -196,4 +196,4 @@ The local diagnostics viewer binds to `127.0.0.1` by default and has no authenti
 
 ## Repository operating model
 
-Engineering work is routed through five founding-engineer skills under `.agents/skills`. Their ownership model and completion protocol are documented in [AGENTS.md](AGENTS.md). The prioritized implementation backlog is [PLAN.md](PLAN.md).
+Engineering work is routed through five founding-engineer skills under `.agents/skills`. Their ownership model and completion protocol are documented in [AGENTS.md](AGENTS.md). The current implementation plan lives in [reference-docs/IMPLEMENTATION-PLAN.md](reference-docs/IMPLEMENTATION-PLAN.md).

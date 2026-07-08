@@ -13,35 +13,9 @@ export async function loadPublishedBaselines(rootDirectory: string): Promise<Pub
   const root = resolve(rootDirectory);
   const baselines: PublishedBaseline[] = [];
 
-  const agentmemory = await tryRead(join(root, "agentmemory", "benchmark", "COMPARISON.md"));
-  if (agentmemory) {
-    const longMemEval = matchTableRow(agentmemory, /^\|\s+\*\*agentmemory\*\*\s+\(BM25 \+ Vector\)\s+\|\s+([^\|]+)\s+\|\s+\*\*([0-9.]+)%\*\*\s+\|\s+(.+)$/m);
-    if (longMemEval) {
-      baselines.push({
-        source: "agentmemory",
-        benchmark: "LongMemEval-S",
-        label: "agentmemory (BM25 + Vector)",
-        score: `${longMemEval[2]}%`,
-        notes: trimCell(longMemEval[3]),
-      });
-    }
-    const mem0LoCoMo = matchTableRow(agentmemory, /^\|\s+Mem0\s+\|\s+LoCoMo\s+\|\s+([0-9.]+)%\s+\|/m);
-    if (mem0LoCoMo) {
-      baselines.push({
-        source: "agentmemory",
-        benchmark: "LoCoMo",
-        label: "Mem0",
-        score: `${mem0LoCoMo[1]}%`,
-        notes: "Published comparison row in agentmemory benchmark/COMPARISON.md",
-      });
-    }
-  }
-
   const mem0 = await tryRead(join(root, "mem0", "docs", "core-concepts", "memory-evaluation.mdx"));
   if (mem0) {
     for (const [benchmark, pattern] of [
-      ["LoCoMo", /\|\s+\*\*LoCoMo\*\*\s+\|\s+\*\*([0-9.]+)\*\*\s+\|\s+([0-9,]+)\s+\|/m],
-      ["LongMemEval", /\|\s+\*\*LongMemEval\*\*\s+\|\s+\*\*([0-9.]+)\*\*\s+\|\s+([0-9,]+)\s+\|/m],
       ["BEAM (1M)", /\|\s+\*\*BEAM \(1M\)\*\*\s+\|\s+\*\*([0-9.]+)\*\*\s+\|\s+([0-9,]+)\s+\|/m],
       ["BEAM (10M)", /\|\s+\*\*BEAM \(10M\)\*\*\s+\|\s+\*\*([0-9.]+)\*\*\s+\|\s+([0-9,]+)\s+\|/m],
     ] as const) {
