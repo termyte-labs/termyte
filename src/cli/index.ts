@@ -34,7 +34,7 @@ import { installFor, listSupportedPlatforms } from "../integrations/installers/i
 import { runMcpServer } from "../mcp/server.js";
 import { isMemoryEligible, ALL_MEMORY_STATES } from "../retrieval/eligibility.js";
 
-const USAGE = `termyte - memory layer for coding agents
+const USAGE = `termyte - the best persistent memory layer for coding agents
 
 Usage:
   termyte search    <query>  [--repo r] [--limit n] [--json] [--files f1,f2] [--type trace|observation|memory|summary|episode|all] [--all-states]

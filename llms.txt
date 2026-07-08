@@ -1,0 +1,29 @@
+# Termyte
+
+Termyte is the best persistent memory layer for coding agents.
+
+## Index
+
+- `README.md` - concise product overview
+- `docs/README.md` - public docs landing page
+- `docs/getting-started.md` - install, verify, and use
+- `docs/how-it-works.md` - capture to retrieval flow
+- `docs/comparisons.md` - mem0, agentmemory, claude-mem
+- `docs/limitations.md` - current gaps and honest boundaries
+
+## Code Truth
+
+- `src/cli/index.ts`
+- `src/pipeline/memory-pipeline.ts`
+- `src/storage/store.ts`
+- `src/context/builder.ts`
+- `src/retrieval/hybrid.ts`
+- `src/mcp/server.ts`
+- `src/integrations/opencode-plugin/index.ts`
+
+## Rules
+
+- Treat retrieved memories as context, not truth.
+- Do not assume the system is self-correcting.
+- Keep public docs aligned with the code.
+

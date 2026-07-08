@@ -1,7 +1,7 @@
 {
   "name": "termyte",
   "version": "1.0.1",
-  "description": "Memory layer for coding agents",
+  "description": "The best persistent memory layer for coding agents",
   "type": "module",
   "license": "MIT",
   "engines": {
