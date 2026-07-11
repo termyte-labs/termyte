@@ -11,8 +11,14 @@ export interface ContextInput {
   maxMemories?: number;
   currentFiles?: string[];
   sessionId?: string;
+  episodeId?: string;
+  agent?: string;
   /** Who is requesting context — used for attribution. */
   surface?: string;
+  /** Approx maximum tokens to inject. 0 = no budget. Default 0 (legacy behavior).
+   * When set, the builder greedily packs in order: summary (10%), observations (30%),
+   * memories (60%), each cut off when the sub-budget is exhausted. */
+  tokenBudget?: number;
 }
 
 export interface ContextOutput {
@@ -22,12 +28,14 @@ export interface ContextOutput {
   summary: Summary | null;
   text: string;
   contextInjectionId: string;
+  contextPacketId: string;
 }
 
 export class ContextBuilder {
   constructor(private store: Store, private search: HybridSearch) {}
 
   async build(input: ContextInput): Promise<ContextOutput> {
+    const startedAt = Date.now();
     const limit = input.maxMemories ?? 50;
     const repo_id = input.repo_id;
     let rankedMemories: HybridSearchResult[];
@@ -39,6 +47,7 @@ export class ContextBuilder {
         limit,
         currentFiles: input.currentFiles,
       });
+      rankedMemories = rankedMemories.filter((result) => isTaskEligible(result, input.query!, input.currentFiles));
     } else {
       const recent = this.store.getRecentMemories(limit, repo_id).filter((m) => isMemoryEligible(m));
       rankedMemories = recent.slice(0, limit).map((memory, index) => {
@@ -46,11 +55,55 @@ export class ContextBuilder {
         return { memory, combined_score: score_breakdown.final_score, score_breakdown };
       });
     }
+
+    const consideredMemories = rankedMemories.slice();
+    let allObservations = this.store.getRecentObservations(20, repo_id);
+    let allSummary = repo_id ? this.store.getMostRecentSummaryForRepo(repo_id) : null;
+
+    // Token budget packing (greedy block-fit).
+    const budget = input.tokenBudget ?? 0;
+    if (budget > 0) {
+      const summaryBudget = Math.floor(budget * 0.1);
+      const obsBudget = Math.floor(budget * 0.3);
+      const memBudget = Math.max(budget - summaryBudget - obsBudget, 1);
+
+      allSummary = packSummary(allSummary, summaryBudget);
+      allObservations = packObservations(allObservations, obsBudget, 10);
+      rankedMemories = packMemories(rankedMemories, memBudget, limit);
+    }
+
     const memories = rankedMemories.map((result) => result.memory);
 
-    const observations = this.store.getRecentObservations(20, repo_id);
-    const summary = repo_id ? this.store.getMostRecentSummaryForRepo(repo_id) : null;
-    const text = renderContext(repo_id ?? "unknown", memories, observations, summary);
+    const text = renderContext(repo_id ?? "unknown", memories, allObservations, allSummary);
+
+    const packet = this.store.recordContextPacket({
+      sessionId: input.sessionId,
+      episodeId: input.episodeId,
+      repoId: repo_id ?? "unknown",
+      agent: input.agent ?? input.surface ?? "unknown",
+      task: input.query ?? "Repository context",
+      tokenBudget: budget,
+      estimatedTokens: estimateTokens(text),
+      retrievalMode: consideredMemories.some((result) => result.vector_rank) ? "hybrid" : "fts",
+      latencyMs: Date.now() - startedAt,
+      renderedText: text,
+      candidates: consideredMemories.map((result) => {
+        const selectedIndex = rankedMemories.findIndex((selected) => selected.memory.id === result.memory.id);
+        const selected = selectedIndex >= 0;
+        return {
+          candidateId: `memory:${result.memory.id}`,
+          kind: result.memory.type === "procedure" ? "procedure" as const : "memory" as const,
+          sourceId: String(result.memory.id),
+          tokenEstimate: estimateTokens(renderMemory(result.memory)),
+          selected,
+          rank: selected ? selectedIndex + 1 : null,
+          finalScore: result.combined_score,
+          scoreBreakdown: result.score_breakdown as unknown as Record<string, unknown>,
+          rejectionReason: selected ? null : "token_budget_or_limit",
+          renderedText: renderMemory(result.memory),
+        };
+      }),
+    });
 
     const injectionId = randomUUID();
     this.store.recordContextInjection({
@@ -70,6 +123,8 @@ export class ContextBuilder {
         renderedText: renderMemory(result.memory),
       })),
       surface: input.surface ?? "unknown",
+      packetId: packet.id,
+      deliveryMethod: input.surface === "hook" ? "hook" : "cli",
     });
 
     // Record a `shown` feedback event for each injected memory so exposure is
@@ -84,7 +139,10 @@ export class ContextBuilder {
       });
     }
 
-    return { memories, rankedMemories, observations, summary, text, contextInjectionId: injectionId };
+    return {
+      memories, rankedMemories, observations: allObservations, summary: allSummary,
+      text, contextInjectionId: injectionId, contextPacketId: packet.id,
+    };
   }
 }
 
@@ -186,4 +244,100 @@ export function renderHybridResults(results: HybridSearchResult[]): string {
     lines.push("");
   }
   return lines.join("\n");
+}
+
+function estimateTokens(text: string): number {
+  return Math.ceil(text.length / 4);
+}
+
+function isTaskEligible(result: HybridSearchResult, query: string, files?: string[]): boolean {
+  if (result.fts_rank != null) return true;
+  const haystack = [
+    result.memory.title,
+    result.memory.description ?? "",
+    ...result.memory.files_read,
+    ...result.memory.files_modified,
+    ...(result.memory.applicability_evidence?.commands ?? []),
+  ].join(" ").toLowerCase();
+  const technical = [
+    ...(files ?? []),
+    ...query.match(/[A-Za-z0-9_./\\:-]{4,}/g) ?? [],
+  ].map((token) => token.toLowerCase());
+  return technical.some((token) => haystack.includes(token));
+}
+
+export function packSummary(summary: Summary | null, budget: number): Summary | null {
+  if (!summary) return null;
+  const rendered = [summary.summary ?? "", ...(summary.key_changes ?? []), ...(summary.key_learnings ?? [])].join("\n");
+  if (estimateTokens(rendered) <= budget) return summary;
+  const truncated = summary.summary?.slice(0, Math.max(0, budget * 4)) ?? null;
+  return { ...summary, summary: truncated, key_changes: (summary.key_changes ?? []).slice(0, 3), key_learnings: (summary.key_learnings ?? []).slice(0, 3) };
+}
+
+export function packObservations(
+  observations: Observation[],
+  budget: number,
+  maxCount: number,
+): Observation[] {
+  const sorted: Observation[] = observations.slice(0, maxCount);
+  let received: Observation[] = [];
+  let remaining = budget;
+  for (let i = 0; i < sorted.length; i++) {
+    const text = renderObservation(sorted[i]);
+    const tokens = estimateTokens(text);
+    if (remaining < tokens) {
+      received.push(trimObservation(sorted[i], remaining));
+      break;
+    }
+    remaining -= tokens;
+    received.push(sorted[i]);
+  }
+  return received;
+}
+
+function trimObservation(o: Observation, budgetT: number): Observation {
+  if (budgetT <= 0) {
+    return { ...o, description: null, files_read: [], files_modified: [] };
+  }
+  const desc = o.description ?? "";
+  const maxChars = budgetT * 4;
+  return {
+    ...o,
+    description: desc.length > maxChars ? desc.slice(0, maxChars) + "…" : desc,
+    files_read: [],
+    files_modified: [],
+  };
+}
+
+export function packMemories(
+  ranked: HybridSearchResult[],
+  budget: number,
+  maxCount: number,
+): HybridSearchResult[] {
+  const sorted: HybridSearchResult[] = ranked.slice();
+  sorted.sort((a, b) => b.combined_score - a.combined_score);
+  const selected: HybridSearchResult[] = [];
+  let remaining = budget;
+  for (let i = 0; i < sorted.length; i++) {
+    if (selected.length >= maxCount) break;
+    const text = renderMemory(sorted[i].memory);
+    const tokens = estimateTokens(text);
+    if (remaining < tokens && selected.length > 0) continue;
+    if (remaining < tokens && selected.length === 0) {
+      const trimmed: HybridSearchResult = {
+        ...sorted[i],
+        memory: {
+          ...sorted[i].memory,
+          description: (sorted[i].memory.description ?? "").slice(0, remaining * 4) + "…",
+        },
+      };
+      selected.push(trimmed);
+      remaining = 0;
+      break;
+    }
+    remaining -= tokens;
+    selected.push(sorted[i]);
+    if (remaining <= 0) break;
+  }
+  return selected;
 }

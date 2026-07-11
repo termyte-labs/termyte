@@ -31,7 +31,6 @@ interface ClaudeSettings {
 const HOOK_EVENTS: Array<{ event: string; command: string; timeout: number }> = [
   { event: "SessionStart",      command: "session-init",  timeout: 60 },
   { event: "UserPromptSubmit",  command: "context",       timeout: 30 },
-  { event: "PreToolUse",        command: "file-context",  timeout: 30 },
   { event: "PostToolUse",       command: "observation",   timeout: 60 },
   { event: "Stop",              command: "summarize",     timeout: 60 },
 ];
@@ -76,8 +75,7 @@ export function installClaudeCodeHooks(opts: ClaudeInstallOptions): number {
   mkdirSync(dirname(settingsPath), { recursive: true });
   writeFileSync(settingsPath, JSON.stringify(existing, null, 2) + "\n", "utf-8");
   process.stdout.write(`termyte: wrote Claude Code hooks to ${settingsPath}\n`);
-  process.stdout.write(`termyte: hooks capture traces and automatically start a background worker that processes them into memories (requires TERMYTE_LLM_API_KEY).\n`);
-  process.stdout.write(`termyte: set TERMYTE_AUTO_WORKER=0 to disable, or run 'termyte synth' to generate observations via the agent CLI.\n`);
+  process.stdout.write("termyte: capture and context run silently; inspect activity with 'termyte viewer'.\n");
   return 0;
 }
 

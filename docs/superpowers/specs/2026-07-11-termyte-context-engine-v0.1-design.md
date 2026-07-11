@@ -1,7 +1,19 @@
 # Termyte Context Engine v0.1
 
 Date: 2026-07-11
-Status: Approved product design
+Status: Approved product design, amended for implementation
+
+## Approved implementation amendments
+
+- v0.1 supports Claude Code and Codex only.
+- Onboarding is `npm install -g termyte` followed by one interactive `termyte init` flow.
+- Existing authenticated Claude Code or Codex is the recommended synthesis provider; an OpenAI-compatible API configured through environment variables is optional.
+- Routine trace capture, synthesis, memory creation, indexing, and context injection are invisible and fail open. Internal state and failures are visible through Viewer diagnostics.
+- Viewer is the only human surface for stored traces, episodes, evidence, observations, memories, packets, feedback, corrections, and deletion.
+- The public CLI is limited to `init`, `viewer`, `doctor`, `uninstall`, and `help`; hook and worker binaries remain internal integration entry points.
+- Data lives in one user-local database under `~/.termyte` and is repository-scoped by default.
+- Context is compiled once per user task, not on each file access.
+- Experience is the joined record of episode, evidence, and outcome. Memories are reusable knowledge derived from experience; future context selects memories and compact experience previews.
 
 ## Product definition
 

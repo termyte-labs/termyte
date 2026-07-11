@@ -331,6 +331,109 @@ CREATE TABLE IF NOT EXISTS context_injection_items (
 );
 CREATE INDEX IF NOT EXISTS idx_context_injection_items_memory
   ON context_injection_items(memory_id);
+
+CREATE TABLE IF NOT EXISTS audit_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+  operation TEXT NOT NULL,
+  target_type TEXT NOT NULL,
+  target_id TEXT NOT NULL,
+  details TEXT,
+  source TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_audit_log_timestamp ON audit_log(timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_log_operation ON audit_log(operation);
+
+CREATE TABLE IF NOT EXISTS episodes (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL REFERENCES sessions(session_id) ON DELETE CASCADE,
+  repo_id TEXT NOT NULL,
+  workspace_root TEXT NOT NULL,
+  task TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN
+    ('active', 'succeeded', 'failed', 'partial', 'abandoned', 'unknown')),
+  base_commit TEXT,
+  final_commit TEXT,
+  started_at INTEGER NOT NULL,
+  ended_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_episodes_session ON episodes(session_id, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_episodes_repo ON episodes(repo_id, started_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_episodes_one_active_session
+  ON episodes(session_id) WHERE status = 'active';
+
+CREATE TABLE IF NOT EXISTS episode_traces (
+  episode_id TEXT NOT NULL REFERENCES episodes(id) ON DELETE CASCADE,
+  trace_id INTEGER NOT NULL REFERENCES traces(id) ON DELETE CASCADE,
+  PRIMARY KEY (episode_id, trace_id)
+);
+CREATE INDEX IF NOT EXISTS idx_episode_traces_trace ON episode_traces(trace_id);
+
+CREATE TABLE IF NOT EXISTS evidence (
+  id TEXT PRIMARY KEY,
+  episode_id TEXT NOT NULL REFERENCES episodes(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL CHECK(kind IN
+    ('command', 'test', 'build', 'diff', 'file', 'human_feedback', 'agent_statement')),
+  content TEXT NOT NULL,
+  exit_code INTEGER,
+  metadata_json TEXT NOT NULL DEFAULT '{}',
+  observed_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_evidence_episode ON evidence(episode_id, observed_at ASC);
+CREATE INDEX IF NOT EXISTS idx_evidence_kind ON evidence(kind);
+
+CREATE TABLE IF NOT EXISTS evidence_traces (
+  evidence_id TEXT NOT NULL REFERENCES evidence(id) ON DELETE CASCADE,
+  trace_id INTEGER NOT NULL REFERENCES traces(id) ON DELETE CASCADE,
+  PRIMARY KEY (evidence_id, trace_id)
+);
+
+CREATE TABLE IF NOT EXISTS episode_outcomes (
+  id TEXT PRIMARY KEY,
+  episode_id TEXT NOT NULL REFERENCES episodes(id) ON DELETE CASCADE,
+  status TEXT NOT NULL CHECK(status IN
+    ('succeeded', 'failed', 'partial', 'abandoned', 'unknown')),
+  source TEXT NOT NULL CHECK(source IN ('inferred', 'human', 'viewer')),
+  notes TEXT,
+  context_injection_id TEXT REFERENCES context_injections(id) ON DELETE SET NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_episode_outcomes_episode
+  ON episode_outcomes(episode_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS context_packets (
+  id TEXT PRIMARY KEY,
+  session_id TEXT REFERENCES sessions(session_id) ON DELETE SET NULL,
+  episode_id TEXT REFERENCES episodes(id) ON DELETE SET NULL,
+  repo_id TEXT NOT NULL,
+  agent TEXT NOT NULL,
+  task TEXT NOT NULL,
+  token_budget INTEGER NOT NULL,
+  estimated_tokens INTEGER NOT NULL,
+  retrieval_mode TEXT NOT NULL,
+  latency_ms INTEGER NOT NULL,
+  rendered_text TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_context_packets_session ON context_packets(session_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_context_packets_repo ON context_packets(repo_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS context_candidates (
+  packet_id TEXT NOT NULL REFERENCES context_packets(id) ON DELETE CASCADE,
+  candidate_id TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK(kind IN
+    ('current_state', 'repository_knowledge', 'episode', 'memory', 'procedure', 'evidence')),
+  source_id TEXT,
+  token_estimate INTEGER NOT NULL,
+  selected INTEGER NOT NULL CHECK(selected IN (0, 1)),
+  rank INTEGER,
+  final_score REAL NOT NULL,
+  score_breakdown_json TEXT NOT NULL DEFAULT '{}',
+  rejection_reason TEXT,
+  rendered_text TEXT NOT NULL,
+  PRIMARY KEY (packet_id, candidate_id)
+);
+CREATE INDEX IF NOT EXISTS idx_context_candidates_selected ON context_candidates(packet_id, selected, rank);
 `;
 
 export function runMigrations(db: DB): void {
@@ -435,6 +538,8 @@ function ensureFeedbackColumns(db: DB): void {
 
 function ensureContextInjectionColumns(db: DB): void {
   addColumnIfMissing(db, "context_injection_items", "score_breakdown_json", "TEXT NOT NULL DEFAULT '{}'");
+  addColumnIfMissing(db, "context_injections", "packet_id", "TEXT REFERENCES context_packets(id) ON DELETE SET NULL");
+  addColumnIfMissing(db, "context_injections", "delivery_method", "TEXT NOT NULL DEFAULT 'unknown'");
 }
 
 function safeParseIntArray(raw: string): number[] {

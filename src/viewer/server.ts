@@ -2,6 +2,9 @@ import { createServer, type Server } from "node:http";
 import type { DB } from "../storage/connection.js";
 import { Store } from "../storage/store.js";
 import { handleViewerRequest } from "./routes.js";
+import { randomBytes } from "node:crypto";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 export interface ViewerServerOptions {
   dbPath?: string;
@@ -25,9 +28,12 @@ export async function startViewerServer(
   const port = options.port ?? 7331;
   const ownedStore = options.db ? null : new Store(options.dbPath ?? "./termyte.db");
   const db = options.db ?? ownedStore!.getDB();
+  const store = ownedStore ?? new Store({ db, dbPath: options.dbPath ?? ":memory:" });
+  const csrfToken = randomBytes(24).toString("base64url");
+  const assetDir = join(dirname(fileURLToPath(import.meta.url)), "ui");
 
   const server = createServer((req, res) => {
-    void handleViewerRequest(req, res, { db }).catch((error) => {
+    void handleViewerRequest(req, res, { store, csrfToken, assetDir }).catch((error) => {
       res.writeHead(500, { "content-type": "application/json; charset=utf-8" });
       res.end(JSON.stringify({
         error: "internal_error",

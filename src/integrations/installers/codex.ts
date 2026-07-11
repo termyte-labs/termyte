@@ -16,7 +16,6 @@ interface CodexHooksConfig { hooks?: Record<string, CodexHookGroup[]>; [k: strin
 const HOOK_EVENTS: Array<{ event: string; command: string; timeout: number }> = [
   { event: "SessionStart",      command: "session-init",  timeout: 60 },
   { event: "UserPromptSubmit",  command: "context",       timeout: 30 },
-  { event: "PreToolUse",        command: "file-context",  timeout: 30 },
   { event: "PostToolUse",       command: "observation",   timeout: 60 },
 ];
 
@@ -53,8 +52,7 @@ export function installCodexHooks(opts: CodexInstallOptions): number {
   mkdirSync(dirname(hooksPath), { recursive: true });
   writeFileSync(hooksPath, JSON.stringify(existing, null, 2) + "\n", "utf-8");
   process.stdout.write(`termyte: wrote Codex hooks to ${hooksPath}\n`);
-  process.stdout.write(`termyte: hooks capture traces and automatically start a background worker that processes them into memories (requires TERMYTE_LLM_API_KEY).\n`);
-  process.stdout.write(`termyte: set TERMYTE_AUTO_WORKER=0 to disable, or run 'termyte synth' to generate observations via the agent CLI.\n`);
+  process.stdout.write("termyte: capture and context run silently; inspect activity with 'termyte viewer'.\n");
   return 0;
 }
 

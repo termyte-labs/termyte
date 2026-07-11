@@ -40,6 +40,7 @@ export function makeFileContextHandler(deps: { store: import("../../storage/stor
           hookSpecificOutput: {
             hookEventName: "PreToolUse",
             additionalContext: `Prior knowledge for ${file}:\n\n${text}`,
+            contextInjectionId: context.contextInjectionId,
           },
         },
       };

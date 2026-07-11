@@ -36,43 +36,21 @@ import { installFor, listSupportedPlatforms } from "../integrations/installers/i
 import { runMcpServer } from "../mcp/server.js";
 import { isMemoryEligible, ALL_MEMORY_STATES } from "../retrieval/eligibility.js";
 
-const USAGE = `termyte - the best persistent memory layer for coding agents
+const USAGE = `termyte - local-first context engine for coding agents
 
 Usage:
-  termyte search    <query>  [--repo r] [--limit n] [--json] [--files f1,f2] [--type trace|observation|memory|summary|episode|all] [--all-states]
-  termyte context            [--repo r] [--query q] [--limit n] [--files f1,f2] [--type trace|observation|memory|summary|episode|all] [--write-file path] [--json]
-  termyte share              [--repo r] [--query q] [--limit n] [--files f1,f2] [--type trace|observation|memory|summary|episode|all] [--path path] [--json]
-  termyte memories           [--repo r] [--limit n] [--type t] [--all-states]
-  termyte memory    <id>     [--json]
-  termyte explain   <id>     [--json]
-  termyte trace     <id>     [--json]
-  termyte session   <id>     [--json]
-  termyte sessions           [--limit n]
-  termyte start              [--repo r] [--query q] [--limit n] [--files f1,f2] [--type trace|observation|memory|summary|episode|all] [--path path] [--json]
-  termyte smoke              [--repo r] [--query q] [--limit n] [--files f1,f2] [--type trace|observation|memory|summary|episode|all] [--path path] [--json]
-  termyte install   <platform> [--target user|project]
-  termyte eval      [--suite retrieval|durability|lifecycle|all] [--json]
-  termyte bench run [--dataset <path>] [--suite custom|memoryagent|raw-session|scale] [--size n] [--track retrieval|pipeline] [--adapter grep,fts,termyte] [--embedding-model bge-small|nomic-embed] [--output dir] [--seed n]
-  termyte bench compare [--runs dir1,dir2] [--output dir] [--competitor-root path]
-  termyte bench competitor [--source agentmemory|mem0|claude-mem] [--benchmark quality|scale|real-embeddings|load-100k|beam] [--competitor-root path] [--benchmark-mode bm25|vector|hybrid] [--project-name name] [--backend oss|cloud] [--dry-run]
-  termyte viewer    [--host 127.0.0.1] [--port 7331]
-  termyte synth     [options]              (generate observations from captured traces)
-  termyte stats                                 (local stats — no network)
-  termyte doctor     [--json]                (install and health diagnosis)
-  termyte health                                (queue health and dead-letter diagnostics)
-  termyte dead-letters                          (list dead-lettered jobs)
-  termyte retry      <jobId>                    (retry a dead-lettered job)
-  termyte dismiss   <jobId>                    (remove a dead-lettered job)
-  termyte mcp                (stdio MCP server)
+  termyte init
+  termyte viewer [--no-open] [--host 127.0.0.1] [--port 7331]
+  termyte doctor [--json]
+  termyte uninstall
   termyte help
-
-Supported install platforms:
-  ${listSupportedPlatforms().join(", ")}
-
-termyte synth options: --adapter claude-code|codex|opencode|gemini-cli
-                       --dry-run --max-budget-usd N --batch-size N
-                       --session <id> --repo <repo_id> --json
 `;
+
+const VIEWER_ONLY_COMMANDS = new Set([
+  "search", "context", "share", "start", "smoke", "memories", "memory",
+  "explain", "trace", "session", "sessions", "synth", "stats", "health",
+  "dead-letters", "retry", "dismiss", "install",
+]);
 
 function parseArgs(argv: string[]): { positional: string[]; opts: Record<string, string | boolean> } {
   const positional: string[] = [];
@@ -102,8 +80,19 @@ async function main(): Promise<void> {
 
   const { positional, opts } = parseArgs(rest);
 
+  if (VIEWER_ONLY_COMMANDS.has(command)) {
+    process.stderr.write(`termyte: '${command}' is available through 'termyte viewer'.\n`);
+    process.exitCode = 2;
+    return;
+  }
+
   try {
     switch (command) {
+      case "init": {
+        const { initCommand } = await import("./init.js");
+        process.exitCode = await initCommand();
+        return;
+      }
       case "search": {
         const query = positional.join(" ").trim();
         if (!query) { process.stderr.write("usage: termyte search <query>\n"); process.exit(2); }
@@ -238,8 +227,14 @@ async function main(): Promise<void> {
         await mod.viewerCommand({
           host: typeof opts["host"] === "string" ? opts["host"] : undefined,
           port: typeof opts["port"] === "string" ? parseInt(opts["port"], 10) : undefined,
+          open: opts["no-open"] !== true,
         });
         break;
+      }
+      case "uninstall": {
+        const { uninstallCommand } = await import("./uninstall.js");
+        process.exitCode = await uninstallCommand();
+        return;
       }
       case "mcp": {
         await runMcpServer();

@@ -97,7 +97,7 @@ describe("event handlers", () => {
     const out = await getHandler("context", deps)({ event, raw: {} });
     expect(out.handled).toBe(true);
     expect(out.result.hookSpecificOutput?.additionalContext).toContain("Auth uses JWT");
-    expect(out.result.hookSpecificOutput?.hookEventName).toBe("SessionStart");
+    expect(out.result.hookSpecificOutput?.hookEventName).toBe("UserPromptSubmit");
     store.close();
   });
 

@@ -9,9 +9,12 @@ import {
   buildConsolidationSystemPrompt,
   buildObservationPrompt,
   buildSummaryPrompt,
+  buildSummarySystemPrompt,
   buildSystemPrompt,
   type SessionForPrompt,
 } from "../observer/prompts.js";
+import { chatWithRetry } from "../observer/self-correct.js";
+import { validateObservation, validateMemory, validateSummary } from "../observer/schemas.js";
 import { JobQueue, type Job } from "./job-queue.js";
 import { PermanentJobError, RetryableJobError } from "./errors.js";
 import {
@@ -144,12 +147,19 @@ export class MemoryPipeline {
     const trace = this.store.getTrace(Number(job.subjectId));
     if (!trace) throw new PermanentJobError(`Trace not found: ${job.subjectId}`);
 
-    const response = await this.llm.chat(
+    const response = await chatWithRetry(
+      this.llm,
       [
         { role: "system", content: buildSystemPrompt() },
         { role: "user", content: buildObservationPrompt(traceForPrompt(trace)) },
       ],
       this.chatOptions,
+      (content) => {
+        const parsed = parseAgentXml(content);
+        if (!parsed.valid) return false;
+        if (parsed.observations.length === 0) return true;
+        return parsed.observations.every((o) => validateObservation(o));
+      },
     );
     const parsed = parseAgentXml(response.content);
 
@@ -241,7 +251,8 @@ export class MemoryPipeline {
       throw new RetryableJobError(`Observation ${observation.id} is not indexed`);
     }
 
-    const response = await this.llm.chat(
+    const response = await chatWithRetry(
+      this.llm,
       [
         { role: "system", content: buildConsolidationSystemPrompt() },
         {
@@ -257,6 +268,12 @@ export class MemoryPipeline {
         },
       ],
       this.chatOptions,
+      (content) => {
+        const parsed = parseAgentXml(content);
+        if (!parsed.valid) return false;
+        if (parsed.observations.length === 0) return true;
+        return parsed.observations.every((o) => validateMemory(o));
+      },
     );
     const parsed = parseAgentXml(response.content);
 
@@ -466,12 +483,19 @@ export class MemoryPipeline {
       files_modified: [...files],
     };
 
-    const response = await this.llm.chat(
+    const response = await chatWithRetry(
+      this.llm,
       [
-        { role: "system", content: buildSystemPrompt() },
+        { role: "system", content: buildSummarySystemPrompt() },
         { role: "user", content: buildSummaryPrompt(input) },
       ],
       this.chatOptions,
+      (content) => {
+        const parsed = parseAgentXml(content);
+        if (!parsed.valid) return false;
+        if (parsed.summary?.skipped) return true;
+        return validateSummary(parsed.summary);
+      },
     );
     const parsed = parseAgentXml(response.content);
     if (!parsed.valid) {

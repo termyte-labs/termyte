@@ -1,63 +1,55 @@
 # Termyte
 
-Termyte is the best persistent memory layer for coding agents.
-It captures agent work as traces, turns those traces into observations and memories, and returns relevant context through CLI, MCP, hooks, and a local viewer.
+Termyte is a local context engine for Claude Code and Codex. It records agent execution, preserves evidence, derives repository-specific memories, and quietly supplies relevant context at the start of later tasks.
 
-## What it does
+Termyte is not yet a self-correcting system. Outcomes can be recorded and inspected, but automatic attribution from an injected memory to a later task result is incomplete.
 
-- captures normalized agent events into SQLite traces
-- redacts obvious secrets before persistence and LLM calls
-- runs a durable queue with leases, retries, backoff, and dead letters
-- derives observations and memories from traces
-- retrieves with FTS5, local embeddings, sqlite-vec when available, and reciprocal-rank fusion
-- records context injections and explicit feedback
-- exposes `termyte search`, `context`, `memory`, `explain`, `doctor`, `stats`, `smoke`, `mcp`, and `viewer`
+## Install
 
-## What works today
+```bash
+npm install -g termyte
+termyte init
+```
 
-- adapters for Claude Code, Codex, Cursor, OpenCode, Gemini CLI, Windsurf, and raw payloads
-- immutable trace capture in SQLite
-- durable jobs with worker supervision
-- trace to observation to memory processing
-- typed retrieval for trace, observation, memory, summary, and episode documents
-- context injection tracking and explainability
-- local diagnostics and benchmarking
+`termyte init` lets you select Claude Code and/or Codex and choose one synthesis source:
 
-## What does not work yet
+- existing Claude Code or Codex authentication;
+- an OpenAI-compatible API key from `TERMYTE_LLM_API_KEY`;
+- capture-only mode.
 
-- it is not self-correcting
-- outcome attribution is not closed end to end
-- correction text is not verified against repository evidence
-- redaction is heuristic, not comprehensive
-- ranking calibration is still incomplete
-- OpenCode still writes a shared context block instead of a true live memory injection path
+Termyte stores its configuration and SQLite database under `~/.termyte`. Hooks run silently during normal agent work. Open `termyte viewer` to inspect sessions, episodes, evidence, memories, context decisions, outcomes, feedback, and runtime failures.
 
-## How to use it
+## Public commands
 
-1. Install a supported integration with `termyte install <platform>`.
-2. Run `termyte smoke` to confirm hooks, queue health, and shared context export.
-3. Use `termyte search` or `termyte context` to pull relevant memory back into the current task.
-4. Use `termyte explain memory:<id>` when you want the provenance trail.
-5. Use `termyte doctor` and `termyte stats` for local health checks.
+```text
+termyte init
+termyte viewer [--no-open]
+termyte doctor [--json]
+termyte uninstall
+termyte help
+```
 
-## Comparisons
+## Runtime
 
-| Product | What it is | Where it differs from Termyte |
-|---|---|---|
-| Termyte | Local-first memory layer for coding agents | SQLite-backed, provenance-heavy, focused on capture, retrieval, and operator visibility |
-| mem0 | Memory platform and OSS memory layer for general agents | Broader platform/API shape, managed and self-hosted modes, less tied to local agent hooks |
-| agentmemory | Large OSS memory engine with many integrations and benchmarks | Much broader surface area, more opinionated platform and docs stack, heavier footprint |
-| claude-mem | Claude Code-first persistent memory system | More Claude-specific and workflow-heavy, with a larger hook and server surface |
+```text
+agent event
+  -> redaction and trace persistence
+  -> episode and evidence recording
+  -> durable background jobs
+  -> observations and memories with provenance
+  -> task-scoped context packet
+  -> Claude Code or Codex prompt context
+```
 
-Termyte is narrower than the others on purpose. It is trying to be a local, inspectable memory layer for coding agents, not a general memory platform.
+Context retrieval is repository-scoped, lifecycle-aware, budgeted, and allowed to return no memory. The foreground hook uses FTS-only retrieval so it never downloads or initializes an embedding model while the agent is waiting. Local embeddings and durable synthesis run in the background.
 
-## Docs
+## Current boundaries
 
-- [Public docs](docs/README.md)
-- [How it works](docs/how-it-works.md)
-- [Comparisons](docs/comparisons.md)
-- [Limitations](docs/limitations.md)
-- [LLM index](docs/llms.txt)
+- integrations are limited to Claude Code and Codex;
+- redaction is heuristic, not comprehensive;
+- ranking has deterministic bounds but is not calibrated on a public coding-agent corpus;
+- explicit outcome and memory feedback exist, but automatic outcome attribution is incomplete;
+- component and packed-install tests pass; a controlled live-agent product-value evaluation is still required.
 
 ## Development
 
@@ -67,5 +59,3 @@ npm run typecheck
 npm test
 npm run build
 ```
-
-The built CLI lives under `dist/cli/`.

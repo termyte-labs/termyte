@@ -9,11 +9,7 @@ import type { ContextBuilder } from "../../context/builder.js";
 import { makeContextHandler } from "./context.js";
 
 export function makeSessionInitHandler(deps: { store: Store; search: HybridSearch; builder: ContextBuilder }): EventHandler {
-  const inner = makeContextHandler(deps);
   return async (input) => {
-    if (input.event.event_type !== "session_init") {
-      return { handled: true, result: { continue: true, suppressOutput: true } };
-    }
-    return await inner(input);
+    return { handled: input.event.event_type === "session_init", result: { continue: true, suppressOutput: true } };
   };
 }

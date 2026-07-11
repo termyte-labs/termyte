@@ -26,7 +26,8 @@ import type { Platform } from "../core/types.js";
 import { getHandler, type HandlerInput } from "./handlers/index.js";
 import { pathToFileURL } from "node:url";
 import { createHookSupervisor, type WorkerSupervisor } from "../pipeline/worker-supervisor.js";
-import { createEmbeddingsProvider, createLLMProvider } from "../runtime/providers.js";
+import { createLLMProvider } from "../runtime/providers.js";
+import { NoOpEmbeddingsProvider } from "../retrieval/embeddings.js";
 
 const KNOWN_PLATFORMS: Platform[] = ["claude-code", "codex", "opencode", "cursor", "gemini-cli", "windsurf", "raw"];
 
@@ -41,15 +42,23 @@ async function main(supervisorOverride?: WorkerSupervisor): Promise<void> {
 
   const config = loadConfig();
   const store = new Store(config.dbPath);
-  const llm = createLLMProvider(config.llm);
-  const embeddings = createEmbeddingsProvider(config.embeddings.model);
+  const llm = createLLMProvider(config.llm, process.env, config.synthesis);
+  // Hooks must never download or initialize an embedding model on the agent's
+  // foreground path. Hybrid retrieval degrades to FTS when this provider
+  // declines the vector query; the background worker owns embedding work.
+  const embeddings = new NoOpEmbeddingsProvider();
   const observer = new Observer({ store, llm, embeddings });
   const runner = new HookRunner({ store, observer });
   const fts = new FTSSearch(store);
   const vector = new VectorSearch(store);
   const search = new HybridSearch({ fts, vector, embeddings, feedbackStore: store });
   const builder = new ContextBuilder(store, search);
-  const supervisor = supervisorOverride ?? createHookSupervisor(config.dbPath);
+  const supervisor = supervisorOverride ?? createHookSupervisor(
+    config.dbPath,
+    config.synthesis.mode === "capture-only"
+      ? { ...process.env, TERMYTE_AUTO_WORKER: "0" }
+      : process.env,
+  );
 
   try {
     const raw = await readStdin();

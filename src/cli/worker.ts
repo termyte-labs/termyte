@@ -30,7 +30,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  const llm = createLLMProvider(config.llm);
+  const llm = createLLMProvider(config.llm, process.env, config.synthesis);
   const embeddings = createEmbeddingsProvider(config.embeddings.model);
   const pipeline = new MemoryPipeline({ store, llm, embeddings });
 

@@ -187,3 +187,77 @@ export interface Summary {
   key_learnings: string[] | null;
   created_at: number;
 }
+
+export type EpisodeStatus = "active" | "succeeded" | "failed" | "partial" | "abandoned" | "unknown";
+export type EvidenceKind = "command" | "test" | "build" | "diff" | "file" | "human_feedback" | "agent_statement";
+export type OutcomeStatus = Exclude<EpisodeStatus, "active">;
+
+export interface Episode {
+  id: string;
+  session_id: string;
+  repo_id: string;
+  workspace_root: string;
+  task: string;
+  status: EpisodeStatus;
+  base_commit: string | null;
+  final_commit: string | null;
+  started_at: number;
+  ended_at: number | null;
+}
+
+export interface Evidence {
+  id: string;
+  episode_id: string;
+  kind: EvidenceKind;
+  content: string;
+  exit_code: number | null;
+  metadata: Record<string, unknown>;
+  observed_at: number;
+}
+
+export interface EpisodeOutcome {
+  id: string;
+  episode_id: string;
+  status: OutcomeStatus;
+  source: "inferred" | "human" | "viewer";
+  notes: string | null;
+  context_injection_id: string | null;
+  created_at: number;
+}
+
+export type ContextCandidateKind =
+  | "current_state"
+  | "repository_knowledge"
+  | "episode"
+  | "memory"
+  | "procedure"
+  | "evidence";
+
+export interface ContextPacket {
+  id: string;
+  session_id: string | null;
+  episode_id: string | null;
+  repo_id: string;
+  agent: string;
+  task: string;
+  token_budget: number;
+  estimated_tokens: number;
+  retrieval_mode: string;
+  latency_ms: number;
+  rendered_text: string;
+  created_at: number;
+}
+
+export interface ContextCandidate {
+  packet_id: string;
+  candidate_id: string;
+  kind: ContextCandidateKind;
+  source_id: string | null;
+  token_estimate: number;
+  selected: boolean;
+  rank: number | null;
+  final_score: number;
+  score_breakdown: Record<string, unknown>;
+  rejection_reason: string | null;
+  rendered_text: string;
+}

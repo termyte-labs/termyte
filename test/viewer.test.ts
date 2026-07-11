@@ -20,17 +20,17 @@ afterEach(async () => {
 });
 
 describe("viewer diagnostics server", () => {
-  it("serves health JSON on localhost", async () => {
+  it("serves overview JSON on localhost", async () => {
     store = new Store(openDatabase(":memory:"));
     running = await startViewerServer({ db: store.getDB(), port: 0 });
 
-    const response = await fetch(`${running.url}/api/health`);
+    const response = await fetch(`${running.url}/api/overview`);
     const body = await response.json() as any;
 
     expect(response.status).toBe(200);
-    expect(body.ok).toBe(true);
-    expect(body.database).toBe("ok");
-    expect(body.ftsAvailable).toBe(true);
+    expect(body.data.sessions).toBe(0);
+    expect(body.data.memories).toBe(0);
+    expect(body.data.health.queue.pending).toBe(0);
   });
 
   it("reports job summary counts", async () => {
@@ -40,13 +40,13 @@ describe("viewer diagnostics server", () => {
 
     running = await startViewerServer({ db: store.getDB(), port: 0 });
 
-    const response = await fetch(`${running.url}/api/jobs/summary`);
+    const response = await fetch(`${running.url}/api/diagnostics`);
     const body = await response.json() as any;
 
     expect(response.status).toBe(200);
-    expect(body.pending).toBe(1);
-    expect(body.failed).toBe(0);
-    expect(body.dead).toBe(0);
+    expect(body.data.health.queue.pending).toBe(1);
+    expect(body.data.health.queue.failed).toBe(0);
+    expect(body.data.health.queue.dead).toBe(0);
   });
 
   it("returns failed and dead jobs from dead-letter endpoint", async () => {
@@ -65,13 +65,13 @@ describe("viewer diagnostics server", () => {
 
     running = await startViewerServer({ db: store.getDB(), port: 0 });
 
-    const response = await fetch(`${running.url}/api/dead-letter`);
+    const response = await fetch(`${running.url}/api/diagnostics`);
     const body = await response.json() as any;
 
     expect(response.status).toBe(200);
-    expect(body.jobs).toHaveLength(1);
-    expect(body.jobs[0].state).toBe("failed");
-    expect(body.jobs[0].lastError).toContain("embedding timeout");
+    expect(body.data.problemJobs).toHaveLength(1);
+    expect(body.data.problemJobs[0].state).toBe("failed");
+    expect(body.data.problemJobs[0].last_error).toContain("embedding timeout");
   });
 
   it("serves a minimal dashboard and shuts down cleanly", async () => {

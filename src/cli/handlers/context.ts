@@ -14,9 +14,13 @@ export function makeContextHandler(deps: { store: Store; search: HybridSearch; b
     const repo_id = session?.repo_id ?? undefined;
     const result = await deps.builder.build({
       repo_id,
-      maxMemories: 25,
+      query: event.user_prompt ?? undefined,
+      maxMemories: 5,
       sessionId: event.session_id,
+      episodeId: deps.store.getActiveEpisode(event.session_id)?.id,
+      agent: "coding-agent",
       surface: "hook",
+      tokenBudget: 2_500,
     });
     if (!result.text || result.text.trim().length === 0) {
       return { handled: true, result: { continue: true, suppressOutput: true } };
@@ -26,8 +30,9 @@ export function makeContextHandler(deps: { store: Store; search: HybridSearch; b
       result: {
         continue: true,
         hookSpecificOutput: {
-          hookEventName: "SessionStart",
+          hookEventName: "UserPromptSubmit",
           additionalContext: result.text,
+          contextInjectionId: result.contextInjectionId,
         },
       },
     };

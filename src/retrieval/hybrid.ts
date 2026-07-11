@@ -3,6 +3,7 @@ import type { EmbeddingsProvider } from "./embeddings.js";
 import { FTSSearch, type FTSSearchOptions } from "./fts.js";
 import { VectorSearch, type VectorSearchOptions, type VectorSearchResult } from "./vector.js";
 import { scoreMemoryCandidate, type RetrievalScoreBreakdown } from "./ranking.js";
+import { CrossEncoderReranker } from "./reranker.js";
 
 export interface HybridSearchOptions {
   query: string;
@@ -22,6 +23,7 @@ export interface HybridSearchResult {
   vector_rank?: number;
   combined_score: number;
   score_breakdown: RetrievalScoreBreakdown;
+  graph_rank?: number;
 }
 
 /**
@@ -34,17 +36,20 @@ export class HybridSearch {
   private vector: VectorSearch;
   private embeddings: EmbeddingsProvider;
   private feedbackStore?: { getMemoryFeedbackScores(memoryIds: number[]): Map<number, number> };
+  private reranker?: CrossEncoderReranker;
 
   constructor(opts: {
     fts: FTSSearch;
     vector: VectorSearch;
     embeddings: EmbeddingsProvider;
     feedbackStore?: { getMemoryFeedbackScores(memoryIds: number[]): Map<number, number> };
+    reranker?: CrossEncoderReranker;
   }) {
     this.fts = opts.fts;
     this.vector = opts.vector;
     this.embeddings = opts.embeddings;
     this.feedbackStore = opts.feedbackStore;
+    this.reranker = opts.reranker;
   }
 
   async search(options: HybridSearchOptions): Promise<HybridSearchResult[]> {
@@ -114,6 +119,44 @@ export class HybridSearch {
     }
 
     out.sort((a, b) => b.combined_score - a.combined_score);
-    return out.slice(0, limit);
+
+    // Cross-encoder reranking (optional, env-gated).
+    if (this.reranker && this.reranker.isEnabled()) {
+      const reranked = await this.reranker.rerank(options.query, out, Math.max(limit * 2, 20));
+      return reranked.slice(0, limit);
+    }
+
+    // Session diversification: max 3 results per session.
+    const diversified = diversifyBySession(out, limit, 3);
+    return diversified;
   }
+}
+
+function diversifyBySession(
+  results: HybridSearchResult[],
+  limit: number,
+  maxPerSession: number,
+): HybridSearchResult[] {
+  const sessionCounts = new Map<string, number>();
+  const out: HybridSearchResult[] = [];
+  for (const r of results) {
+    const sid = r.memory.session_id;
+    const count = sessionCounts.get(sid) ?? 0;
+    if (count < maxPerSession) {
+      out.push(r);
+      sessionCounts.set(sid, count + 1);
+      if (out.length >= limit) break;
+    }
+  }
+  // If diversification didn't fill the limit, append remaining results.
+  if (out.length < limit) {
+    const seen = new Set(out.map((r) => r.memory.id));
+    for (const r of results) {
+      if (!seen.has(r.memory.id)) {
+        out.push(r);
+        if (out.length >= limit) break;
+      }
+    }
+  }
+  return out;
 }

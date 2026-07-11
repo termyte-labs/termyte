@@ -36,6 +36,7 @@ export interface HookResult {
   hookSpecificOutput?: {
     hookEventName: string;
     additionalContext?: string;
+    contextInjectionId?: string;
     permissionDecision?: "allow" | "deny";
     permissionDecisionReason?: string;
     updatedInput?: Record<string, unknown>;
@@ -57,5 +58,8 @@ export interface PlatformAdapter {
  * Used by raw, windsurf, etc.
  */
 export function passthroughFormatOutput(result: HookResult): unknown {
-  return { continue: result.continue ?? true };
+  return {
+    continue: result.continue ?? true,
+    ...(result.hookSpecificOutput ? { hookSpecificOutput: result.hookSpecificOutput } : {}),
+  };
 }

@@ -53,11 +53,11 @@ describe("doctor command", () => {
     expect(output).toContain("Termyte Doctor");
     expect(output).toContain("Claude Code: installed");
     expect(output).toContain("Codex: missing");
-    expect(output).toContain("shared context:");
+    expect(output).toContain("synthesis:");
     expect(output).toContain("Next steps:");
   });
 
-  it("emits machine-readable diagnostics with shared context state", async () => {
+  it("emits machine-readable runtime diagnostics", async () => {
     const mod = await import("../src/cli/doctor.js");
     const spy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     let output = "";
@@ -69,14 +69,12 @@ describe("doctor command", () => {
     }
     const parsed = JSON.parse(output) as {
       dbPath: string;
-      sharedContextPath: string;
-      sharedContextPresent: boolean;
+      synthesis: string;
       queue: { pending: number; leased: number; dead: number };
       integrations: Array<{ name: string; installed: boolean }>;
     };
     expect(parsed.dbPath).toContain("termyte.db");
-    expect(parsed.sharedContextPath).toContain(".termyte");
-    expect(typeof parsed.sharedContextPresent).toBe("boolean");
+    expect(parsed.synthesis).toBe("capture-only");
     expect(typeof parsed.queue.pending).toBe("number");
     expect(parsed.integrations.length).toBeGreaterThan(0);
   });

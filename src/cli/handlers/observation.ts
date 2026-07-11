@@ -68,6 +68,7 @@ export function makeObservationHandler(deps: { store: Store; builder: ContextBui
           hookSpecificOutput: {
             hookEventName: "PostToolUse",
             additionalContext: lines.join("\n"),
+            contextInjectionId: context.contextInjectionId,
           },
         },
       };

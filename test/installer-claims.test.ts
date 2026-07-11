@@ -75,35 +75,17 @@ function captureInstallStdout(platform: string, opts: Record<string, unknown>): 
 }
 
 describe("DOC-001 installer message truthfulness", () => {
-  it("claude-code tells the user a background worker starts automatically", () => {
+  it("claude-code describes the silent viewer-first runtime", () => {
     const out = captureInstallStdout("claude-code", { target: "user", homeDir });
     for (const claim of FORBIDDEN_CLAIMS) expect(out).not.toContain(claim);
-    expect(out).toContain("automatically start a background worker");
+    expect(out).toContain("capture and context run silently");
+    expect(out).toContain("termyte viewer");
   });
 
-  it("codex tells the user a background worker starts automatically", () => {
+  it("codex describes the silent viewer-first runtime", () => {
     const out = captureInstallStdout("codex", { target: "user", homeDir });
     for (const claim of FORBIDDEN_CLAIMS) expect(out).not.toContain(claim);
-    expect(out).toContain("automatically start a background worker");
-  });
-
-  it("gemini-cli tells the user a background worker starts automatically", () => {
-    const out = captureInstallStdout("gemini-cli", { homeDir });
-    for (const claim of FORBIDDEN_CLAIMS) expect(out).not.toContain(claim);
-    expect(out).toContain("automatically start a background worker");
-  });
-
-  it("opencode tells the user the hook starts a background worker", () => {
-    const out = captureInstallStdout("opencode", {});
-    for (const claim of FORBIDDEN_CLAIMS) expect(out).not.toContain(claim);
-    expect(out).toContain("automatically");
-    expect(out).toContain("background worker");
-  });
-
-  it("cursor and windsurf disclaim automatic synthesis rather than claiming it", () => {
-    const cursorOut = captureInstallStdout("cursor", { target: "user", homeDir });
-    expect(cursorOut.toLowerCase()).toContain("not automatic");
-    const windsurfOut = captureInstallStdout("windsurf", { target: "user", homeDir });
-    for (const claim of FORBIDDEN_CLAIMS) expect(windsurfOut).not.toContain(claim);
+    expect(out).toContain("capture and context run silently");
+    expect(out).toContain("termyte viewer");
   });
 });

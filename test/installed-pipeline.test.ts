@@ -117,9 +117,9 @@ describe("EVAL-002 packed installed pipeline", () => {
     expect(firstWorkerJson.queue.failed).toBeGreaterThan(0);
     expect(readFileSync(failMarker, "utf8")).toContain("failed-once");
 
-    const firstHealth = run(process.execPath, [indexCli, "health"], { cwd: projectDir, env: baseEnv });
-    expect(firstHealth.status, buildMessage("health", firstHealth)).toBe(0);
-    expect(firstHealth.stdout).toContain("failed=1");
+    const firstHealth = run(process.execPath, [indexCli, "doctor", "--json"], { cwd: projectDir, env: baseEnv });
+    expect(firstHealth.status, buildMessage("doctor", firstHealth)).toBe(0);
+    expect(JSON.parse(firstHealth.stdout).queue.failed).toBe(1);
 
     const secondEnv = { ...baseEnv, TERMYTE_FAKE_LLM_FAIL_ONCE: "0" };
     const rewind = run(
@@ -139,10 +139,13 @@ describe("EVAL-002 packed installed pipeline", () => {
     expect(secondWorkerJson.queue.succeeded).toBeGreaterThan(0);
     expect(secondWorkerJson.queue.failed).toBe(0);
 
-    const context = run(process.execPath, [indexCli, "context", "--json"], { cwd: projectDir, env: secondEnv });
-    expect(context.status, buildMessage("context", context)).toBe(0);
-    expect(context.stdout).toContain("Consolidated");
-    expect(context.stdout).toContain("Memory Context");
+    const memoryProof = run(
+      process.execPath,
+      ["-e", `const Database = require("better-sqlite3"); const db = new Database(process.env.TERMYTE_DB); const row = db.prepare("SELECT COUNT(*) AS count FROM memories").get(); console.log(JSON.stringify(row)); db.close();`],
+      { cwd: projectDir, env: secondEnv, shell: false },
+    );
+    expect(memoryProof.status, buildMessage("memory proof", memoryProof)).toBe(0);
+    expect(JSON.parse(memoryProof.stdout).count).toBeGreaterThan(0);
   });
 }, 300_000);
 

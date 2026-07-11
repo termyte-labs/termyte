@@ -6,6 +6,7 @@ import { Ingestor } from "../capture/ingest.js";
 import type { PlatformAdapter, NormalizedEvent, HookResult } from "../capture/adapter.js";
 import { AdapterRejectedInput } from "../capture/errors.js";
 import { detectRepoId, detectWorkspaceRoot } from "../retrieval/local-embeddings.js";
+import { ExperienceRecorder } from "../experience/recorder.js";
 
 export interface HookRunnerConfig {
   store: Store;
@@ -16,12 +17,14 @@ export class HookRunner {
   private store: Store;
   private observer: Observer;
   private ingestor: Ingestor;
+  private experience: ExperienceRecorder;
   private adapters: Record<Platform, PlatformAdapter>;
 
   constructor(config: HookRunnerConfig) {
     this.store = config.store;
     this.observer = config.observer;
     this.ingestor = new Ingestor(this.store);
+    this.experience = new ExperienceRecorder(this.store);
     this.adapters = {
       "claude-code": adapterFor("claude-code"),
       "codex": adapterFor("codex"),
@@ -59,8 +62,9 @@ export class HookRunner {
     const project = deriveProjectName(event.cwd);
     const repo_id = detectRepoId(event.cwd);
     const workspace_root = detectWorkspaceRoot(event.cwd);
-    this.store.upsertSession(event.session_id, project, repo_id, workspace_root);
+    const session = this.store.upsertSession(event.session_id, project, repo_id, workspace_root);
     const trace = this.ingestor.ingest(event);
+    this.experience.record(event, trace, session);
     this.observer.enqueue(trace);
   }
 

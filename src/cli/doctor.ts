@@ -9,8 +9,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { loadConfig } from "./config.js";
 import { Store } from "../storage/store.js";
-import { getTermyteHookPath, getTermyteMcpPath } from "../integrations/install-paths.js";
-import { detectWorkspaceRoot } from "../retrieval/local-embeddings.js";
+import { getTermyteHookPath } from "../integrations/install-paths.js";
 
 type IntegrationStatus = {
   name: string;
@@ -25,15 +24,11 @@ async function main(): Promise<void> {
   try {
     const health = store.getHealthDiagnostics();
     const integrations = inspectIntegrations();
-    const workspaceRoot = detectWorkspaceRoot(process.cwd());
-    const sharedContextPath = join(workspaceRoot, ".termyte", "share", "context.md");
-    const sharedContextStatus = existsSync(sharedContextPath) ? "present" : "missing";
     const lines = [
       "Termyte Doctor",
       `db:                ${config.dbPath}`,
       `hook entry:         ${getTermyteHookPath() ?? "(missing)"}`,
-      `mcp entry:          ${getTermyteMcpPath() ?? "(missing)"}`,
-      `shared context:     ${sharedContextStatus} (${sharedContextPath})`,
+      `synthesis:          ${config.synthesis.mode}`,
       `queue:              pending=${health.queue.pending} leased=${health.queue.leased} dead=${health.queue.dead}`,
       `unprocessed traces: ${store.getUnprocessedTraces(1000).length}`,
       "",
@@ -44,10 +39,8 @@ async function main(): Promise<void> {
       }),
       "",
       "Next steps:",
-      `  - run \`termyte start\` to generate a portable shared context`,
-      `  - run \`termyte install <platform>\` for missing integrations`,
-      `  - run \`termyte health\` to inspect queue recovery`,
-      `  - run \`termyte stats\` to confirm capture is flowing`,
+      `  - run \`termyte init\` to change integrations or synthesis`,
+      `  - run \`termyte viewer\` to inspect captured experience`,
     ];
     process.stdout.write(lines.join("\n") + "\n");
   } finally {
@@ -61,10 +54,6 @@ export function inspectIntegrations(): IntegrationStatus[] {
   const configs: Array<{ name: string; paths: string[]; needle: string }> = [
     { name: "Claude Code", paths: [join(home, ".claude", "settings.json"), join(cwd, ".claude", "settings.json")], needle: "termyte-hook claude-code" },
     { name: "Codex", paths: [join(home, ".codex", "hooks.json"), join(cwd, ".codex", "hooks.json")], needle: "termyte-hook codex" },
-    { name: "Cursor", paths: [join(home, ".cursor", "hooks.json"), join(cwd, ".cursor", "hooks.json")], needle: "termyte-hook cursor" },
-    { name: "Gemini CLI", paths: [join(home, ".gemini", "settings.json")], needle: "termyte-hook gemini-cli" },
-    { name: "Windsurf", paths: [join(home, ".codeium", "windsurf", "hooks.json")], needle: "termyte-hook windsurf" },
-    { name: "OpenCode", paths: [join(home, ".config", "opencode", "opencode.json")], needle: "termyte.js" },
   ];
 
   return configs.map((cfg) => {
@@ -92,13 +81,10 @@ export async function runDoctorJson(): Promise<void> {
   const store = new Store(config.dbPath);
   try {
     const health = store.getHealthDiagnostics();
-    const sharedContextPath = join(detectWorkspaceRoot(process.cwd()), ".termyte", "share", "context.md");
     process.stdout.write(JSON.stringify({
       dbPath: config.dbPath,
       hookEntry: getTermyteHookPath(),
-      mcpEntry: getTermyteMcpPath(),
-      sharedContextPath,
-      sharedContextPresent: existsSync(sharedContextPath),
+      synthesis: config.synthesis.mode,
       queue: health.queue,
       unprocessedTraces: store.getUnprocessedTraces(1000).length,
       integrations: inspectIntegrations(),

@@ -56,6 +56,12 @@ const OUTPUT_FORMAT = `<observation>
 
 const FOOTER = `IMPORTANT! Output ONLY the XML above. No prose, no explanations, no markdown. If nothing to record, output <skip_summary /> alone.`;
 
+const SUMMARY_SYSTEM = `You are a Termyte session summarizer. Your job is to produce a concise summary of a coding session from its traces. Focus on what was accomplished, key decisions, files changed, and lessons learned. Output ONLY the XML requested. No prose, no markdown, no explanations.`;
+
+export function buildSummarySystemPrompt(): string {
+  return SUMMARY_SYSTEM;
+}
+
 export function buildSystemPrompt(): string {
   return [
     SYSTEM_IDENTITY, "", RECORDING_FOCUS, "", SKIP_GUIDANCE, "",

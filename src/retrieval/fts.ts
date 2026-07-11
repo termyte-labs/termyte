@@ -1,6 +1,7 @@
 import type { Store } from "../storage/store.js";
 import type { Memory, MemoryType } from "../core/types.js";
 import { memoryEligibilitySql } from "./eligibility.js";
+import { preprocessQuery } from "./query-preprocessor.js";
 
 export interface FTSSearchOptions {
   query: string;
@@ -48,16 +49,8 @@ export class FTSSearch {
 }
 
 function buildFTSQuery(query: string): string {
-  return query
-    .normalize("NFKC")
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((t) => `"${t.replace(/"/g, '""')}"`)
-    // Natural-language questions contain framing words that rarely appear in
-    // the remembered evidence. OR retrieves a candidate set; BM25, vector
-    // fusion, repository scope, and lifecycle eligibility determine ranking.
-    .join(" OR ");
+  const { ftsQuery } = preprocessQuery(query);
+  return ftsQuery;
 }
 
 function mapMemoryRow(row: any): Memory {

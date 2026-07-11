@@ -47,6 +47,7 @@ export function makeFileEditHandler(deps: { store: Store; builder: ContextBuilde
           hookSpecificOutput: {
             hookEventName: "PostToolUse",
             additionalContext: lines.join("\n"),
+            contextInjectionId: context.contextInjectionId,
           },
         },
       };

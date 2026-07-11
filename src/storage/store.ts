@@ -7,6 +7,14 @@ import type { RetrievalScoreBreakdown } from "../retrieval/ranking.js";
 import { redactTracePayload } from "../security/redaction.js";
 import type {
   CodeApplicabilityEvidence,
+  ContextCandidate,
+  ContextCandidateKind,
+  ContextPacket,
+  Episode,
+  EpisodeOutcome,
+  EpisodeStatus,
+  Evidence,
+  EvidenceKind,
   Memory,
   MemoryFeedbackEvent,
   MemoryLifecycleState,
@@ -36,6 +44,30 @@ export class Store {
 
   transaction<T>(fn: () => T): T {
     return this.ctx.db.transaction(fn)();
+  }
+
+  recordAudit(operation: string, targetType: string, targetId: string | number, details?: Record<string, unknown>, source?: string): void {
+    this.ctx.db.prepare(`
+      INSERT INTO audit_log (operation, target_type, target_id, details, source)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(operation, targetType, String(targetId), details ? JSON.stringify(details) : null, source ?? null);
+  }
+
+  getAuditLog(options: { operation?: string; limit?: number; after?: string } = {}): Array<{
+    id: number; timestamp: string; operation: string; target_type: string;
+    target_id: string; details: string | null; source: string | null;
+  }> {
+    const where: string[] = [];
+    const params: any[] = [];
+    if (options.operation) { where.push("operation = ?"); params.push(options.operation); }
+    if (options.after) { where.push("timestamp > ?"); params.push(options.after); }
+    const clause = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
+    params.push(options.limit ?? 100);
+    return this.ctx.db.prepare(`
+      SELECT id, timestamp, operation, target_type, target_id, details, source
+      FROM audit_log ${clause}
+      ORDER BY timestamp DESC LIMIT ?
+    `).all(...params) as any[];
   }
 
   // ---------- sessions ----------
@@ -82,6 +114,105 @@ export class Store {
       repo_id: row.repo_id, workspace_root: row.workspace_root,
       started_at: row.started_at, ended_at: row.ended_at,
     }));
+  }
+
+  // ---------- episodes and evidence ----------
+
+  startEpisode(input: { sessionId: string; repoId: string; workspaceRoot: string; task: string; baseCommit?: string | null; nowMs?: number }): Episode {
+    const nowMs = input.nowMs ?? Date.now();
+    this.closeActiveEpisode(input.sessionId, "unknown", nowMs);
+    const id = `episode_${randomUUID()}`;
+    this.ctx.db.prepare(`
+      INSERT INTO episodes (id, session_id, repo_id, workspace_root, task, status, base_commit, started_at)
+      VALUES (?, ?, ?, ?, ?, 'active', ?, ?)
+    `).run(id, input.sessionId, input.repoId, input.workspaceRoot, input.task, input.baseCommit ?? null, nowMs);
+    return this.getEpisode(id)!;
+  }
+
+  getEpisode(id: string): Episode | null {
+    const row = this.ctx.db.prepare(`SELECT * FROM episodes WHERE id = ?`).get(id) as any;
+    return row ? mapEpisode(row) : null;
+  }
+
+  getActiveEpisode(sessionId: string): Episode | null {
+    const row = this.ctx.db.prepare(`
+      SELECT * FROM episodes WHERE session_id = ? AND status = 'active'
+      ORDER BY started_at DESC LIMIT 1
+    `).get(sessionId) as any;
+    return row ? mapEpisode(row) : null;
+  }
+
+  getEpisodes(options: { sessionId?: string; repoId?: string; limit?: number } = {}): Episode[] {
+    const where: string[] = [];
+    const params: unknown[] = [];
+    if (options.sessionId) { where.push("session_id = ?"); params.push(options.sessionId); }
+    if (options.repoId) { where.push("repo_id = ?"); params.push(options.repoId); }
+    params.push(options.limit ?? 100);
+    const clause = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
+    return (this.ctx.db.prepare(`SELECT * FROM episodes ${clause} ORDER BY started_at DESC LIMIT ?`).all(...params) as any[]).map(mapEpisode);
+  }
+
+  closeActiveEpisode(sessionId: string, status: Exclude<EpisodeStatus, "active"> = "unknown", nowMs = Date.now()): Episode | null {
+    const active = this.getActiveEpisode(sessionId);
+    if (!active) return null;
+    this.ctx.db.prepare(`UPDATE episodes SET status = ?, ended_at = ? WHERE id = ? AND status = 'active'`)
+      .run(status, nowMs, active.id);
+    return this.getEpisode(active.id);
+  }
+
+  linkTraceToEpisode(episodeId: string, traceId: number): void {
+    this.ctx.db.prepare(`INSERT OR IGNORE INTO episode_traces (episode_id, trace_id) VALUES (?, ?)`)
+      .run(episodeId, traceId);
+  }
+
+  getEpisodeTraces(episodeId: string): Trace[] {
+    const rows = this.ctx.db.prepare(`
+      SELECT t.* FROM traces t JOIN episode_traces et ON et.trace_id = t.id
+      WHERE et.episode_id = ? ORDER BY t.timestamp ASC
+    `).all(episodeId) as any[];
+    return rows.map(mapTrace);
+  }
+
+  insertEvidence(input: { episodeId: string; kind: EvidenceKind; content: string; exitCode?: number | null; metadata?: Record<string, unknown>; traceIds?: number[]; observedAt?: number }): Evidence {
+    const id = `evidence_${randomUUID()}`;
+    const observedAt = input.observedAt ?? Date.now();
+    this.transaction(() => {
+      this.ctx.db.prepare(`
+        INSERT INTO evidence (id, episode_id, kind, content, exit_code, metadata_json, observed_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(id, input.episodeId, input.kind, input.content, input.exitCode ?? null, serialize(input.metadata ?? {}), observedAt);
+      const link = this.ctx.db.prepare(`INSERT OR IGNORE INTO evidence_traces (evidence_id, trace_id) VALUES (?, ?)`);
+      for (const traceId of input.traceIds ?? []) link.run(id, traceId);
+    });
+    return this.getEvidence(id)!;
+  }
+
+  getEvidence(id: string): Evidence | null {
+    const row = this.ctx.db.prepare(`SELECT * FROM evidence WHERE id = ?`).get(id) as any;
+    return row ? mapEvidence(row) : null;
+  }
+
+  getEvidenceForEpisode(episodeId: string): Evidence[] {
+    return (this.ctx.db.prepare(`SELECT * FROM evidence WHERE episode_id = ? ORDER BY observed_at ASC`).all(episodeId) as any[]).map(mapEvidence);
+  }
+
+  recordEpisodeOutcome(input: { episodeId: string; status: EpisodeOutcome["status"]; source: EpisodeOutcome["source"]; notes?: string | null; contextInjectionId?: string | null; nowMs?: number }): EpisodeOutcome {
+    if (!this.getEpisode(input.episodeId)) throw new Error(`Episode not found: ${input.episodeId}`);
+    const id = `outcome_${randomUUID()}`;
+    const nowMs = input.nowMs ?? Date.now();
+    this.transaction(() => {
+      this.ctx.db.prepare(`
+        INSERT INTO episode_outcomes (id, episode_id, status, source, notes, context_injection_id, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(id, input.episodeId, input.status, input.source, input.notes ?? null, input.contextInjectionId ?? null, nowMs);
+      this.ctx.db.prepare(`UPDATE episodes SET status = ?, ended_at = COALESCE(ended_at, ?) WHERE id = ?`)
+        .run(input.status, nowMs, input.episodeId);
+    });
+    return this.getEpisodeOutcomes(input.episodeId)[0]!;
+  }
+
+  getEpisodeOutcomes(episodeId: string): EpisodeOutcome[] {
+    return (this.ctx.db.prepare(`SELECT * FROM episode_outcomes WHERE episode_id = ? ORDER BY created_at DESC, rowid DESC`).all(episodeId) as any[]).map(mapEpisodeOutcome);
   }
 
   // ---------- traces ----------
@@ -499,6 +630,86 @@ export class Store {
 
   // ---------- context injections ----------
 
+  recordContextPacket(input: {
+    id?: string;
+    sessionId?: string | null;
+    episodeId?: string | null;
+    repoId: string;
+    agent: string;
+    task: string;
+    tokenBudget: number;
+    estimatedTokens: number;
+    retrievalMode: string;
+    latencyMs: number;
+    renderedText: string;
+    candidates: Array<{
+      candidateId: string;
+      kind: ContextCandidateKind;
+      sourceId?: string | null;
+      tokenEstimate: number;
+      selected: boolean;
+      rank?: number | null;
+      finalScore: number;
+      scoreBreakdown?: Record<string, unknown>;
+      rejectionReason?: string | null;
+      renderedText: string;
+    }>;
+    nowMs?: number;
+  }): ContextPacket {
+    const id = input.id ?? `packet_${randomUUID()}`;
+    const nowMs = input.nowMs ?? Date.now();
+    this.transaction(() => {
+      this.ctx.db.prepare(`
+        INSERT INTO context_packets (
+          id, session_id, episode_id, repo_id, agent, task, token_budget,
+          estimated_tokens, retrieval_mode, latency_ms, rendered_text, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        id, input.sessionId ?? null, input.episodeId ?? null, input.repoId,
+        input.agent, input.task, input.tokenBudget, input.estimatedTokens,
+        input.retrievalMode, input.latencyMs, input.renderedText, nowMs,
+      );
+      const insert = this.ctx.db.prepare(`
+        INSERT INTO context_candidates (
+          packet_id, candidate_id, kind, source_id, token_estimate, selected,
+          rank, final_score, score_breakdown_json, rejection_reason, rendered_text
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      for (const candidate of input.candidates) {
+        insert.run(
+          id, candidate.candidateId, candidate.kind, candidate.sourceId ?? null,
+          candidate.tokenEstimate, candidate.selected ? 1 : 0, candidate.rank ?? null,
+          candidate.finalScore, serialize(candidate.scoreBreakdown ?? {}),
+          candidate.rejectionReason ?? null, candidate.renderedText,
+        );
+      }
+    });
+    return this.getContextPacket(id)!;
+  }
+
+  getContextPacket(id: string): ContextPacket | null {
+    const row = this.ctx.db.prepare(`SELECT * FROM context_packets WHERE id = ?`).get(id) as any;
+    return row ? mapContextPacket(row) : null;
+  }
+
+  getContextPackets(options: { sessionId?: string; repoId?: string; limit?: number } = {}): ContextPacket[] {
+    const where: string[] = [];
+    const params: unknown[] = [];
+    if (options.sessionId) { where.push("session_id = ?"); params.push(options.sessionId); }
+    if (options.repoId) { where.push("repo_id = ?"); params.push(options.repoId); }
+    params.push(options.limit ?? 100);
+    const clause = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
+    return (this.ctx.db.prepare(`SELECT * FROM context_packets ${clause} ORDER BY created_at DESC LIMIT ?`).all(...params) as any[])
+      .map(mapContextPacket);
+  }
+
+  getContextCandidates(packetId: string): ContextCandidate[] {
+    return (this.ctx.db.prepare(`
+      SELECT * FROM context_candidates WHERE packet_id = ?
+      ORDER BY selected DESC, rank ASC, final_score DESC
+    `).all(packetId) as any[]).map(mapContextCandidate);
+  }
+
   /** Record a context injection so downstream outcomes can be attributed. */
   recordContextInjection(input: {
     id: string;
@@ -517,14 +728,16 @@ export class Store {
       renderedText: string;
     }>;
     surface: string;
+    packetId?: string;
+    deliveryMethod?: string;
     nowMs?: number;
   }): void {
     const nowMs = input.nowMs ?? Date.now();
     this.transaction(() => {
       this.ctx.db.prepare(
         `INSERT OR REPLACE INTO context_injections
-           (id, session_id, repo_id, query, files_json, memory_ids_json, surface, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+           (id, session_id, repo_id, query, files_json, memory_ids_json, surface, packet_id, delivery_method, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         input.id,
         input.sessionId ?? null,
@@ -533,6 +746,8 @@ export class Store {
         serialize(input.files ?? []),
         serialize(input.memoryIds),
         input.surface,
+        input.packetId ?? null,
+        input.deliveryMethod ?? "unknown",
         nowMs,
       );
       const insertItem = this.ctx.db.prepare(`
@@ -622,6 +837,7 @@ export class Store {
     this.ctx.db
       .prepare(`UPDATE memories SET lifecycle_state = 'superseded', state = 'superseded', superseded_by = ? WHERE id = ?`)
       .run(supersededBy, id);
+    this.recordAudit("supersede_memory", "memory", id, { supersededBy }, "pipeline");
   }
 
   /** Insert a relationship edge between two memories. Idempotent on
@@ -816,6 +1032,9 @@ export class Store {
           last_error = NULL, updated_at = ?
       WHERE id = ? AND state = 'dead'
     `).run(Date.now(), Date.now(), jobId);
+    if (result.changes > 0) {
+      this.recordAudit("retry_dead_job", "job", jobId, {}, "cli");
+    }
     return result.changes > 0;
   }
 
@@ -825,6 +1044,9 @@ export class Store {
     const result = this.ctx.db.prepare(
       `DELETE FROM jobs WHERE id = ? AND state = 'dead'`,
     ).run(jobId);
+    if (result.changes > 0) {
+      this.recordAudit("dismiss_dead_job", "job", jobId, {}, "cli");
+    }
     return result.changes > 0;
   }
 
@@ -993,6 +1215,52 @@ function parseNumberArray(s: string | null | undefined): number[] {
     const arr = JSON.parse(s);
     return Array.isArray(arr) ? arr.filter((v: unknown) => typeof v === "number") : [];
   } catch { return []; }
+}
+
+function mapEpisode(row: any): Episode {
+  return {
+    id: row.id, session_id: row.session_id, repo_id: row.repo_id,
+    workspace_root: row.workspace_root, task: row.task, status: row.status,
+    base_commit: row.base_commit, final_commit: row.final_commit,
+    started_at: row.started_at, ended_at: row.ended_at,
+  };
+}
+
+function mapEvidence(row: any): Evidence {
+  return {
+    id: row.id, episode_id: row.episode_id, kind: row.kind,
+    content: row.content, exit_code: row.exit_code,
+    metadata: parseJSON<Record<string, unknown>>(row.metadata_json, {}),
+    observed_at: row.observed_at,
+  };
+}
+
+function mapEpisodeOutcome(row: any): EpisodeOutcome {
+  return {
+    id: row.id, episode_id: row.episode_id, status: row.status,
+    source: row.source, notes: row.notes,
+    context_injection_id: row.context_injection_id, created_at: row.created_at,
+  };
+}
+
+function mapContextPacket(row: any): ContextPacket {
+  return {
+    id: row.id, session_id: row.session_id, episode_id: row.episode_id,
+    repo_id: row.repo_id, agent: row.agent, task: row.task,
+    token_budget: row.token_budget, estimated_tokens: row.estimated_tokens,
+    retrieval_mode: row.retrieval_mode, latency_ms: row.latency_ms,
+    rendered_text: row.rendered_text, created_at: row.created_at,
+  };
+}
+
+function mapContextCandidate(row: any): ContextCandidate {
+  return {
+    packet_id: row.packet_id, candidate_id: row.candidate_id, kind: row.kind,
+    source_id: row.source_id, token_estimate: row.token_estimate,
+    selected: row.selected === 1, rank: row.rank, final_score: row.final_score,
+    score_breakdown: parseJSON<Record<string, unknown>>(row.score_breakdown_json, {}),
+    rejection_reason: row.rejection_reason, rendered_text: row.rendered_text,
+  };
 }
 
 function mapTrace(row: any): Trace {
