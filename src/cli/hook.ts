@@ -1,3 +1,5 @@
+#!/usr/bin/env node
+
 /**
  * `termyte-hook <platform> [event]` — reads a JSON hook payload from
  * stdin, normalizes via the platform adapter, ingests the trace, and

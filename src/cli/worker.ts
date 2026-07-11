@@ -1,3 +1,5 @@
+#!/usr/bin/env node
+
 /**
  * `termyte-worker` - standalone observer process.
  *
