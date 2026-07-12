@@ -30,12 +30,13 @@ beforeEach(() => {
   if (process.platform === "win32") {
     fakeCodexPath = join(dir, "codex.cmd");
     const body = lines.map((l) => `echo ${l}`).join("\r\n");
-    writeFileSync(fakeCodexPath, `@echo off\r\n${body}\r\n`, "utf-8");
+    writeFileSync(fakeCodexPath, `@echo off\r\nif not "%TERMYTE_INTERNAL_SYNTHESIS%"=="1" exit /b 9\r\n${body}\r\n`, "utf-8");
   } else {
     fakeCodexPath = join(dir, "codex");
     const body = lines.map((l) => `printf '%s\\n' '${l}'`).join("\n");
     writeFileSync(fakeCodexPath,
       "#!/bin/sh\n" +
+      "[ \"$TERMYTE_INTERNAL_SYNTHESIS\" = \"1\" ] || exit 9\n" +
       "cat >/dev/null\n" +
       `${body}\n`,
       "utf-8");

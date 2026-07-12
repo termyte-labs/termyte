@@ -29,11 +29,12 @@ beforeEach(() => {
     fakeClaudePath = join(dir, "claude.cmd");
     // Echo with a leading space to avoid any prompt bleed. We use
     // a powershell-free `echo` to keep the test portable.
-    writeFileSync(fakeClaudePath, `@echo off\r\necho ${envelope}\r\n`, "utf-8");
+    writeFileSync(fakeClaudePath, `@echo off\r\nif not "%TERMYTE_INTERNAL_SYNTHESIS%"=="1" exit /b 9\r\necho ${envelope}\r\n`, "utf-8");
   } else {
     fakeClaudePath = join(dir, "claude");
     writeFileSync(fakeClaudePath,
       "#!/bin/sh\n" +
+      "[ \"$TERMYTE_INTERNAL_SYNTHESIS\" = \"1\" ] || exit 9\n" +
       "cat >/dev/null\n" +  // drain stdin
       `printf '%s' '${envelope}'\n`,
       "utf-8");

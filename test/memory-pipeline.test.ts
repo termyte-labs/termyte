@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { openDatabase, type DatabaseContext } from "../src/storage/connection.js";
 import { Store } from "../src/storage/store.js";
-import { MemoryPipeline } from "../src/pipeline/memory-pipeline.js";
+import { isObservationEligibleTrace, MemoryPipeline } from "../src/pipeline/memory-pipeline.js";
 import type { EmbeddingsProvider } from "../src/retrieval/embeddings.js";
 import { MockLLM } from "./mock-llm.js";
 
@@ -200,5 +200,52 @@ describe("MemoryPipeline durable processing", () => {
     expect(pipeline.enqueueUnprocessedTraces()).toBe(0);
     expect(pipeline.getQueueStats().pending).toBe(1);
     expect(store.getTrace(trace.id)!.pipeline_state).toBe("observation_pending");
+  });
+
+  it("drains legacy prompt jobs without invoking observation synthesis", async () => {
+    store.upsertSession("prompt-session", "demo", "r1", "/w");
+    const trace = store.insertTrace({
+      session_id: "prompt-session", timestamp: 1, event_type: "user_prompt",
+      tool_name: null, tool_input: null, tool_output: null, files_read: null,
+      files_modified: null, user_prompt: "observer prompt", final_response: null,
+    });
+    expect(isObservationEligibleTrace(trace)).toBe(false);
+    pipeline.ingestTrace(trace.id);
+    expect(await pipeline.runOnce("worker-legacy")).toBe(true);
+    expect(store.getTrace(trace.id)?.processed_at).not.toBeNull();
+    expect(store.getRecentObservations(10)).toHaveLength(0);
+    expect(pipeline.getQueueStats().succeeded).toBe(1);
+  });
+
+  it("bulk-reconciles legacy non-tool jobs before worker processing", () => {
+    store.upsertSession("legacy", "demo", "r1", "/w");
+    for (const [event_type, tool_name] of [["session_init", null], ["user_prompt", null], ["tool_use", "Bash"]] as const) {
+      const trace = store.insertTrace({
+        session_id: "legacy", timestamp: Date.now(), event_type, tool_name,
+        tool_input: null, tool_output: null, files_read: null, files_modified: null,
+        user_prompt: event_type === "user_prompt" ? "task" : null, final_response: null,
+      });
+      pipeline.ingestTrace(trace.id);
+    }
+    expect(pipeline.reconcileIneligibleObservationJobs(500)).toBe(2);
+    expect(pipeline.getQueueStats()).toMatchObject({ succeeded: 2, pending: 1 });
+  });
+
+  it("reconciles tool jobs from fingerprinted legacy observer sessions", () => {
+    store.upsertSession("internal", "demo", "r1", "/w");
+    const prompt = store.insertTrace({
+      session_id: "internal", timestamp: 1, event_type: "user_prompt", tool_name: null,
+      tool_input: null, tool_output: null, files_read: null, files_modified: null,
+      user_prompt: "<system> You are a Termyte observer </system>\n<observed_tool_execution>", final_response: null,
+    });
+    const tool = store.insertTrace({
+      session_id: "internal", timestamp: 2, event_type: "tool_use", tool_name: "Read",
+      tool_input: null, tool_output: null, files_read: null, files_modified: null,
+      user_prompt: null, final_response: null,
+    });
+    pipeline.ingestTrace(prompt.id);
+    pipeline.ingestTrace(tool.id);
+    expect(pipeline.reconcileIneligibleObservationJobs(700)).toBe(2);
+    expect(pipeline.getQueueStats()).toMatchObject({ succeeded: 2, pending: 0 });
   });
 });

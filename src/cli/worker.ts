@@ -36,6 +36,7 @@ async function main(): Promise<void> {
 
   try {
     const enqueued = pipeline.enqueueUnprocessedTraces(args.batchSize);
+    const reconciled = pipeline.reconcileIneligibleObservationJobs();
     const maxJobs = args.once ? 1 : args.maxJobs;
     const jobsProcessed = args.untilIdle || args.once
       ? await pipeline.runUntilIdle(args.workerId, { maxJobs })
@@ -43,10 +44,10 @@ async function main(): Promise<void> {
     const stats = pipeline.getQueueStats();
 
     if (args.json) {
-      process.stdout.write(`${JSON.stringify({ enqueued, jobsProcessed, queue: stats })}\n`);
+      process.stdout.write(`${JSON.stringify({ enqueued, reconciled, jobsProcessed, queue: stats })}\n`);
     } else {
       process.stdout.write(
-        `termyte-worker: enqueued ${enqueued} trace(s), processed ${jobsProcessed} job(s)\n`,
+        `termyte-worker: enqueued ${enqueued} trace(s), reconciled ${reconciled} ineligible job(s), processed ${jobsProcessed} job(s)\n`,
       );
     }
   } catch (err) {

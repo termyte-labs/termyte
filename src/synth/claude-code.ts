@@ -69,7 +69,11 @@ async function runClaude(bin: string, prompt: string, opts: AgentInvokeOptions):
     windowsHide: true,
     shell: isWindowsCmd,
     cwd: opts.cwd,
-    env: { ...process.env, CLAUDE_CODE_ENTRYPOINT: "cli" },
+    env: {
+      ...process.env,
+      CLAUDE_CODE_ENTRYPOINT: "cli",
+      TERMYTE_INTERNAL_SYNTHESIS: "1",
+    },
   });
 
   let stdout = "";

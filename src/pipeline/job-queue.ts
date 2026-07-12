@@ -145,8 +145,8 @@ export class JobQueue {
     return tx();
   }
 
-  markSucceeded(jobId: string, nowMs = Date.now()): void {
-    this.db.prepare(`
+  markSucceeded(jobId: string, nowMs = Date.now(), leaseOwner?: string): boolean {
+    const result = this.db.prepare(`
       UPDATE jobs
       SET
         state = 'succeeded',
@@ -154,7 +154,20 @@ export class JobQueue {
         lease_until = NULL,
         updated_at = @nowMs
       WHERE id = @jobId
-    `).run({ jobId, nowMs });
+        AND (@leaseOwner IS NULL OR (state = 'leased' AND lease_owner = @leaseOwner))
+    `).run({ jobId, nowMs, leaseOwner: leaseOwner ?? null });
+    return result.changes === 1;
+  }
+
+  /** Extend a live lease only when it is still owned by this worker. */
+  renewLease(jobId: string, workerId: string, options: { nowMs?: number; leaseMs?: number } = {}): boolean {
+    const nowMs = options.nowMs ?? Date.now();
+    const leaseUntil = nowMs + (options.leaseMs ?? 60_000);
+    const result = this.db.prepare(`
+      UPDATE jobs SET lease_until = @leaseUntil, updated_at = @nowMs
+      WHERE id = @jobId AND state = 'leased' AND lease_owner = @workerId
+    `).run({ jobId, workerId, leaseUntil, nowMs });
+    return result.changes === 1;
   }
 
   markFailed(job: Job, error: unknown, nowMs = Date.now()): void {
@@ -177,7 +190,8 @@ export class JobQueue {
         last_error = @lastError,
         updated_at = @nowMs
       WHERE id = @jobId
-    `).run({ jobId: job.id, nextRunAt, lastError, nowMs });
+        AND state = 'leased' AND lease_owner = @leaseOwner
+    `).run({ jobId: job.id, nextRunAt, lastError, nowMs, leaseOwner: job.leaseOwner });
   }
 
   markDead(job: Job, error: unknown, nowMs = Date.now()): void {
@@ -190,10 +204,12 @@ export class JobQueue {
         last_error = @lastError,
         updated_at = @nowMs
       WHERE id = @jobId
+        AND state = 'leased' AND lease_owner = @leaseOwner
     `).run({
       jobId: job.id,
       lastError: serializeJobError(error),
       nowMs,
+      leaseOwner: job.leaseOwner,
     });
   }
 

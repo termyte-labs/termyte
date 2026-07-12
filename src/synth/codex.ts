@@ -62,6 +62,7 @@ async function runCodex(bin: string, prompt: string, opts: AgentInvokeOptions): 
     stdio: ["pipe", "pipe", "pipe"],
     windowsHide: true,
     shell: isWindowsCmd,
+    env: { ...process.env, TERMYTE_INTERNAL_SYNTHESIS: "1" },
   });
 
   let stdout = "";

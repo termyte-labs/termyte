@@ -8,6 +8,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { getTermyteHookPath, shellEscapePath } from "../install-paths.js";
+import { isTermyteHookCommand } from "./managed-hooks.js";
 
 interface CodexHookEntry { type: "command"; command: string; timeout?: number; }
 interface CodexHookGroup { matcher?: string; hooks: CodexHookEntry[]; }
@@ -45,7 +46,7 @@ export function installCodexHooks(opts: CodexInstallOptions): number {
       hooks: [{ type: "command", command: cmd, timeout: e.timeout * 1000 }],
     };
     const list = existing.hooks[e.event] ?? [];
-    const filtered = list.filter((g) => !g.hooks.some((h) => h.command.includes("termyte-hook")));
+    const filtered = list.filter((g) => !g.hooks.some((h) => isTermyteHookCommand(h.command)));
     existing.hooks[e.event] = [...filtered, group];
   }
 

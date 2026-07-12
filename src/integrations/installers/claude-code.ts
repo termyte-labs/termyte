@@ -11,6 +11,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { getTermyteHookPath, shellEscapePath } from "../install-paths.js";
+import { isTermyteHookCommand } from "./managed-hooks.js";
 
 interface ClaudeHookEntry {
   type: "command";
@@ -68,7 +69,7 @@ export function installClaudeCodeHooks(opts: ClaudeInstallOptions): number {
       hooks: [{ type: "command", command: cmd, timeout: e.timeout * 1000 }],
     };
     const list = existing.hooks[e.event] ?? [];
-    const filtered = list.filter((g) => !g.hooks.some((h) => h.command.includes("termyte-hook")));
+    const filtered = list.filter((g) => !g.hooks.some((h) => isTermyteHookCommand(h.command)));
     existing.hooks[e.event] = [...filtered, group];
   }
 

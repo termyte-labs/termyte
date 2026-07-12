@@ -32,6 +32,10 @@ import { NoOpEmbeddingsProvider } from "../retrieval/embeddings.js";
 const KNOWN_PLATFORMS: Platform[] = ["claude-code", "codex", "opencode", "cursor", "gemini-cli", "windsurf", "raw"];
 
 async function main(supervisorOverride?: WorkerSupervisor): Promise<void> {
+  // Synthesis may itself invoke Claude Code or Codex. Those subprocesses
+  // inherit the user's hooks, so they must be ignored before opening the
+  // database or reading stdin; otherwise Termyte observes its own observer.
+  if (isInternalSynthesis(process.env)) return;
   const platform = process.argv[2] as Platform | undefined;
   const eventName = process.argv[3];
   if (!platform || !KNOWN_PLATFORMS.includes(platform)) {
@@ -145,6 +149,10 @@ function readStdin(): Promise<string> {
  *  supervisor from the environment. */
 export async function runHook(supervisor?: WorkerSupervisor): Promise<void> {
   return main(supervisor);
+}
+
+export function isInternalSynthesis(env: NodeJS.ProcessEnv): boolean {
+  return env.TERMYTE_INTERNAL_SYNTHESIS === "1";
 }
 
 function isMainEntry(): boolean {

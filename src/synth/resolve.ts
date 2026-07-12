@@ -24,7 +24,11 @@ export async function resolveBinaryPath(
       return v;
     }
   }
-  if (cache.has(name)) return cache.get(name) ?? null;
+  if (cache.has(name)) {
+    const cached = cache.get(name) ?? null;
+    if (cached && existsSync(cached)) return cached;
+    cache.delete(name);
+  }
 
   // Common install locations per platform.
   const candidates: string[] = [];

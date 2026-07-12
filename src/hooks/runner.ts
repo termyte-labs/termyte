@@ -65,7 +65,7 @@ export class HookRunner {
     const session = this.store.upsertSession(event.session_id, project, repo_id, workspace_root);
     const trace = this.ingestor.ingest(event);
     this.experience.record(event, trace, session);
-    this.observer.enqueue(trace);
+    if (shouldEnqueueObservation(event)) this.observer.enqueue(trace);
   }
 
   /**
@@ -103,6 +103,10 @@ export class HookRunner {
   formatFor(platform: Platform, result: HookResult): unknown {
     return this.adapters[platform].formatOutput(result);
   }
+}
+
+export function shouldEnqueueObservation(event: NormalizedEvent): boolean {
+  return event.event_type === "tool_use" && typeof event.tool_name === "string" && event.tool_name.length > 0;
 }
 
 async function readStdin(): Promise<string> {

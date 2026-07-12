@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { Store } from "../src/storage/store.js";
 import { Observer } from "../src/observer/pipeline.js";
-import { HookRunner } from "../src/hooks/runner.js";
+import { HookRunner, shouldEnqueueObservation } from "../src/hooks/runner.js";
 import { openDatabase, type DatabaseContext } from "../src/storage/connection.js";
 import { MockLLM } from "./mock-llm.js";
 
@@ -112,5 +112,12 @@ describe("HookRunner", () => {
     expect(store.getObservationsForSession("f").length).toBe(1);
     expect(store.getObservationsForSession("g").length).toBe(1);
     store.close();
+  });
+
+  it("does not enqueue observer synthesis for prompts or session lifecycle events", () => {
+    const base = { session_id: "s", timestamp: 1, tool_input: null, tool_output: null, files_read: null, files_modified: null, final_response: null, cwd: "/work" };
+    expect(shouldEnqueueObservation({ ...base, event_type: "user_prompt", tool_name: null, user_prompt: "fix it" })).toBe(false);
+    expect(shouldEnqueueObservation({ ...base, event_type: "session_init", tool_name: null, user_prompt: null })).toBe(false);
+    expect(shouldEnqueueObservation({ ...base, event_type: "tool_use", tool_name: "Bash", user_prompt: null })).toBe(true);
   });
 });

@@ -23,7 +23,7 @@ import {
   RecordingWorkerSupervisor,
   createHookSupervisor,
 } from "../src/pipeline/worker-supervisor.js";
-import { processHookInput } from "../src/cli/hook.js";
+import { isInternalSynthesis, processHookInput } from "../src/cli/hook.js";
 import type { Platform } from "../src/core/types.js";
 
 class MockEmbeddingsProvider implements EmbeddingsProvider {
@@ -299,5 +299,13 @@ describe("RUN-001 hook triggers supervision", () => {
     expect(memory.lifecycle_state).toBe("active");
     releaseWorkerLock(p);
     store.close();
+  });
+});
+
+describe("RUN-001 internal synthesis recursion guard", () => {
+  it("recognizes only explicitly marked synthesis subprocesses", () => {
+    expect(isInternalSynthesis({ TERMYTE_INTERNAL_SYNTHESIS: "1" })).toBe(true);
+    expect(isInternalSynthesis({ TERMYTE_INTERNAL_SYNTHESIS: "0" })).toBe(false);
+    expect(isInternalSynthesis({})).toBe(false);
   });
 });

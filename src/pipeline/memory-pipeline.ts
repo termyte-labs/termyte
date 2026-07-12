@@ -83,9 +83,53 @@ export class MemoryPipeline {
     return traces.length;
   }
 
+  /**
+   * Repair queues produced by releases that enqueued prompts and session
+   * lifecycle traces for LLM observation extraction. These jobs have no
+   * durable tool evidence, so complete them deterministically without model
+   * calls. Safe and idempotent across restarts.
+   */
+  reconcileIneligibleObservationJobs(nowMs = Date.now()): number {
+    const db = this.store.getDB();
+    return this.store.transaction(() => {
+      const eligible = `event_type = 'tool_use' AND tool_name IS NOT NULL AND length(tool_name) > 0`;
+      const legacyInternalSession = `EXISTS (
+        SELECT 1 FROM traces internal_prompt
+        WHERE internal_prompt.session_id = traces.session_id
+          AND ltrim(internal_prompt.user_prompt) LIKE '<system>%You are a Termyte observer%'
+      )`;
+      const jobs = db.prepare(`
+        UPDATE jobs
+        SET state = 'succeeded', lease_owner = NULL, lease_until = NULL,
+            last_error = NULL, updated_at = @nowMs
+        WHERE kind = 'extract_observation'
+          AND state IN ('pending', 'failed', 'leased')
+          AND subject_id IN (
+            SELECT CAST(id AS TEXT) FROM traces
+            WHERE NOT (${eligible}) OR (${legacyInternalSession})
+          )
+      `).run({ nowMs });
+      db.prepare(`
+        UPDATE traces
+        SET processed_at = COALESCE(processed_at, @nowMs), pipeline_state = 'complete'
+        WHERE (NOT (${eligible}) OR (${legacyInternalSession}))
+          AND id IN (
+            SELECT CAST(subject_id AS INTEGER) FROM jobs
+            WHERE kind = 'extract_observation' AND state = 'succeeded'
+          )
+      `).run({ nowMs });
+      return jobs.changes;
+    });
+  }
+
   async runOnce(workerId: string): Promise<boolean> {
     const job = this.queue.claimNextJob(workerId);
     if (!job) return false;
+
+    const heartbeat = setInterval(() => {
+      this.queue.renewLease(job.id, workerId, { leaseMs: 60_000 });
+    }, 20_000);
+    heartbeat.unref?.();
 
     try {
       switch (job.kind) {
@@ -117,12 +161,14 @@ export class MemoryPipeline {
           throw new PermanentJobError(`Unsupported job kind: ${(job as Job).kind}`);
       }
 
-      this.queue.markSucceeded(job.id);
+      this.queue.markSucceeded(job.id, Date.now(), workerId);
       return true;
     } catch (error) {
       this.markSubjectFailed(job, error);
       this.queue.markFailed(job, error);
       return true;
+    } finally {
+      clearInterval(heartbeat);
     }
   }
 
@@ -146,6 +192,12 @@ export class MemoryPipeline {
   private async extractObservation(job: Job): Promise<void> {
     const trace = this.store.getTrace(Number(job.subjectId));
     if (!trace) throw new PermanentJobError(`Trace not found: ${job.subjectId}`);
+    // Compatibility guard for queues created by older releases, which
+    // enqueued prompts and session lifecycle events as observer work.
+    if (!isObservationEligibleTrace(trace)) {
+      this.store.markTraceProcessed(trace.id);
+      return;
+    }
 
     const response = await chatWithRetry(
       this.llm,
@@ -681,6 +733,10 @@ export class MemoryPipeline {
       if (job.subjectType === "memory") this.store.markMemoryFailed(subjectId);
     });
   }
+}
+
+export function isObservationEligibleTrace(trace: Pick<Trace, "event_type" | "tool_name">): boolean {
+  return trace.event_type === "tool_use" && typeof trace.tool_name === "string" && trace.tool_name.length > 0;
 }
 
 function traceForPrompt(trace: Trace) {

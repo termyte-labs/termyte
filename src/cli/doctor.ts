@@ -8,6 +8,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { loadConfig } from "./config.js";
+import { isTermyteHookCommand } from "../integrations/installers/managed-hooks.js";
 import { Store } from "../storage/store.js";
 import { getTermyteHookPath } from "../integrations/install-paths.js";
 
@@ -61,7 +62,7 @@ export function inspectIntegrations(): IntegrationStatus[] {
       if (!existsSync(p)) continue;
       try {
         const text = readFileSync(p, "utf-8");
-        if (text.includes(cfg.needle)) {
+        if (text.includes(cfg.needle) || hasManagedAgentHook(text, cfg.name === "Codex" ? "codex" : "claude-code")) {
           return { name: cfg.name, expectedPaths: cfg.paths, installed: true, evidence: p };
         }
       } catch {
@@ -70,6 +71,19 @@ export function inspectIntegrations(): IntegrationStatus[] {
     }
     return { name: cfg.name, expectedPaths: cfg.paths, installed: false };
   });
+}
+
+function hasManagedAgentHook(text: string, agent: "claude-code" | "codex"): boolean {
+  try {
+    const parsed = JSON.parse(text) as { hooks?: Record<string, Array<{ hooks?: Array<{ command?: string }> }>> };
+    return Object.values(parsed.hooks ?? {}).some((groups) =>
+      Array.isArray(groups) && groups.some((group) =>
+        group.hooks?.some((hook) => isTermyteHookCommand(hook.command) && hook.command?.includes(` ${agent} `)),
+      ),
+    );
+  } catch {
+    return false;
+  }
 }
 
 export async function runMain(): Promise<void> {

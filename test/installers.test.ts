@@ -73,6 +73,16 @@ describe("installers", () => {
     expect(parsed.hooks.SessionStart).toBeDefined();
   });
 
+  it("reconciles packaged hook.js commands without duplicating them", () => {
+    expect(installFor("claude-code", { target: "user", homeDir })).toBe(0);
+    expect(installFor("claude-code", { target: "user", homeDir })).toBe(0);
+    const parsed = JSON.parse(readFileSync(join(homeDir, ".claude", "settings.json"), "utf8"));
+    for (const groups of Object.values(parsed.hooks) as any[]) {
+      const termyte = groups.filter((group: any) => group.hooks.some((hook: any) => hook.command.includes("claude-code")));
+      expect(termyte).toHaveLength(1);
+    }
+  });
+
   it("returns 1 for an unknown platform", () => {
     expect(installFor("not-a-real-ide", { homeDir })).toBe(1);
   });

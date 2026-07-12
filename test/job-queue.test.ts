@@ -188,4 +188,19 @@ describe("JobQueue", () => {
     expect(reclaimed!.leaseOwner).toBe("worker-2");
     expect(reclaimed!.attemptCount).toBe(2);
   });
+
+  it("renews only the current owner's lease and rejects stale completion", () => {
+    queue.enqueueJob({ kind: "extract_observation", subjectType: "trace", subjectId: 4, id: "job-a", nowMs: 100 });
+    queue.claimNextJob("worker-1", { nowMs: 200, leaseMs: 50 });
+
+    expect(queue.renewLease("job-a", "worker-2", { nowMs: 220, leaseMs: 100 })).toBe(false);
+    expect(queue.renewLease("job-a", "worker-1", { nowMs: 220, leaseMs: 100 })).toBe(true);
+    expect(queue.getJob("job-a")?.leaseUntil).toBe(320);
+
+    queue.recoverExpiredLeases(321);
+    queue.claimNextJob("worker-2", { nowMs: 322, leaseMs: 100 });
+    expect(queue.markSucceeded("job-a", 323, "worker-1")).toBe(false);
+    expect(queue.getJob("job-a")?.leaseOwner).toBe("worker-2");
+    expect(queue.markSucceeded("job-a", 324, "worker-2")).toBe(true);
+  });
 });
