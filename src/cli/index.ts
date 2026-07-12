@@ -35,6 +35,7 @@ import { Store } from "../storage/store.js";
 import { installFor, listSupportedPlatforms } from "../integrations/installers/index.js";
 import { runMcpServer } from "../mcp/server.js";
 import { isMemoryEligible, ALL_MEMORY_STATES } from "../retrieval/eligibility.js";
+import { resolveMvpCommand, renderMvpCommandGuide } from "./mvp-aliases.js";
 
 const USAGE = `termyte - local-first context engine for coding agents
 
@@ -44,6 +45,8 @@ Usage:
   termyte doctor [--json]
   termyte uninstall
   termyte help
+
+${renderMvpCommandGuide()}
 `;
 
 const VIEWER_ONLY_COMMANDS = new Set([
@@ -79,6 +82,12 @@ async function main(): Promise<void> {
   }
 
   const { positional, opts } = parseArgs(rest);
+
+  const mvpCommand = resolveMvpCommand(command);
+  if (mvpCommand) {
+    await runMvpAlias(mvpCommand, rest, opts);
+    return;
+  }
 
   if (VIEWER_ONLY_COMMANDS.has(command)) {
     process.stderr.write(`termyte: '${command}' is available through 'termyte viewer'.\n`);
@@ -332,6 +341,58 @@ async function main(): Promise<void> {
   } catch (err) {
     process.stderr.write(`termyte: ${err instanceof Error ? err.message : String(err)}\n`);
     process.exit(1);
+  }
+}
+
+async function runMvpAlias(
+  command: "start" | "synth" | "context" | "viewer" | "eval",
+  rest: string[],
+  opts: Record<string, string | boolean>,
+): Promise<void> {
+  switch (command) {
+    case "start":
+      await startCommand({
+        repo_id: typeof opts["repo"] === "string" ? opts["repo"] : undefined,
+        query: typeof opts["query"] === "string" ? opts["query"] : undefined,
+        limit: typeof opts["limit"] === "string" ? parseInt(opts["limit"], 10) : undefined,
+        currentFiles: typeof opts["files"] === "string" ? (opts["files"] as string).split(",").map((s: string) => s.trim()).filter(Boolean) : undefined,
+        type: typeof opts["type"] === "string" ? opts["type"] : undefined,
+        path: typeof opts["path"] === "string" ? opts["path"] : undefined,
+      });
+      return;
+    case "context":
+      await contextCommand({
+        repo_id: typeof opts["repo"] === "string" ? opts["repo"] : undefined,
+        query: typeof opts["query"] === "string" ? opts["query"] : undefined,
+        limit: typeof opts["limit"] === "string" ? parseInt(opts["limit"], 10) : undefined,
+        currentFiles: typeof opts["files"] === "string" ? (opts["files"] as string).split(",").map((s: string) => s.trim()).filter(Boolean) : undefined,
+        type: typeof opts["type"] === "string" ? opts["type"] : undefined,
+        writeFile: typeof opts["write-file"] === "string" ? opts["write-file"] : undefined,
+      });
+      return;
+    case "viewer": {
+      const mod = await import("./viewer.js");
+      await mod.viewerCommand({
+        host: typeof opts["host"] === "string" ? opts["host"] : undefined,
+        port: typeof opts["port"] === "string" ? parseInt(opts["port"], 10) : undefined,
+        open: opts["no-open"] !== true,
+      });
+      return;
+    }
+    case "eval": {
+      const mod = await import("./eval.js");
+      await mod.evalCommand({
+        suite: typeof opts["suite"] === "string" ? opts["suite"] : undefined,
+        corpus: typeof opts["corpus"] === "string" ? opts["corpus"] : undefined,
+        json: opts["json"] === true,
+      });
+      return;
+    }
+    case "synth": {
+      const mod = await import("./synth.js");
+      await mod.runSynth(rest);
+      return;
+    }
   }
 }
 

@@ -28,6 +28,7 @@ import { createAdapter, discoverAdapter, type AgentAdapterId } from "../synth/in
 import { buildBatchPrompt } from "../synth/prompts.js";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { createEmbeddingsProvider } from "../runtime/providers.js";
 
 function printUsage(): void {
@@ -91,7 +92,11 @@ export function parseArgs(argv: string[]): ParsedArgs {
 }
 
 async function main(): Promise<void> {
-  const args = parseArgs(process.argv.slice(2));
+  await runSynth(process.argv.slice(2));
+}
+
+export async function runSynth(argv: string[]): Promise<void> {
+  const args = parseArgs(argv);
   if (args.help) { printUsage(); return; }
 
   const config = loadConfig();
@@ -190,12 +195,22 @@ function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
 
-main().catch((err) => {
-  process.stderr.write(`termyte-synth: ${err instanceof Error ? err.message : String(err)}\n`);
-  process.exit(1);
-});
-
 // Re-exported entry point so `termyte synth ...` can delegate here.
 export async function runMain(): Promise<void> {
-  await main();
+  await runSynth(process.argv.slice(2));
+}
+
+if (isMainEntry()) {
+  void main().catch((err) => {
+    process.stderr.write(`termyte-synth: ${err instanceof Error ? err.message : String(err)}\n`);
+    process.exit(1);
+  });
+}
+
+function isMainEntry(): boolean {
+  try {
+    return import.meta.url === pathToFileURL(process.argv[1] ?? "").href;
+  } catch {
+    return false;
+  }
 }
