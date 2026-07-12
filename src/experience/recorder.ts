@@ -12,7 +12,7 @@ export class ExperienceRecorder {
   record(event: NormalizedEvent, trace: Trace, session: Session): string | null {
     let episode = this.store.getActiveEpisode(event.session_id);
 
-    if (event.event_type === "user_prompt") {
+    if (event.event_type === "user_prompt" && (!episode || this.startsNewEpisode(episode.id, event.user_prompt))) {
       episode = this.store.startEpisode({
         sessionId: event.session_id,
         repoId: session.repo_id ?? "unknown",
@@ -49,6 +49,13 @@ export class ExperienceRecorder {
       this.store.endSession(event.session_id);
     }
     return episode.id;
+  }
+
+  private startsNewEpisode(episodeId: string, prompt: string | null): boolean {
+    const failedEvidence = this.store.getEvidenceForEpisode(episodeId)
+      .some((evidence) => evidence.exit_code !== null && evidence.exit_code !== 0);
+    const separateTask = /^(?:new|another|separate|switch(?:ing)?|next)\s+(?:task|issue|problem)/i.test(cleanText(prompt));
+    return failedEvidence || separateTask;
   }
 }
 

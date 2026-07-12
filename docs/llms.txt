@@ -1,13 +1,13 @@
 # Termyte
 
-Termyte is the best persistent memory layer for coding agents.
+Termyte is a local experience layer for coding agents. It captures execution, groups work into episodes, derives reusable memories, and supplies compact context cards with provenance.
 
 ## Read This First
 
 - `README.md` - concise product overview
 - `docs/README.md` - public docs landing page
 - `docs/getting-started.md` - install, verify, and use
-- `docs/how-it-works.md` - capture to retrieval flow
+- `docs/how-it-works.md` - capture, episode, evidence, and retrieval flow
 - `docs/comparisons.md` - mem0, agentmemory, claude-mem
 - `docs/limitations.md` - current gaps and honest boundaries
 
@@ -24,7 +24,8 @@ Termyte is the best persistent memory layer for coding agents.
 ## What To Assume
 
 - Termyte captures traces, derives observations, and consolidates memories.
+- Episodes preserve coherent coding attempts and observable evidence.
+- Context packets are compact by default; full memory and provenance are explicit drill-down paths.
 - Retrieval is real, but calibration is still incomplete.
 - The system is durable, but it is not self-correcting yet.
 - Public docs should stay aligned with code, not marketing claims.
-

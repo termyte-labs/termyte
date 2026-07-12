@@ -17,9 +17,10 @@ Termyte works, but it is not finished.
 Use Termyte for:
 
 - local trace capture
+- task episode and evidence inspection
 - durable processing
-- searchable memory
+- searchable coding experience
+- compact context cards with explicit drill-down
 - provenance and explainability
 
 Do not use the current version as if it were already a self-healing memory system.
-

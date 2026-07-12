@@ -39,6 +39,22 @@ describe("ExperienceRecorder", () => {
     store.close();
   });
 
+  it("keeps a prompt continuation in the same episode until a state transition", () => {
+    const store = new Store(openDatabase(":memory:"));
+    const session = store.upsertSession("s1", "repo", "repo-1", "/repo");
+    const recorder = new ExperienceRecorder(store);
+
+    const first = event({ event_type: "user_prompt", user_prompt: "Fix the package" });
+    const firstTrace = store.insertTrace(traceInput(first));
+    const firstEpisodeId = recorder.record(first, firstTrace, session)!;
+    const continuation = event({ event_type: "user_prompt", user_prompt: "Also update the lockfile", timestamp: 3 });
+    const continuationTrace = store.insertTrace(traceInput(continuation));
+
+    expect(recorder.record(continuation, continuationTrace, session)).toBe(firstEpisodeId);
+    expect(store.getEpisodeTraces(firstEpisodeId).map((trace) => trace.id)).toEqual([firstTrace.id, continuationTrace.id]);
+    store.close();
+  });
+
   it("records append-only human outcomes", () => {
     const store = new Store(openDatabase(":memory:"));
     store.upsertSession("s1", "repo", "repo-1", "/repo");

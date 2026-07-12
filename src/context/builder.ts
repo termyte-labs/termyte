@@ -176,7 +176,7 @@ export function renderContext(
     lines.push(`## Memories (${memories.length})`);
     lines.push("");
     for (const m of memories) {
-      lines.push(renderMemory(m));
+      lines.push(renderMemoryCard(m));
       lines.push("");
     }
   }
@@ -216,6 +216,16 @@ export function renderMemory(m: Memory): string {
     if (evidence.files.length > 0) parts.push(`Applicability files: ${evidence.files.join(", ")}`);
     if (evidence.commands.length > 0) parts.push(`Applicability commands: ${evidence.commands.join(", ")}`);
   }
+  return parts.join("\n");
+}
+
+export function renderMemoryCard(m: Memory): string {
+  const description = m.description?.replace(/\s+/g, " ").trim();
+  const parts = [`### memory:${m.id} [${m.type}] ${m.title}`];
+  if (description) parts.push(description.length > 240 ? `${description.slice(0, 237)}...` : description);
+  if (m.files_modified.length > 0) parts.push(`Files: ${m.files_modified.join(", ")}`);
+  else if (m.files_read.length > 0) parts.push(`Files: ${m.files_read.join(", ")}`);
+  parts.push(`Inspect: termyte memory ${m.id}`);
   return parts.join("\n");
 }
 

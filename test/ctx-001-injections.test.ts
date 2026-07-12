@@ -52,6 +52,13 @@ describe("CTX-001 context injection persistence", () => {
     expect(out.contextInjectionId.length).toBeGreaterThan(0);
   });
 
+  it("renders compact experience cards with an explicit detail path", async () => {
+    const id = seedMemory("Compact fact", "This is a detailed explanation for later inspection.");
+    const out = await builder.build({ repo_id: "r1", query: "compact fact", surface: "test" });
+    expect(out.text).toContain(`memory:${id}`);
+    expect(out.text).toContain(`termyte memory ${id}`);
+  });
+
   it("persists the injection with memory IDs, query, repo, and surface", async () => {
     seedMemory("Fact A", "desc a");
     seedMemory("Fact B", "desc b");

@@ -24,10 +24,12 @@ termyte stats
 
 ## Use
 
-- `termyte search <query>` to find relevant memory
-- `termyte context` to build a context block for the current task
-- `termyte memory <id>` to inspect one memory row
+- `termyte search <query>` to find relevant experience
+- `termyte context` to build compact, task-scoped experience cards
+- `termyte memory <id>` to expand one memory card
 - `termyte explain <id>` to see provenance, edges, and feedback
+
+Context cards include stable memory IDs and an explicit `termyte memory <id>` detail path. Termyte keeps the first packet small; request deeper provenance only when the card is relevant.
 
 ## Configuration
 
@@ -42,6 +44,5 @@ The most important environment variables are:
 
 ## Practical Rule
 
-Use Termyte to capture what happened, not as a substitute for judgment.
-Retrieved memories are context, not ground truth.
-
+Use Termyte to capture what happened and make prior coding experience inspectable, not as a substitute for judgment.
+Retrieved experience is context, not ground truth.

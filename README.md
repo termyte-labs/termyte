@@ -1,6 +1,6 @@
 # Termyte
 
-Termyte is a local context engine for Claude Code and Codex. It records agent execution, preserves evidence, derives repository-specific memories, and quietly supplies relevant context at the start of later tasks.
+Termyte is a local experience layer for coding agents. It records agent execution, preserves evidence, derives repository-specific experience, and quietly supplies relevant context at the start of later tasks.
 
 Termyte is not yet a self-correcting system. Outcomes can be recorded and inspected, but automatic attribution from an injected memory to a later task result is incomplete.
 
@@ -59,7 +59,7 @@ agent event
   -> Claude Code or Codex prompt context
 ```
 
-Context retrieval is repository-scoped, lifecycle-aware, budgeted, and allowed to return no memory. The foreground hook uses FTS-only retrieval so it never downloads or initializes an embedding model while the agent is waiting. Local embeddings and durable synthesis run in the background.
+Context retrieval is repository-scoped, lifecycle-aware, budgeted, and allowed to return no experience. Packets contain compact experience cards with stable IDs; agents can request full memory and provenance details explicitly. The foreground hook uses FTS-only retrieval so it never downloads or initializes an embedding model while the agent is waiting. Local embeddings and durable synthesis run in the background.
 
 ## Current boundaries
 

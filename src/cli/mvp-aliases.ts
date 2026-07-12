@@ -19,10 +19,10 @@ export function resolveMvpCommand(command: string): MvpCommandTarget | null {
 export function renderMvpCommandGuide(): string {
   return [
     "MVP aliases:",
-    "  capture   -> start",
+    "  capture   -> start       record coding experience",
     "  learn     -> synth",
-    "  remember  -> context",
-    "  inspect   -> viewer",
+    "  remember  -> context     retrieve compact experience cards",
+    "  inspect   -> viewer      inspect evidence and provenance",
     "  evaluate  -> eval",
   ].join("\n");
 }
