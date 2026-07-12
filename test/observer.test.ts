@@ -92,9 +92,7 @@ describe("Observer durable compatibility facade", () => {
     const observer = new Observer({ store, llm, embeddings: new FixedEmbeddings() });
     insertTrace(store);
 
-    await observer.generateSummary("s1", {
-      user_prompts: [], final_response: null, files_modified: [],
-    });
+    observer.enqueueSummary("s1");
 
     expect(llm.calls).toHaveLength(0);
     const job = store.getDB().prepare(
