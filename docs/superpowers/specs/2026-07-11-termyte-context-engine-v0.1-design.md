@@ -1,276 +1,345 @@
 # Termyte Context Engine v0.1
 
-Date: 2026-07-11
-Status: Approved product design, amended for implementation
+Date: 2026-07-14
+Status: Approved implementation design
 
-## Approved implementation amendments
+## 1. Product decision
 
-- v0.1 supports Claude Code and Codex only.
-- Onboarding is `npm install -g termyte` followed by one interactive `termyte init` flow.
-- Existing authenticated Claude Code or Codex is the recommended synthesis provider; an OpenAI-compatible API configured through environment variables is optional.
-- Routine trace capture, synthesis, memory creation, indexing, and context injection are invisible and fail open. Internal state and failures are visible through Viewer diagnostics.
-- Viewer is the only human surface for stored traces, episodes, evidence, observations, memories, packets, feedback, corrections, and deletion.
-- The public CLI is limited to `init`, `viewer`, `doctor`, `uninstall`, and `help`; hook and worker binaries remain internal integration entry points.
-- Data lives in one user-local database under `~/.termyte` and is repository-scoped by default.
-- Context is compiled once per user task, not on each file access.
-- Experience is the joined record of episode, evidence, and outcome. Memories are reusable knowledge derived from experience; future context selects memories and compact experience previews.
+Termyte v0.1 is a local-first context compiler for Claude Code and Codex. It captures repository work, turns durable evidence into reusable memory, and supplies the smallest evidence-backed context packet that is relevant to the next coding task.
 
-## Product definition
+The wedge is not generic long-term chat memory. It is repository-specific experience with inspectable provenance:
 
-Termyte is a local-first context engine for coding agents. It observes coding-agent work, converts durable evidence into repository knowledge and experience, and constructs a compact, task-specific context packet for future sessions.
+- what happened in this repository;
+- what evidence supports the retained knowledge;
+- why an item was included or excluded from a task packet;
+- what happened after the packet was delivered.
 
-Its primary job is to select the smallest set of trustworthy prior context likely to help with a coding task in the current repository state. Its secondary job is to let developers inspect what was selected, why it was selected, and what evidence supports it.
+Outcome association is recorded, but Termyte does not claim that injected context caused an outcome.
 
-The initial users are technical founders and developers who use Claude Code or Codex repeatedly against the same repositories.
+## 2. Fixed v0.1 boundary
 
-## Product boundaries
+v0.1 supports:
 
-Required for v0.1:
+- Claude Code and Codex only;
+- Windows, macOS, and Linux;
+- one local SQLite database under `~/.termyte`, repository-scoped by default;
+- Git-aware evidence using commits, changed files, diff metadata, commands, tests, builds, errors, and human feedback;
+- local FTS5 retrieval with optional embeddings;
+- existing authenticated Claude Code or Codex as the recommended synthesis provider;
+- an optional OpenAI-compatible provider configured through environment variables;
+- one context compilation per user task;
+- Viewer as the human inspection and feedback surface.
 
-- reliable Claude Code and Codex integration;
-- Windows, macOS, and Linux packaging;
-- Git repository awareness;
-- local SQLite storage;
-- an OpenAI-compatible endpoint for derived memory formation;
-- offline FTS retrieval when embeddings are unavailable;
-- local inspection and diagnostics.
+The public CLI is exactly:
 
-Experimental integrations are not part of the v0.1 reliability claim. The release does not include cloud collaboration, broad document RAG, organization accounts, autonomous skill generation, model fine-tuning, agent orchestration, enterprise governance, or a universal memory protocol.
+```text
+termyte init
+termyte viewer
+termyte doctor
+termyte uninstall
+termyte help
+```
 
-## Knowledge and trust model
+Hooks, the worker, MCP tools, evaluation commands, and diagnostic entry points may remain internal. Existing public aliases and unreachable command branches are removed rather than maintained as a second product surface.
+
+Explicitly excluded:
+
+- cloud sync, team memory, accounts, and hosted control planes;
+- broad document RAG;
+- universal agent support;
+- graph databases or a knowledge-graph rewrite;
+- AST, symbol-graph, or dependency-graph indexing;
+- autonomous skill generation;
+- learned ranking or reinforcement learning;
+- model fine-tuning and agent orchestration;
+- causal claims about context effectiveness.
+
+## 3. Current implementation baseline
+
+The existing product is the foundation, not a prototype to replace.
+
+Already implemented and retained:
+
+- redacted trace persistence;
+- durable leased jobs, retries, dead letters, and worker lock ownership;
+- episodes, evidence, observations, memories, provenance links, and outcomes;
+- FTS5, optional vector retrieval, reciprocal-rank fusion, and reranking;
+- memory lifecycle, deduplication, decay, feedback, conflicts, and supersession;
+- persisted context packets, candidates, and injections;
+- Viewer pages for sessions, episodes, evidence, packets, memories, and diagnostics;
+- Claude Code and Codex adapters, installers, hooks, MCP tools, and packaged-install coverage.
+
+Measured gaps that this design closes:
+
+1. The main worker performs one agent invocation per trace and another per observation. A batcher exists but is not connected to the durable pipeline, allowing ordinary sessions to create a growing queue.
+2. Context ranking applies primarily to memories. Summaries and observations receive fixed token partitions instead of competing as scored candidates.
+3. Packet-to-episode-to-outcome links are incomplete, so effectiveness can be associated only partially.
+4. Git commit fields exist, but active capture does not consistently populate commit and diff applicability evidence.
+5. Corrections can retain provenance from the replaced statement, making the replacement appear better supported than it is.
+6. Public CLI aliases contradict the intended five-command product surface.
+7. The package currently declares itself as a runtime dependency.
+8. The packed-install test passes in isolation but can make the aggregate test runner time out; the evaluation command also reports retrieval and infrastructure failures.
+
+## 4. Trust and data model
 
 Termyte keeps observed evidence separate from derived interpretation.
 
-### Agent event
+### Trace
 
-An append-only normalized interaction containing session, agent, timestamp, working directory, repository, commit when available, event type, tool data, and affected files. It is redacted before persistence and always retains provenance.
+An append-only, redacted agent event containing session, agent, timestamp, working directory, repository, event type, tool data, affected files, and Git state when available. Trace capture must remain non-blocking and fail open.
 
 ### Episode
 
-A bounded unit of work that groups events into a task with start and end times, files, commands, validations, responses, and an outcome of `active`, `succeeded`, `failed`, `partial`, `abandoned`, or `unknown`.
-
-An episode records what happened. It does not state what should be remembered.
+A bounded task containing its initiating prompt, traces, files, commands, validations, response, timing, and outcome. Supported outcomes are `active`, `succeeded`, `failed`, `partial`, `abandoned`, and `unknown`. Unknown is required when evidence does not justify a stronger result.
 
 ### Evidence
 
-A normalized observable result such as a command, test, build, diff, file observation, human feedback, or agent statement. Trust remains scoped:
+A normalized observable fact:
 
-- command output proves only that the command produced the output;
-- a passing test proves only the tested behavior;
-- an agent statement is never treated as verified evidence;
-- explicit human acceptance is evidence, not universal truth.
+- repository commit before and after the task;
+- changed file and compact diff metadata;
+- normalized command, exit status, and output digest;
+- test or build identity and result;
+- normalized repository path;
+- error signature;
+- explicit human correction, acceptance, or rejection.
 
-### Memory
+An agent statement remains distinguishable from executable or human evidence. A passing test proves only the tested behavior.
 
-A fallible, reusable statement derived from episodes and evidence. Supported types are fact, decision, convention, warning, and procedure. Every memory has repository scope, applicability conditions, confidence, lifecycle, source episode IDs, and source evidence IDs.
+### Observation and memory
 
-Lifecycle states are candidate, active, stale, conflicted, superseded, and deleted. Weak self-reflection remains a candidate. Corrections create conflict or supersession rather than silently replacing history.
+An observation is a structured interpretation of episode evidence. A memory is reusable repository knowledge derived from one or more observations.
+
+v0.1 keeps the implemented memory types: `bugfix`, `convention`, `warning`, `procedure`, and `fact`. Supported lifecycle states are `active`, `stale`, `conflicted`, `superseded`, and `deleted`.
+
+Every memory must have repository scope, applicability evidence, confidence, source observations, source traces, and source episodes where available. Weak, malformed, or unsupported synthesis creates no active memory.
+
+A correction is new human evidence. It may conflict with or supersede an old memory, but it must not inherit evidence that supports only the old statement.
 
 ### Context candidate
 
-A current-state item, repository fact, episode preview, memory, procedure, or evidence item considered for a packet. Each candidate records token cost, component scores, selection state, and a rejection reason when excluded.
+Every item considered by the compiler is represented as a candidate, including:
 
-### Context packet
+- current repository and task state;
+- active memories;
+- episode previews;
+- observations and direct evidence;
+- procedures and warnings;
+- the latest handoff or unresolved state.
 
-A persisted, token-bounded artifact containing current state, repository knowledge, relevant experience, procedures, and uncertainties. It records the task, repository, agent, token budget, selected candidates, rejected candidates, and creation time.
+Each candidate records type, token cost, component scores, selection state, and a rejection reason when excluded.
 
-### Injection and outcome
+### Packet, injection, and feedback
 
-Every delivered packet has an injection identity, delivery method, session, agent, and timestamp. A later outcome can be associated with that injection and can record explicit human feedback. Association does not imply causation.
+A context packet persists the task, repository state, agent, budget, selected candidates, rejected candidates, score components, retrieval mode, and creation time.
 
-## End-to-end behavior
+An injection records the exact delivered packet, session, agent, delivery method, and timestamp. Feedback events are distinct: `shown`, `used`, `ignored`, `helpful`, `harmful`, `downranked`, and `corrected`. `shown` never implies `used` or `helpful`.
 
-### After agent activity
-
-```text
-Agent event
-  -> normalize
-  -> redact
-  -> persist
-  -> assign to episode
-  -> extract observable evidence
-  -> determine episode outcome when supported
-  -> derive candidate memories
-  -> validate structure and provenance
-  -> index memory and evidence
-```
-
-### Before a new task
+## 5. Target architecture
 
 ```text
-Task + repository + agent + token budget
-  -> resolve repository state
-  -> construct lexical and structural query
-  -> retrieve scoped candidates
-  -> optionally retrieve semantic candidates
-  -> apply lifecycle and applicability filters
-  -> score and reject weak, stale, or conflicting items
-  -> pack within the token budget
-  -> persist packet and injection
-  -> deliver context
-```
+Claude Code / Codex hooks
+  -> normalize and redact
+  -> persist trace immediately
+  -> deterministic episode and evidence updates
+  -> enqueue or coalesce episode synthesis
+  -> batched observation and memory synthesis
+  -> validate provenance and lifecycle
+  -> index searchable records
 
-### After the task
+New task
+  -> capture task and current Git state
+  -> generate typed candidates
+  -> filter by repository, lifecycle, and applicability
+  -> score all candidate types
+  -> deterministically pack to the hard token budget
+  -> persist packet and rejection reasons
+  -> inject or abstain
 
-```text
-Evidence + outcome
-  -> associate with injection
+Task completion
+  -> persist validations and outcome
+  -> associate episode, packet, and injection
   -> record explicit feedback
-  -> update bounded utility signals
-  -> reinforce, stale, conflict, or supersede memory
+  -> suppress harmful or corrected knowledge
 ```
 
-Termyte never makes an automatic causal claim from this association.
+No new service, database, queue, graph layer, or dependency is required. The design reuses the existing SQLite schema, durable job queue, batcher, retrieval stack, packet persistence, hooks, and Viewer.
 
-## Required features
+## 6. Runtime and synthesis design
 
-### Reliable capture
+The first engineering priority is bounded background work.
 
-- one-command, idempotent Claude Code and Codex installation;
-- preservation of existing agent configuration;
-- payload validation and redaction before persistence;
-- hook latency target below 150 ms excluding detached work;
-- fail-open agent behavior;
-- durable, non-blocking background processing;
-- local exposure of capture and worker failures.
+- Capture and deterministic evidence extraction happen without a model call.
+- Traces are grouped by episode.
+- At most one pending synthesis job exists for an episode and synthesis kind.
+- New trace arrival coalesces into that job instead of creating another model invocation.
+- Synthesis runs when an episode completes or becomes idle, with a bounded batch size.
+- Observation extraction and memory consolidation operate on the episode batch, not each trace independently.
+- Retries remain idempotent and use the existing leased queue and dead-letter behavior.
+- One worker remains the default until measurements show that concurrency is needed.
+- Diagnostics expose pending count, oldest-job age, leased jobs, throughput, retries, and dead letters.
 
-A clean external installation must capture a real session and survive malformed input, worker restart, and unavailable enrichment.
+The existing standalone batch path is either reused by the durable worker or removed. Two parallel synthesis architectures are not retained.
 
-### Episode construction
+Release behavior under unavailable synthesis:
 
-Termyte groups events into coherent episodes with an initiating task, timing, files, commands, validations, response, outcome, and links to raw events. Unknown is required when the evidence does not support a stronger outcome.
+- capture continues;
+- deterministic evidence remains queryable;
+- context compilation falls back to already indexed records and FTS5;
+- agent startup remains fail open;
+- diagnostics state the degraded mode.
 
-### Evidence extraction
+## 7. Context compiler design
 
-Termyte normalizes commands and exit status, tests, builds, error signatures, paths and symbols where observable, modified-file or diff metadata, and human feedback. Agent statements remain distinguishable from executable evidence.
+### Inputs
 
-### Memory formation
+- task text;
+- repository identity and root;
+- current commit and changed files when available;
+- agent and session;
+- hard token budget;
+- optional active files, errors, tests, symbols, or commands observable from the event.
 
-- structured schema validation;
-- required repository, episode, and evidence provenance;
-- explicit applicability and confidence;
-- candidate state for weak verification;
-- idempotent retry behavior;
-- conflict and supersession for corrections;
-- no memory when an episode contains no reusable knowledge.
+### Candidate generation
 
-Every active memory must have valid provenance. Malformed or unsupported model output creates no memory.
+Candidate generation combines exact identifiers, error signatures, test names, paths, commands, sparse search, optional semantic search, active memories, related episodes, observations, evidence, and current task state.
 
-### Context compilation
+Summaries, observations, and episode previews no longer receive reserved token partitions. They must earn space through the same candidate contract as memories.
 
-Context compilation is the differentiating runtime.
+### Eligibility and applicability
 
-Inputs include task, repository, commit, agent, token budget, and optional files, errors, tests, or symbols. Candidate generation uses exact identifiers, error signatures, test names, paths, symbols, commands, sparse search, semantic search, related episodes, active memories, and current task state.
+The compiler excludes by default:
 
-Selection applies, in order:
+- a different repository or workspace;
+- deleted, superseded, conflicted, or inapplicable memories;
+- records with broken required provenance;
+- commit- or file-scoped knowledge incompatible with current repository state;
+- redundant candidates that add no material information.
 
-1. repository and workspace eligibility;
-2. lifecycle eligibility;
-3. commit compatibility;
-4. exact lexical and structural signals;
-5. semantic similarity;
-6. confidence and evidence quality;
-7. prior explicit utility;
-8. token cost;
-9. diversity and redundancy;
-10. conflict and stale penalties.
+Stale items may appear only when an exact match makes the risk useful and the stale state is explicit in the rendered packet.
 
-The compiler must enforce a strict token budget, provide deterministic packing after ranking, limit experience items, preserve a no-context outcome, record rejection reasons, support FTS-only fallback, and clearly distinguish facts, experience, procedures, and uncertainty.
+### Ranking and packing
 
-Wrong-repository and conflicted or deleted memories are excluded by default. Exact technical matches can outrank vague semantic similarity. Weak candidates produce no prior-experience context.
+Ranking uses the smallest useful set of deterministic signals already supported by the product:
 
-### Context delivery
+1. exact path, test, command, symbol, and error matches;
+2. sparse and optional semantic relevance;
+3. repository and Git applicability;
+4. evidence quality and confidence;
+5. explicit helpful, harmful, corrected, ignored, or downranked feedback;
+6. recency and lifecycle penalties;
+7. redundancy and token cost.
 
-Claude Code and Codex hooks are the required delivery paths. MCP and a shared Markdown file are fallbacks. Every delivery records its exact packet and injection identity. Missing context never prevents the agent from starting, and delivery never silently claims success.
+After ranking, packing is deterministic and enforces the hard budget. Exact technical matches can outrank vague semantic similarity. If no candidate clears the minimum threshold, the compiler persists an abstaining packet and injects no prior-experience section.
 
-### Context debugger
+No learned ranker is added in v0.1.
 
-The local debugger provides:
+## 8. Outcome association
 
-- sessions: agent, repository, task, status, timing, and event count;
-- episodes: progress timeline, files, commands, validations, outcome, memories, and evidence;
-- context packets: token use, selected items, selection reasons, evidence, rejected candidates, and uncertainty;
-- memories: type, content, applicability, lifecycle, confidence, provenance, use, feedback, and relationships;
-- diagnostics: capture, queue, jobs, embeddings, retrieval mode, installation, and redaction summary.
+Each task episode links to the packet and injection used at its start. Completion records commands, validations, changed files, final commit when available, and the strongest supportable outcome.
 
-All displayed counts and health fields must come from persisted state. A user must not need SQL or raw JSON to understand what Termyte remembered or injected.
+Termyte may report:
 
-### Explicit feedback and outcomes
+- the packet was shown or used;
+- explicit helpful, harmful, ignored, or corrected feedback;
+- a later associated success, failure, or partial result;
+- efficiency measures such as tokens, turns, tool calls, repeated reads, repeated commands, elapsed time, and validations where observable.
 
-Users can mark tasks succeeded, failed, partial, abandoned, or unknown and mark injected context helpful, harmful, irrelevant, or corrected. Feedback is persisted before success is reported and is linked to its injection and memory. Harmful or corrected feedback immediately suppresses or penalizes unsafe reuse. `shown` never means `used`.
+Termyte must not automatically reinforce a memory merely because it was shown before a successful outcome. Harmful and corrected feedback suppresses reuse immediately. Causal product claims require controlled experiments.
 
-### Efficiency reporting
+## 9. Viewer requirements
 
-Where observable, Termyte records context tokens, turns, tool calls, file reads, repeated file reads, commands, repeated commands, elapsed time, validations, and human interventions. Packet reports include candidates, selections, rejections, token distribution, retrieval mode, and latency.
+Viewer remains the only human management surface. Existing pages are extended rather than replaced.
 
-Reports use associated language unless a controlled experiment supports causal language.
+It must make these questions answerable without SQL or raw JSON:
 
-### Local-first trust
+- Is capture and background processing healthy?
+- Which episode produced this memory?
+- Which evidence supports it, and is any provenance broken?
+- Which packet was used for this task and what happened afterward?
+- Why was each candidate selected or rejected?
+- Was knowledge excluded because of repository, lifecycle, Git, file, conflict, score, redundancy, or budget?
+- Has a correction superseded the old statement cleanly?
+- Did the compiler abstain?
 
-- SQLite and no account by default;
-- configurable database path;
-- explicit disclosure of external model calls and downloads;
-- redaction before persistence and outbound calls;
-- export and deletion;
-- no telemetry by default;
-- migrations and compatibility guards;
-- visible health diagnostics.
+Diagnostics add queue age and throughput. Episode detail shows the episode-to-packet-to-outcome chain. Packet detail shows candidate scores and rejection reasons. Memory detail shows applicability, correction chains, feedback, and broken provenance.
 
-## Initial CLI surface
+## 10. Installation and packaging
+
+Onboarding is:
 
 ```text
-termyte install claude-code
-termyte install codex
-termyte start
-termyte doctor
-termyte health
-termyte sessions
-termyte session <id>
-termyte episode <id>
-termyte context --task "<task>" --budget 2500
-termyte context inspect <packet-id>
-termyte memories
-termyte memory <id>
-termyte explain <id>
-termyte outcome <episode-id> --status succeeded
-termyte feedback <memory-id> --event helpful|harmful|irrelevant|corrected
-termyte viewer
-termyte export
+npm install -g termyte
+termyte init
 ```
 
-Implementation should reuse existing commands rather than duplicate working surfaces to match conceptual names.
+`init` detects supported authenticated agents, lets the user select Claude Code, Codex, or both, preserves existing configuration, installs idempotently, and verifies capture plus worker health. No account or API key is required when an authenticated supported agent is available.
 
-## Non-functional requirements
+The package must not depend on itself. Installation and uninstall preserve unrelated agent configuration. Database deletion remains explicit rather than implicit during uninstall.
 
-- Node.js 20 or newer;
-- strict TypeScript, ESM, and NodeNext;
+## 11. Non-functional requirements
+
+- Node.js 20 or newer, strict TypeScript, ESM, and NodeNext;
 - SQLite WAL and foreign keys;
-- durable leased jobs with bounded retries and dead-letter state;
-- offline FTS fallback;
-- context construction target below 500 ms for local FTS-only data;
+- redaction before persistence and outbound calls;
 - no hook-side model call or synchronous model download;
+- hook latency below 150 ms excluding detached work;
+- local FTS-only context construction below 500 ms at the release corpus size;
+- durable leased jobs with bounded retries and dead letters;
+- strict token-budget enforcement;
 - provenance for every derived record;
-- explainable context selection;
-- no silent durable-work failures;
-- clean packaged installation as a release gate.
+- no telemetry by default;
+- visible migrations, compatibility guards, export, and deletion;
+- no silent durable-work failure.
 
-## Definition of done
+## 12. Verification and release gates
 
-Termyte v0.1 is complete only when an external developer can:
+All gates must pass from a clean packed installation, not only the repository checkout.
 
-1. install it cleanly;
-2. connect Claude Code or Codex;
-3. complete a real coding session;
-4. inspect a coherent episode and its evidence;
-5. begin a related session;
-6. receive a bounded context packet;
-7. inspect why every packet item was selected;
-8. record outcome and context utility;
-9. continue using the agent while Termyte is unavailable;
-10. export or delete local data.
+### Reliability
 
-## Ten-day product gate
+- typecheck and build pass;
+- unit and integration tests pass without aggregate runner RPC timeouts;
+- packed install, `init`, `doctor`, capture, worker restart, recovery, Viewer, and uninstall pass;
+- one real Claude Code session and one real Codex session complete end to end;
+- malformed hook input and unavailable synthesis fail open;
+- every active memory has valid provenance;
+- lifecycle and repository exclusions are enforced;
+- every packet respects its hard token budget;
+- the queue remains bounded during a replay of at least 100 representative tool events and drains afterward;
+- diagnostics expose backlog age, throughput, retries, and dead letters accurately.
 
-The engineering release gate is a fresh-machine install, real Claude Code and Codex sessions, durable capture and processing, bounded explainable context, explicit feedback, fail-open operation, and clean uninstall/data deletion.
+### Retrieval and abstention
 
-Product evidence targets are ten installation attempts, five successful external installs, three users completing at least three real sessions, two returning on another day, one observed behavior change associated with context, one correct abstention, and one concrete efficiency observation. These are learning targets, not statistical performance claims.
+- the maintained retrieval corpus reaches Recall@5 of at least 0.90;
+- exact path, error, test, and command matches beat vague semantic matches;
+- harmful, corrected, deleted, conflicted, superseded, and wrong-repository items do not regress into packets;
+- at least one adversarial no-match case produces a correct abstention;
+- the benchmark loader and fixtures agree on one documented input shape.
+
+### Product evidence
+
+- run at least 20 paired coding trials with Termyte on and off across repeated repository tasks;
+- grade task outcome with deterministic checks first and transcript review second;
+- record context tokens, turns, tool calls, elapsed time, validations, and failures where observable;
+- run repeated trials for nondeterministic agents and report association separately from causation;
+- inspect every harmful-context regression before release.
+
+The trial count is a product-learning gate, not a statistically significant performance claim.
+
+## 13. Definition of done
+
+Termyte v0.1 is done when an external developer can:
+
+1. install it and initialize Claude Code, Codex, or both;
+2. complete a real coding task without Termyte blocking the agent;
+3. inspect the coherent episode, evidence, queue state, and derived memories;
+4. start a related task and receive a bounded, relevant packet or a correct abstention;
+5. inspect every selected and rejected candidate;
+6. trace the packet through injection to the associated task outcome;
+7. provide helpful, harmful, ignored, or corrected feedback;
+8. verify that unsafe or obsolete knowledge is suppressed;
+9. continue in degraded FTS or capture-only operation;
+10. export data, uninstall integrations, and explicitly delete local data.
+
+Anything beyond this contract waits for evidence that the v0.1 wedge is used and improves repeated repository work.
