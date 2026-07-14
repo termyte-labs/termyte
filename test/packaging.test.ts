@@ -7,6 +7,9 @@ const root = fileURLToPath(new URL("..", import.meta.url));
 const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as {
   bin?: Record<string, string>;
   main?: string;
+  dependencies?: Record<string, string>;
+  optionalDependencies?: Record<string, string>;
+  devDependencies?: Record<string, string>;
 };
 const tsconfig = JSON.parse(
   readFileSync(join(root, "tsconfig.json"), "utf8").replace(/\/\*.*?\*\//g, "").replace(/\/\/.*/g, ""),
@@ -39,6 +42,12 @@ describe("PKG-001 package layout", () => {
 
   it("declares the three runtime binaries", () => {
     expect(Object.keys(pkg.bin ?? {}).sort()).toEqual(["termyte", "termyte-hook", "termyte-worker"]);
+  });
+
+  it("does not depend on itself", () => {
+    for (const dependencies of [pkg.dependencies, pkg.optionalDependencies, pkg.devDependencies]) {
+      expect(dependencies).not.toHaveProperty("termyte");
+    }
   });
 
   it("emits the OpenCode built plugin at the path installers probe", () => {
