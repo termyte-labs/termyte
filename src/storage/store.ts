@@ -1101,6 +1101,7 @@ export class Store {
         UPDATE memories
         SET
           state = ?,
+          lifecycle_state = CASE WHEN ? IN ('harmful', 'corrected') THEN 'conflicted' ELSE lifecycle_state END,
           importance = ?,
           confidence = ?,
           usage_count = ?,
@@ -1109,6 +1110,7 @@ export class Store {
         WHERE id = ?
       `).run(
         next.state,
+        input.event,
         next.importance,
         next.confidence,
         next.usage_count,

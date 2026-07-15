@@ -25,7 +25,11 @@ export function feedbackDelta(eventType: MemoryFeedbackEvent): {
       // `shown` creates a self-reinforcing ranking loop.
       return { importanceDelta: 0, confidenceDelta: 0, usageDelta: 0 };
     case "used":
-      return { importanceDelta: 0.06, confidenceDelta: 0.02, usageDelta: 1 };
+      return { importanceDelta: 0, confidenceDelta: 0, usageDelta: 1 };
+    case "helpful":
+      return { importanceDelta: 0.06, confidenceDelta: 0.04, usageDelta: 0 };
+    case "harmful":
+      return { importanceDelta: -0.25, confidenceDelta: -0.25, usageDelta: 0 };
     case "ignored":
       return { importanceDelta: -0.02, confidenceDelta: 0, usageDelta: 0 };
     case "downranked":
@@ -38,9 +42,13 @@ export function feedbackDelta(eventType: MemoryFeedbackEvent): {
 export function defaultFeedbackWeight(eventType: MemoryFeedbackEvent): number {
   switch (eventType) {
     case "shown":
-      return 0.03;
+      return 0;
     case "used":
+      return 0;
+    case "helpful":
       return 0.25;
+    case "harmful":
+      return -1;
     case "ignored":
       return -0.04;
     case "downranked":
@@ -59,11 +67,7 @@ export function applyFeedback(
   const nextConfidence = clamp01(current.confidence + delta.confidenceDelta);
   let nextState = current.state;
 
-  if (eventType === "used" && current.state === "stale") {
-    nextState = "active";
-  }
-
-  if (eventType === "corrected" && nextConfidence < 0.3) {
+  if (eventType === "harmful" || eventType === "corrected") {
     nextState = "conflicted";
   }
 
@@ -73,7 +77,7 @@ export function applyFeedback(
     confidence: nextConfidence,
     usage_count: Math.max(0, current.usage_count + delta.usageDelta),
     last_accessed_at: eventType === "used" ? nowMs : current.last_accessed_at ?? null,
-    last_reinforced_at: eventType === "used" ? nowMs : current.last_reinforced_at ?? null,
+    last_reinforced_at: eventType === "helpful" ? nowMs : current.last_reinforced_at ?? null,
     weight: defaultFeedbackWeight(eventType),
   };
 }

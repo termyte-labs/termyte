@@ -76,7 +76,7 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL, co
   const feedback = match(url.pathname, /^\/api\/memories\/(\d+)\/feedback$/);
   if (req.method === "POST" && feedback) {
     const body = await readJson(req);
-    const eventMap: Record<string, "used" | "downranked" | "ignored" | "corrected"> = { helpful: "used", harmful: "downranked", irrelevant: "ignored", corrected: "corrected" };
+    const eventMap: Record<string, "helpful" | "harmful" | "ignored" | "corrected"> = { helpful: "helpful", harmful: "harmful", irrelevant: "ignored", corrected: "corrected" };
     const event = eventMap[String(body.event)];
     if (!event) return error(res, 400, "invalid_feedback", "Invalid feedback event");
     const result = store.recordMemoryFeedback({ id: `memory:${feedback}`, event, source: "viewer", correctionText: typeof body.correctionText === "string" ? body.correctionText : undefined });

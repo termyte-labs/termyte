@@ -223,10 +223,11 @@ CREATE TABLE IF NOT EXISTS memory_feedback (
   memory_id INTEGER NOT NULL REFERENCES memories(id),
   doc_id TEXT,
   event_type TEXT NOT NULL CHECK(event_type IN
-    ('shown', 'used', 'ignored', 'downranked', 'corrected')),
+    ('shown', 'used', 'helpful', 'harmful', 'ignored', 'downranked', 'corrected')),
   weight REAL NOT NULL,
   source TEXT NOT NULL,
   context_injection_id TEXT,
+  correction_text TEXT,
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_memory_feedback_memory ON memory_feedback(memory_id);
@@ -450,6 +451,7 @@ export function runMigrations(db: DB): void {
   ensureLifecycleColumns(db);
   ensureProvenanceLinks(db);
   ensureFeedbackColumns(db);
+  ensureFeedbackEventKinds(db);
   ensureContextInjectionColumns(db);
   ensureContextCandidateKinds(db);
 }
@@ -548,6 +550,35 @@ function ensureContextInjectionColumns(db: DB): void {
   addColumnIfMissing(db, "context_injection_items", "score_breakdown_json", "TEXT NOT NULL DEFAULT '{}'");
   addColumnIfMissing(db, "context_injections", "packet_id", "TEXT REFERENCES context_packets(id) ON DELETE SET NULL");
   addColumnIfMissing(db, "context_injections", "delivery_method", "TEXT NOT NULL DEFAULT 'unknown'");
+}
+
+function ensureFeedbackEventKinds(db: DB): void {
+  const row = db.prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'memory_feedback'`)
+    .get() as { sql?: string } | undefined;
+  if (row?.sql?.includes("'harmful'")) return;
+  db.transaction(() => {
+    db.exec(`
+      ALTER TABLE memory_feedback RENAME TO memory_feedback_legacy;
+      DROP INDEX IF EXISTS idx_memory_feedback_memory;
+      DROP INDEX IF EXISTS idx_memory_feedback_context;
+      CREATE TABLE memory_feedback (
+        id TEXT PRIMARY KEY,
+        memory_id INTEGER NOT NULL REFERENCES memories(id),
+        doc_id TEXT,
+        event_type TEXT NOT NULL CHECK(event_type IN
+          ('shown', 'used', 'helpful', 'harmful', 'ignored', 'downranked', 'corrected')),
+        weight REAL NOT NULL,
+        source TEXT NOT NULL,
+        context_injection_id TEXT,
+        correction_text TEXT,
+        created_at INTEGER NOT NULL
+      );
+      INSERT INTO memory_feedback SELECT * FROM memory_feedback_legacy;
+      DROP TABLE memory_feedback_legacy;
+      CREATE INDEX idx_memory_feedback_memory ON memory_feedback(memory_id);
+      CREATE INDEX idx_memory_feedback_context ON memory_feedback(context_injection_id);
+    `);
+  })();
 }
 
 function ensureContextCandidateKinds(db: DB): void {

@@ -2,7 +2,7 @@ export type DocumentType = "trace" | "observation" | "memory" | "summary" | "epi
 
 export type RetrievalType = DocumentType | "all";
 
-export type FeedbackEvent = "shown" | "used" | "ignored" | "downranked" | "corrected";
+export type FeedbackEvent = "shown" | "used" | "helpful" | "harmful" | "ignored" | "downranked" | "corrected";
 
 export interface ValidationError {
   code: "INVALID_ARGUMENT";
@@ -64,6 +64,8 @@ const RETRIEVAL_TYPES = new Set<RetrievalType>([
 const FEEDBACK_EVENTS = new Set<FeedbackEvent>([
   "shown",
   "used",
+  "helpful",
+  "harmful",
   "ignored",
   "downranked",
   "corrected",
@@ -160,7 +162,7 @@ export function validateFeedbackInput(args: Record<string, unknown>): Validation
   if (!FEEDBACK_EVENTS.has(event.value as FeedbackEvent)) {
     return {
       ok: false,
-      error: invalidArgument("event must be one of: shown, used, ignored, downranked, corrected", "event"),
+      error: invalidArgument("event must be one of: shown, used, helpful, harmful, ignored, downranked, corrected", "event"),
     };
   }
 

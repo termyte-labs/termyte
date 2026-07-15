@@ -119,26 +119,27 @@ describe("feedback lifecycle math", () => {
       confidenceDelta: 0,
       usageDelta: 0,
     });
-    expect(defaultFeedbackWeight("used")).toBe(0.25);
-    expect(defaultFeedbackWeight("corrected")).toBe(-0.1);
+    expect(defaultFeedbackWeight("used")).toBe(0);
+    expect(defaultFeedbackWeight("helpful")).toBe(0.25);
+    expect(defaultFeedbackWeight("harmful")).toBe(-1);
   });
 
-  it("reactivates stale memories when used", () => {
+  it("records stale memory use without treating it as reinforcement", () => {
     const now = 1234;
     const next = applyFeedback(feedbackState({ state: "stale" }), "used", now);
 
-    expect(next.state).toBe("active");
+    expect(next.state).toBe("stale");
     expect(next.usage_count).toBe(1);
-    expect(next.importance).toBeCloseTo(0.56);
-    expect(next.confidence).toBeCloseTo(0.52);
+    expect(next.importance).toBeCloseTo(0.5);
+    expect(next.confidence).toBeCloseTo(0.5);
     expect(next.last_accessed_at).toBe(now);
-    expect(next.last_reinforced_at).toBe(now);
+    expect(next.last_reinforced_at).toBeNull();
   });
 
   it("clamps importance and confidence", () => {
     const high = applyFeedback(
       feedbackState({ importance: 0.99, confidence: 0.99 }),
-      "used",
+      "helpful",
       1,
     );
     expect(high.importance).toBe(1);
@@ -189,8 +190,8 @@ describe("persisted memory feedback", () => {
       expect(result).toEqual({ recorded: true, memoryId: memory.id });
       const updated = store.getMemory(memory.id)!;
       expect(updated.usage_count).toBe(1);
-      expect(updated.importance).toBeCloseTo(0.56);
-      expect(updated.confidence).toBeCloseTo(0.52);
+      expect(updated.importance).toBeCloseTo(0.5);
+      expect(updated.confidence).toBeCloseTo(0.5);
       expect(updated.last_accessed_at).toBe(200);
 
       const feedback = store.getDB().prepare(`
@@ -202,6 +203,25 @@ describe("persisted memory feedback", () => {
         event_type: "used",
         context_injection_id: "ctx-1",
       });
+    } finally {
+      store.close();
+    }
+  });
+
+  it("reinforces only explicit helpful feedback and suppresses harmful memory immediately", () => {
+    const store = new Store(openDatabase(":memory:"));
+    try {
+      store.upsertSession("feedback-session", "test", "repo", "/repo");
+      const memory = store.insertMemory({
+        session_id: "feedback-session", repo_id: "repo", workspace_root: "/repo", type: "fact",
+        title: "Explicit utility", description: null, files_read: [], files_modified: [],
+        source_observation_ids: [], source_trace_ids: [], created_at: 100, embedding: null,
+      });
+      store.recordMemoryFeedback({ id: `memory:${memory.id}`, event: "helpful", nowMs: 200 });
+      expect(store.getMemory(memory.id)).toMatchObject({ importance: 0.56, confidence: 0.54, lifecycle_state: "active" });
+      store.recordMemoryFeedback({ id: `memory:${memory.id}`, event: "harmful", nowMs: 201 });
+      expect(store.getMemory(memory.id)).toMatchObject({ lifecycle_state: "conflicted", state: "conflicted" });
+      expect(store.getMemoryFeedbackScores([memory.id]).get(memory.id)).toBe(-0.75);
     } finally {
       store.close();
     }

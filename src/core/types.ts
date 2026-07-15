@@ -51,6 +51,8 @@ export type MemoryEdgeType =
 export type MemoryFeedbackEvent =
   | "shown"
   | "used"
+  | "helpful"
+  | "harmful"
   | "ignored"
   | "downranked"
   | "corrected";

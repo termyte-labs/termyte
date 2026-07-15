@@ -68,7 +68,7 @@ export const TERMYTE_TOOL_DEFS: ToolDef[] = [
       type: "object",
       properties: {
         id: { type: "string" },
-        event: { type: "string", enum: ["shown", "used", "ignored", "downranked", "corrected"] },
+        event: { type: "string", enum: ["shown", "used", "helpful", "harmful", "ignored", "downranked", "corrected"] },
         contextInjectionId: { type: "string" },
         correctionText: { type: "string", description: "Required when event=corrected: the replacement knowledge to verify and persist." },
       },
