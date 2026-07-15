@@ -210,14 +210,26 @@ export class Store {
         INSERT INTO episode_outcomes (id, episode_id, status, source, notes, context_injection_id, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?)
       `).run(id, input.episodeId, input.status, input.source, input.notes ?? null, input.contextInjectionId ?? null, nowMs);
+      const preferred = this.getCurrentEpisodeOutcome(input.episodeId);
       this.ctx.db.prepare(`UPDATE episodes SET status = ?, ended_at = COALESCE(ended_at, ?) WHERE id = ?`)
-        .run(input.status, nowMs, input.episodeId);
+        .run(preferred?.status ?? input.status, nowMs, input.episodeId);
     });
     return this.getEpisodeOutcomes(input.episodeId)[0]!;
   }
 
   getEpisodeOutcomes(episodeId: string): EpisodeOutcome[] {
     return (this.ctx.db.prepare(`SELECT * FROM episode_outcomes WHERE episode_id = ? ORDER BY created_at DESC, rowid DESC`).all(episodeId) as any[]).map(mapEpisodeOutcome);
+  }
+
+  getCurrentEpisodeOutcome(episodeId: string): EpisodeOutcome | null {
+    const row = this.ctx.db.prepare(`
+      SELECT * FROM episode_outcomes
+      WHERE episode_id = ?
+      ORDER BY CASE WHEN source IN ('human', 'viewer') THEN 0 ELSE 1 END,
+               created_at DESC, rowid DESC
+      LIMIT 1
+    `).get(episodeId) as any;
+    return row ? mapEpisodeOutcome(row) : null;
   }
 
   // ---------- traces ----------
@@ -868,6 +880,8 @@ export class Store {
     files: string[];
     memory_ids: number[];
     surface: string;
+    packet_id: string | null;
+    delivery_method: string;
     created_at: number;
   } | null {
     const row = this.ctx.db
@@ -882,8 +896,22 @@ export class Store {
       files: parseJSON<string[]>(row.files_json, []),
       memory_ids: parseJSON<number[]>(row.memory_ids_json, []),
       surface: row.surface,
+      packet_id: row.packet_id,
+      delivery_method: row.delivery_method,
       created_at: row.created_at,
     };
+  }
+
+  getLatestContextInjectionForEpisode(episodeId: string): ReturnType<Store["getContextInjection"]> {
+    const row = this.ctx.db.prepare(`
+      SELECT ci.id
+      FROM context_injections ci
+      JOIN context_packets cp ON cp.id = ci.packet_id
+      WHERE cp.episode_id = ?
+      ORDER BY ci.created_at DESC, ci.rowid DESC
+      LIMIT 1
+    `).get(episodeId) as { id: string } | undefined;
+    return row ? this.getContextInjection(row.id) : null;
   }
 
   /** Mark a memory superseded by `supersededBy`, locking it out of default

@@ -51,7 +51,15 @@ export class ExperienceRecorder {
     }
 
     if (event.event_type === "session_end") {
-      this.closeEpisode(event.session_id, inferTerminalStatus(event), event.timestamp);
+      const status = inferTerminalStatus(event, this.store.getEvidenceForEpisode(episode.id));
+      this.closeEpisode(event.session_id, status, event.timestamp);
+      this.store.recordEpisodeOutcome({
+        episodeId: episode.id,
+        status,
+        source: "inferred",
+        contextInjectionId: this.store.getLatestContextInjectionForEpisode(episode.id)?.id ?? null,
+        nowMs: event.timestamp,
+      });
       this.store.endSession(event.session_id);
     }
     return episode.id;
@@ -156,10 +164,16 @@ function compactOutput(output: unknown): string | null {
   return text.length > 2_000 ? `${text.slice(0, 2_000)}…` : text;
 }
 
-function inferTerminalStatus(event: NormalizedEvent): "succeeded" | "failed" | "unknown" {
+function inferTerminalStatus(event: NormalizedEvent, evidence: Array<{ kind: EvidenceKind; exit_code: number | null }>): "succeeded" | "failed" | "unknown" {
   const exitCode = readExitCode(event.tool_output);
   if (exitCode === 0) return "succeeded";
   if (exitCode !== null) return "failed";
+  const executable = evidence.filter((item) =>
+    (item.kind === "command" || item.kind === "test" || item.kind === "build") && item.exit_code !== null,
+  );
+  const last = executable.at(-1)?.exit_code;
+  if (last === 0) return "succeeded";
+  if (last !== undefined && last !== null) return "failed";
   return "unknown";
 }
 

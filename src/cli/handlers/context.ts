@@ -12,12 +12,13 @@ export function makeContextHandler(deps: { store: Store; search: HybridSearch; b
   return async ({ event }) => {
     const session = deps.store.getSession(event.session_id);
     const repo_id = session?.repo_id ?? undefined;
+    const episode = deps.store.getActiveEpisode(event.session_id);
     const result = await deps.builder.build({
       repo_id,
       query: event.user_prompt ?? undefined,
       maxMemories: 5,
       sessionId: event.session_id,
-      episodeId: deps.store.getActiveEpisode(event.session_id)?.id,
+      episodeId: episode?.id,
       agent: "coding-agent",
       surface: "hook",
       tokenBudget: 2_500,

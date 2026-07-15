@@ -94,6 +94,19 @@ describe("CTX-001 context injection persistence", () => {
     expect(record!.memory_ids).toEqual(out.memories.map((m) => m.id));
   });
 
+  it("resolves the latest injection through its exact episode packet", async () => {
+    seedMemory("Episode attribution", "desc");
+    const first = store.startEpisode({ sessionId: "s1", repoId: "r1", workspaceRoot: "/w", task: "First" });
+    const firstBuild = await builder.build({ repo_id: "r1", surface: "hook", sessionId: "s1", episodeId: first.id });
+    const second = store.startEpisode({ sessionId: "s1", repoId: "r1", workspaceRoot: "/w", task: "Second" });
+    const olderSecondBuild = await builder.build({ repo_id: "r1", surface: "hook", sessionId: "s1", episodeId: second.id });
+    const latestSecondBuild = await builder.build({ repo_id: "r1", surface: "hook", sessionId: "s1", episodeId: second.id });
+
+    expect(store.getLatestContextInjectionForEpisode(first.id)?.id).toBe(firstBuild.contextInjectionId);
+    expect(store.getLatestContextInjectionForEpisode(second.id)?.id).toBe(latestSecondBuild.contextInjectionId);
+    expect(store.getLatestContextInjectionForEpisode(second.id)?.id).not.toBe(olderSecondBuild.contextInjectionId);
+  });
+
   it("returns null for a non-existent injection ID", () => {
     expect(store.getContextInjection("nonexistent")).toBeNull();
   });

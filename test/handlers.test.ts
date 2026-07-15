@@ -77,6 +77,12 @@ describe("event handlers", () => {
     const deps = makeDeps(store, observer);
 
     seedSession(store, "s1");
+    const episode = store.startEpisode({
+      sessionId: "s1",
+      repoId: "github.com/test/repo",
+      workspaceRoot: "/work",
+      task: "Auth task",
+    });
     store.insertMemory({
       session_id: "s1",
       repo_id: "github.com/test/repo",
@@ -98,6 +104,7 @@ describe("event handlers", () => {
     expect(out.handled).toBe(true);
     expect(out.result.hookSpecificOutput?.additionalContext).toContain("Auth uses JWT");
     expect(out.result.hookSpecificOutput?.hookEventName).toBe("UserPromptSubmit");
+    expect(store.getContextPackets({ sessionId: "s1", limit: 1 })[0]?.episode_id).toBe(episode.id);
     store.close();
   });
 
@@ -147,6 +154,9 @@ describe("event handlers", () => {
     const deps = makeDeps(store, observer);
 
     seedSession(store, "s1");
+    const episode = store.startEpisode({
+      sessionId: "s1", repoId: "github.com/test/repo", workspaceRoot: "/work", task: "Auth task",
+    });
     store.insertMemory({
       session_id: "s1",
       repo_id: "github.com/test/repo",

@@ -104,6 +104,40 @@ describe("ExperienceRecorder", () => {
 
     expect(store.getEpisode(episode.id)?.status).toBe("succeeded");
     expect(store.getEpisodeOutcomes(episode.id).map((outcome) => outcome.status)).toEqual(["succeeded", "failed"]);
+    expect(store.getCurrentEpisodeOutcome(episode.id)?.source).toBe("viewer");
+
+    store.recordEpisodeOutcome({ episodeId: episode.id, status: "failed", source: "inferred" });
+    expect(store.getCurrentEpisodeOutcome(episode.id)?.status).toBe("succeeded");
+    expect(store.getEpisode(episode.id)?.status).toBe("succeeded");
+    store.close();
+  });
+
+  it("links the inferred terminal outcome to the episode's latest injection", () => {
+    const store = new Store(openDatabase(":memory:"));
+    const session = store.upsertSession("s1", "repo", "repo-1", "/not-a-git-repo");
+    const recorder = new ExperienceRecorder(store);
+    const prompt = event({ event_type: "user_prompt", user_prompt: "Validate the package" });
+    const episodeId = recorder.record(prompt, store.insertTrace(traceInput(prompt)), session)!;
+    const packet = store.recordContextPacket({
+      sessionId: "s1", episodeId, repoId: "repo-1", agent: "test", task: "Validate",
+      tokenBudget: 100, estimatedTokens: 5, retrievalMode: "fts", latencyMs: 1,
+      renderedText: "context", candidates: [], nowMs: 3,
+    });
+    store.recordContextInjection({
+      id: "injection-exact", sessionId: "s1", repoId: "repo-1", memoryIds: [],
+      surface: "hook", packetId: packet.id, nowMs: 4,
+    });
+    const tool = event({
+      event_type: "tool_use", timestamp: 5, tool_name: "Bash",
+      tool_input: { command: "npm test" }, tool_output: { exit_code: 0 },
+    });
+    recorder.record(tool, store.insertTrace(traceInput(tool)), session);
+    const end = event({ event_type: "session_end", timestamp: 6 });
+    recorder.record(end, store.insertTrace(traceInput(end)), session);
+
+    expect(store.getCurrentEpisodeOutcome(episodeId)).toMatchObject({
+      status: "succeeded", source: "inferred", context_injection_id: "injection-exact",
+    });
     store.close();
   });
 });

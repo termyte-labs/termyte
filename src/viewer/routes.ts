@@ -46,7 +46,13 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL, co
   if (req.method === "GET" && episode) {
     const row = store.getEpisode(episode);
     if (!row) return error(res, 404, "not_found", "Episode not found");
-    return data(res, { episode: row, traces: store.getEpisodeTraces(row.id), evidence: store.getEvidenceForEpisode(row.id), outcomes: store.getEpisodeOutcomes(row.id) });
+    return data(res, {
+      episode: row,
+      traces: store.getEpisodeTraces(row.id),
+      evidence: store.getEvidenceForEpisode(row.id),
+      outcomes: store.getEpisodeOutcomes(row.id),
+      currentOutcome: store.getCurrentEpisodeOutcome(row.id),
+    });
   }
   const outcome = match(url.pathname, /^\/api\/episodes\/([^/]+)\/outcomes$/);
   if (req.method === "POST" && outcome) {
