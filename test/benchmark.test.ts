@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { TermyteFtsBenchmarkAdapter } from "../src/benchmark/adapters/termyte-fts.js";
 import { TermytePipelineBenchmarkAdapter } from "../src/benchmark/adapters/termyte-pipeline.js";
@@ -15,6 +16,7 @@ import { planCompetitorBenchmarkRun, runCompetitorBenchmark } from "../src/bench
 import { loadCompetitorRunArtifacts } from "../src/benchmark/competitor-runs.js";
 
 let directory: string | undefined;
+const root = fileURLToPath(new URL("..", import.meta.url));
 afterEach(async () => { if (directory) await rm(directory, { recursive: true, force: true }); });
 
 describe("benchmark framework", () => {
@@ -118,6 +120,32 @@ describe("benchmark framework", () => {
     expect(dataset.documents).toHaveLength(2);
     expect(dataset.documents[0]!.scope).toBe("sample-1");
     expect(dataset.queries[0]!.relevantDocumentIds).toEqual(["sample-1::chunk_000"]);
+  });
+
+  it("loads the checked-in MemoryAgentBench smoke contract", async () => {
+    const raw = await readFile(join(root, "test", "fixtures", "benchmarks", "memoryagentbench-smoke.json"), "utf8");
+    const dataset = loadMemoryAgentBenchDataset(raw);
+
+    expect(dataset.documents).toHaveLength(4);
+    expect(dataset.queries.map((query) => query.id)).toEqual(["mab-auth-question", "mab-worker-question"]);
+    expect(dataset.queries[1]!.relevantDocumentIds).toEqual(["mab-worker::chunk_000"]);
+  });
+
+  it("rejects MemoryAgentBench rows without context using the stable row id", () => {
+    expect(() => loadMemoryAgentBenchDataset(JSON.stringify([{
+      sample_id: "missing-context", query_and_answers: [{ qa_pair_id: "q1", question: "What happened?", answer: "Nothing." }],
+    }]))).toThrow(/missing-context.*context chunks/i);
+  });
+
+  it("runs the MemoryAgentBench smoke fixture end to end", async () => {
+    directory = await mkdtemp(join(tmpdir(), "termyte-memoryagentbench-"));
+    const raw = await readFile(join(root, "test", "fixtures", "benchmarks", "memoryagentbench-smoke.json"), "utf8");
+    const metrics = await runBenchmark({
+      dataset: loadMemoryAgentBenchDataset(raw), outputDirectory: directory,
+      adapter: new TermyteFtsBenchmarkAdapter(), track: "retrieval",
+    });
+
+    expect(metrics["recall_at_5"]).toBe(1);
   });
 
   it("runs the raw-session pipeline track end to end", async () => {
