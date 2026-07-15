@@ -40,8 +40,11 @@ describe("PKG-001 package layout", () => {
     }
   });
 
-  it("declares the three runtime binaries", () => {
+  it("declares one public binary and two internal runtime binaries", () => {
     expect(Object.keys(pkg.bin ?? {}).sort()).toEqual(["termyte", "termyte-hook", "termyte-worker"]);
+    expect(pkg.bin?.termyte).toBe("dist/cli/index.js");
+    expect(pkg.bin?.["termyte-hook"]).toBe("dist/cli/hook.js");
+    expect(pkg.bin?.["termyte-worker"]).toBe("dist/cli/worker.js");
   });
 
   it("does not depend on itself", () => {
