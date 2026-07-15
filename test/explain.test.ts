@@ -163,6 +163,33 @@ describe("memory explainability", () => {
     store.close();
   });
 
+  it("renders supporting evidence and diagnoses a broken evidence link", () => {
+    const store = new Store(ctx);
+    store.upsertSession("s1", "demo", "repo", "/work");
+    const episode = store.startEpisode({ sessionId: "s1", repoId: "repo", workspaceRoot: "/work", task: "Evidence" });
+    const evidence = store.insertEvidence({ episodeId: episode.id, kind: "build", content: "npm run build", exitCode: 0 });
+    const memory = store.insertMemory({
+      session_id: "s1", repo_id: "repo", workspace_root: "/work", type: "fact",
+      title: "Build passes", description: null, files_read: [], files_modified: [],
+      source_observation_ids: [], source_trace_ids: [], created_at: 1, embedding: null,
+    });
+    store.linkMemoryEvidence(memory.id, [evidence.id]);
+
+    let explanation = buildMemoryExplain(store, String(memory.id));
+    expect(explanation.source_evidence).toEqual([expect.objectContaining({ id: evidence.id, kind: "build" })]);
+    expect(explanation.provenance_valid).toBe(true);
+    expect(renderMemoryExplain(explanation)).toContain(`${evidence.id} [build] npm run build`);
+
+    store.getDB().exec(`PRAGMA foreign_keys = OFF`);
+    store.getDB().prepare(`INSERT INTO memory_evidence (memory_id, evidence_id) VALUES (?, ?)`).run(memory.id, "evidence_missing");
+    store.getDB().exec(`PRAGMA foreign_keys = ON`);
+    explanation = buildMemoryExplain(store, String(memory.id));
+    expect(explanation.missing_evidence_ids).toEqual(["evidence_missing"]);
+    expect(explanation.provenance_valid).toBe(false);
+    expect(renderMemoryExplain(explanation)).toContain("Missing evidence (broken link): evidence_missing");
+    store.close();
+  });
+
   it("supports the CLI explain command", async () => {
     tempDir = mkdtempSync(join(tmpdir(), "termyte-explain-"));
     const dbPath = join(tempDir, "termyte.db");

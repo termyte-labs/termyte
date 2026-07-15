@@ -1,4 +1,4 @@
-import type { Memory, Observation, Trace } from "../core/types.js";
+import type { Evidence, Memory, Observation, Trace } from "../core/types.js";
 import type { Store } from "../storage/store.js";
 
 export interface ExplainMemoryEdge {
@@ -77,10 +77,13 @@ export interface ExplainOutput {
   memory: ExplainMemory | null;
   source_observations: ExplainObservation[];
   source_traces: ExplainTrace[];
+  source_evidence: Evidence[];
   edges: ExplainMemoryEdge[];
   feedback: ExplainFeedback[];
   missing_source_observation_ids: number[];
   missing_source_trace_ids: number[];
+  missing_evidence_ids: string[];
+  provenance_valid: boolean;
 }
 
 export function buildMemoryExplain(store: Store, requestedId: string): ExplainOutput {
@@ -110,6 +113,9 @@ export function buildMemoryExplain(store: Store, requestedId: string): ExplainOu
     missing: false,
   }));
   const missingSourceTraceIds = sourceTraceIds.filter((id) => !sourceTraces.some((trace) => trace.id === id));
+  const evidenceLinks = store.getMemoryEvidenceLinks(resolvedId);
+  const sourceEvidence = evidenceLinks.flatMap((link) => link.evidence ? [link.evidence] : []);
+  const missingEvidenceIds = evidenceLinks.filter((link) => !link.evidence).map((link) => link.evidence_id);
 
   const edges = store.getMemoryEdges(resolvedId).map((edge) => {
     const outgoing = edge.source_memory_id === resolvedId;
@@ -133,10 +139,16 @@ export function buildMemoryExplain(store: Store, requestedId: string): ExplainOu
     memory: summarizeMemory(memory),
     source_observations: sourceObservations,
     source_traces: sourceTraces,
+    source_evidence: sourceEvidence,
     edges,
     feedback,
     missing_source_observation_ids: missingSourceObservationIds,
     missing_source_trace_ids: missingSourceTraceIds,
+    missing_evidence_ids: missingEvidenceIds,
+    provenance_valid: missingSourceObservationIds.length === 0
+      && missingSourceTraceIds.length === 0
+      && missingEvidenceIds.length === 0
+      && (sourceObservations.length > 0 || sourceTraces.length > 0 || sourceEvidence.length > 0),
   };
 }
 
@@ -189,6 +201,7 @@ export function renderMemoryExplain(output: ExplainOutput): string {
 
   lines.push("");
   lines.push("## Provenance");
+  lines.push(`Integrity: ${output.provenance_valid ? "valid" : "broken or missing"}`);
   if (memory.source_observation_ids.length === 0 && output.source_observations.length === 0) {
     lines.push("(no source observations)");
   } else {
@@ -236,6 +249,17 @@ export function renderMemoryExplain(output: ExplainOutput): string {
     }
     if (output.missing_source_trace_ids.length > 0) {
       lines.push(`Missing traces (missing): ${output.missing_source_trace_ids.map((id) => `trace:${id}`).join(", ")}`);
+    }
+  }
+
+  if (output.source_evidence.length > 0 || output.missing_evidence_ids.length > 0) {
+    lines.push("");
+    lines.push("## Supporting Evidence");
+    for (const evidence of output.source_evidence) {
+      lines.push(`- ${evidence.id} [${evidence.kind}] ${evidence.content}`);
+    }
+    if (output.missing_evidence_ids.length > 0) {
+      lines.push(`Missing evidence (broken link): ${output.missing_evidence_ids.join(", ")}`);
     }
   }
 
@@ -322,10 +346,13 @@ function emptyExplain(requestedId: string, resolvedId: number | null = null): Ex
     memory: null,
     source_observations: [],
     source_traces: [],
+    source_evidence: [],
     edges: [],
     feedback: [],
     missing_source_observation_ids: [],
     missing_source_trace_ids: [],
+    missing_evidence_ids: [],
+    provenance_valid: false,
   };
 }
 

@@ -77,6 +77,13 @@ describe("MemoryPipeline durable processing", () => {
       store.linkTraceToEpisode(episode.id, trace.id);
       return trace;
     });
+    const evidence = store.insertEvidence({
+      episodeId: episode.id,
+      kind: "test",
+      content: "npm test",
+      exitCode: 0,
+      traceIds: [traces[0]!.id],
+    });
     llm.setResponses([
       `<observation><type>procedure</type><title>Validated batch</title><files_read><file>src/a.ts</file></files_read></observation>`,
       `<observation><type>procedure</type><title>Run validation commands</title></observation>`,
@@ -94,6 +101,7 @@ describe("MemoryPipeline durable processing", () => {
     const memory = store.getRecentMemories(1)[0]!;
     expect(memory.source_observation_ids).toEqual([observation.id]);
     expect(memory.source_trace_ids).toEqual(traces.map((trace) => trace.id));
+    expect(store.getMemoryEvidenceLinks(memory.id).map((link) => link.evidence_id)).toEqual([evidence.id]);
     expect(traces.every((trace) => store.getTrace(trace.id)?.processed_at != null)).toBe(true);
   });
 

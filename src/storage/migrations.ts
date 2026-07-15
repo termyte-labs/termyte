@@ -388,6 +388,13 @@ CREATE TABLE IF NOT EXISTS evidence_traces (
   PRIMARY KEY (evidence_id, trace_id)
 );
 
+CREATE TABLE IF NOT EXISTS memory_evidence (
+  memory_id INTEGER NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+  evidence_id TEXT NOT NULL REFERENCES evidence(id) ON DELETE CASCADE,
+  PRIMARY KEY (memory_id, evidence_id)
+);
+CREATE INDEX IF NOT EXISTS idx_memory_evidence_evidence ON memory_evidence(evidence_id);
+
 CREATE TABLE IF NOT EXISTS episode_outcomes (
   id TEXT PRIMARY KEY,
   episode_id TEXT NOT NULL REFERENCES episodes(id) ON DELETE CASCADE,

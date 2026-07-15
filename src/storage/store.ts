@@ -201,6 +201,49 @@ export class Store {
     return (this.ctx.db.prepare(`SELECT * FROM evidence WHERE episode_id = ? ORDER BY observed_at ASC`).all(episodeId) as any[]).map(mapEvidence);
   }
 
+  getEvidenceForEpisodeSupportingTraces(episodeId: string, traceIds: number[]): Evidence[] {
+    if (traceIds.length === 0) return [];
+    const placeholders = traceIds.map(() => "?").join(", ");
+    const rows = this.ctx.db.prepare(`
+      SELECT DISTINCT e.*
+      FROM evidence e
+      LEFT JOIN evidence_traces et ON et.evidence_id = e.id
+      WHERE e.episode_id = ?
+        AND (e.kind = 'diff' OR et.trace_id IN (${placeholders}))
+      ORDER BY e.observed_at ASC
+    `).all(episodeId, ...traceIds) as any[];
+    return rows.map(mapEvidence);
+  }
+
+  linkMemoryEvidence(memoryId: number, evidenceIds: string[]): void {
+    const insert = this.ctx.db.prepare(`INSERT OR IGNORE INTO memory_evidence (memory_id, evidence_id) VALUES (?, ?)`);
+    for (const evidenceId of [...new Set(evidenceIds)]) insert.run(memoryId, evidenceId);
+  }
+
+  getMemoryEvidenceLinks(memoryId: number): Array<{ evidence_id: string; evidence: Evidence | null }> {
+    const rows = this.ctx.db.prepare(`
+      SELECT me.evidence_id, e.*
+      FROM memory_evidence me
+      LEFT JOIN evidence e ON e.id = me.evidence_id
+      WHERE me.memory_id = ?
+      ORDER BY e.observed_at ASC, me.evidence_id ASC
+    `).all(memoryId) as any[];
+    return rows.map((row) => ({
+      evidence_id: row.evidence_id,
+      evidence: row.id ? mapEvidence(row) : null,
+    }));
+  }
+
+  getActiveMemoryProvenanceViolations(): number[] {
+    const memories = (this.ctx.db.prepare(`SELECT * FROM memories WHERE lifecycle_state = 'active'`).all() as any[]).map(mapMemory);
+    return memories.filter((memory) => {
+      const hasObservation = this.getObservationsByIds(memory.source_observation_ids).length > 0;
+      const hasTrace = this.getTracesByIds(memory.source_trace_ids).length > 0;
+      const hasEvidence = this.getMemoryEvidenceLinks(memory.id).some((link) => link.evidence !== null);
+      return !hasObservation && !hasTrace && !hasEvidence;
+    }).map((memory) => memory.id);
+  }
+
   recordEpisodeOutcome(input: { episodeId: string; status: EpisodeOutcome["status"]; source: EpisodeOutcome["source"]; notes?: string | null; contextInjectionId?: string | null; nowMs?: number }): EpisodeOutcome {
     if (!this.getEpisode(input.episodeId)) throw new Error(`Episode not found: ${input.episodeId}`);
     const id = `outcome_${randomUUID()}`;

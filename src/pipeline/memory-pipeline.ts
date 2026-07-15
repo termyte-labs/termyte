@@ -419,7 +419,7 @@ export class MemoryPipeline {
     if (observations.some((observation) => observation.lifecycle_state !== "indexed")) {
       throw new RetryableJobError(`Episode ${episode.id} has observations awaiting indexing`);
     }
-    await this.consolidateObservations(observations, `episode ${episode.id}`);
+    await this.consolidateObservations(observations, `episode ${episode.id}`, episode.id);
   }
 
   private async consolidateMemory(job: Job): Promise<void> {
@@ -431,7 +431,7 @@ export class MemoryPipeline {
     await this.consolidateObservations([observation], `observation ${observation.id}`);
   }
 
-  private async consolidateObservations(observations: Observation[], label: string): Promise<void> {
+  private async consolidateObservations(observations: Observation[], label: string, episodeId?: string): Promise<void> {
     const response = await chatWithRetry(
       this.llm,
       [
@@ -462,6 +462,9 @@ export class MemoryPipeline {
     const filesModified = unique(observations.flatMap((observation) => observation.files_modified));
     const commands = unique(observations.flatMap((observation) => observation.commands_executed));
     const observationIds = observations.map((observation) => observation.id);
+    const evidenceIds = episodeId
+      ? this.store.getEvidenceForEpisodeSupportingTraces(episodeId, traceIds).map((evidence) => evidence.id)
+      : [];
 
     this.store.transaction(() => {
       for (const traceId of traceIds) this.store.updateTracePipelineState(traceId, "memory_pending");
@@ -489,6 +492,7 @@ export class MemoryPipeline {
         });
         this.store.updateMemoryLifecycleState(memory.id, "awaiting_embedding");
         this.store.insertObservationMemoryLinks(memory.id, observationIds);
+        this.store.linkMemoryEvidence(memory.id, evidenceIds);
         this.queue.enqueueJob({ kind: "embed_memory", subjectType: "memory", subjectId: memory.id });
       }
     });
@@ -787,6 +791,10 @@ export class MemoryPipeline {
         traceIds: memory.source_trace_ids,
       }),
     });
+    this.store.linkMemoryEvidence(
+      replacement.id,
+      this.store.getMemoryEvidenceLinks(memory.id).map((link) => link.evidence_id),
+    );
 
     // Embed the replacement, then supersede the original.
     const content = artifactText(replacement.title, replacement.description);
