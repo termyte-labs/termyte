@@ -757,10 +757,22 @@ export class MemoryPipeline {
 
     // Find the latest correction feedback with text.
     const correctionRow = this.store.getDB().prepare(
-      `SELECT correction_text FROM memory_feedback WHERE memory_id = ? AND event_type = 'corrected' AND correction_text IS NOT NULL ORDER BY created_at DESC LIMIT 1`,
-    ).get(memoryId) as { correction_text: string | null } | undefined;
+      `SELECT correction_text, context_injection_id
+       FROM memory_feedback
+       WHERE memory_id = ? AND event_type = 'corrected' AND correction_text IS NOT NULL
+       ORDER BY created_at DESC LIMIT 1`,
+    ).get(memoryId) as { correction_text: string | null; context_injection_id: string | null } | undefined;
 
-    if (!correctionRow || !correctionRow.correction_text) {
+    const episodeId = correctionRow?.context_injection_id
+      ? this.store.getEpisodeIdForContextInjection(correctionRow.context_injection_id)
+      : null;
+    const correctionEvidence = episodeId && correctionRow?.correction_text
+      ? this.store.getEvidenceForEpisode(episodeId)
+        .filter((evidence) => evidence.kind === "human_feedback" && evidence.content === correctionRow.correction_text)
+        .at(-1) ?? null
+      : null;
+
+    if (!correctionRow?.correction_text || !correctionEvidence) {
       // No replacement text — mark conflicted so retrieval excludes it.
       if (memory.lifecycle_state !== "conflicted") {
         this.store.updateMemoryLifecycleState(memoryId, "conflicted");
@@ -769,32 +781,30 @@ export class MemoryPipeline {
     }
 
     // Create the replacement memory from the correction text.
-    const session = this.store.getSession(memory.session_id);
+    const episode = this.store.getEpisode(correctionEvidence.episode_id)!;
     const replacement = this.store.insertMemory({
-      session_id: memory.session_id,
-      repo_id: session?.repo_id ?? memory.repo_id,
-      workspace_root: session?.workspace_root ?? memory.workspace_root,
+      session_id: episode.session_id,
+      repo_id: episode.repo_id,
+      workspace_root: episode.workspace_root,
       type: memory.type,
       title: `Corrected: ${memory.title}`,
       description: correctionRow.correction_text,
-      files_read: memory.files_read,
-      files_modified: memory.files_modified,
-      source_observation_ids: memory.source_observation_ids,
-      source_trace_ids: memory.source_trace_ids,
+      files_read: [],
+      files_modified: [],
+      source_observation_ids: [],
+      source_trace_ids: [],
       created_at: Date.now(),
       embedding: null,
-      applicability_evidence: memory.applicability_evidence ?? buildApplicabilityEvidence({
-        filesRead: memory.files_read,
-        filesModified: memory.files_modified,
+      applicability_evidence: buildApplicabilityEvidence({
+        filesRead: [],
+        filesModified: [],
         commandsExecuted: [],
-        observationIds: memory.source_observation_ids,
-        traceIds: memory.source_trace_ids,
+        observationIds: [],
+        traceIds: [],
       }),
     });
-    this.store.linkMemoryEvidence(
-      replacement.id,
-      this.store.getMemoryEvidenceLinks(memory.id).map((link) => link.evidence_id),
-    );
+    this.store.updateMemoryLifecycleState(replacement.id, "awaiting_embedding");
+    this.store.linkMemoryEvidence(replacement.id, [correctionEvidence.id]);
 
     // Embed the replacement, then supersede the original.
     const content = artifactText(replacement.title, replacement.description);

@@ -969,6 +969,16 @@ export class Store {
     return row ? this.getContextInjection(row.id) : null;
   }
 
+  getEpisodeIdForContextInjection(injectionId: string): string | null {
+    const row = this.ctx.db.prepare(`
+      SELECT cp.episode_id
+      FROM context_injections ci
+      JOIN context_packets cp ON cp.id = ci.packet_id
+      WHERE ci.id = ?
+    `).get(injectionId) as { episode_id: string | null } | undefined;
+    return row?.episode_id ?? null;
+  }
+
   /** Mark a memory superseded by `supersededBy`, locking it out of default
    *  retrieval (enforced once lifecycle filtering is wired). */
   markMemorySuperseded(id: number, supersededBy: number): void {
@@ -1079,6 +1089,22 @@ export class Store {
     }, input.event, nowMs);
 
     this.transaction(() => {
+      if (input.event === "corrected" && input.correctionText && input.contextInjectionId) {
+        const episodeId = this.getEpisodeIdForContextInjection(input.contextInjectionId);
+        if (episodeId) {
+          this.insertEvidence({
+            episodeId,
+            kind: "human_feedback",
+            content: input.correctionText,
+            metadata: {
+              memory_id: memoryId,
+              context_injection_id: input.contextInjectionId,
+              source: input.source ?? "mcp",
+            },
+            observedAt: nowMs,
+          });
+        }
+      }
       this.ctx.db.prepare(`
         INSERT INTO memory_feedback (
           id, memory_id, doc_id, event_type, weight, source,

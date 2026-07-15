@@ -38,13 +38,26 @@ function seedMemory(title: string, confidence = 0.5): number {
   }).id;
 }
 
+function correctionInjection(id: string): string {
+  const episode = store.startEpisode({ sessionId: "s1", repoId: "r1", workspaceRoot: "/w", task: "Correct memory" });
+  const packet = store.recordContextPacket({
+    sessionId: "s1", episodeId: episode.id, repoId: "r1", agent: "test", task: "Correct",
+    tokenBudget: 100, estimatedTokens: 1, retrievalMode: "fts", latencyMs: 1,
+    renderedText: "context", candidates: [],
+  });
+  store.recordContextInjection({ id, sessionId: "s1", repoId: "r1", memoryIds: [], surface: "test", packetId: packet.id });
+  return id;
+}
+
 describe("COR-001 verification and correction jobs", () => {
   it("creates a grounded replacement and supersedes the original when correction text is provided", async () => {
     const originalId = seedMemory("Old fact", 0.5);
+    const injectionId = correctionInjection("correction-grounded");
     store.recordMemoryFeedback({
       id: `memory:${originalId}`,
       event: "corrected",
       correctionText: "The correct approach is to validate before parsing.",
+      contextInjectionId: injectionId,
       source: "mcp",
     });
 
@@ -60,6 +73,11 @@ describe("COR-001 verification and correction jobs", () => {
     expect(replacement).toBeTruthy();
     expect(replacement!.title).toContain("Corrected: Old fact");
     expect(replacement!.description).toContain("validate before parsing");
+    expect(replacement!.source_observation_ids).toEqual([]);
+    expect(replacement!.source_trace_ids).toEqual([]);
+    expect(store.getMemoryEvidenceLinks(replacement!.id)).toEqual([
+      expect.objectContaining({ evidence: expect.objectContaining({ kind: "human_feedback" }) }),
+    ]);
 
     // Edge link exists
     const edges = store.getMemoryEdges(replacement!.id);
@@ -91,10 +109,12 @@ describe("COR-001 verification and correction jobs", () => {
 
   it("is idempotent: re-running verify on a superseded memory does nothing", async () => {
     const originalId = seedMemory("Old fact");
+    const injectionId = correctionInjection("correction-idempotent");
     store.recordMemoryFeedback({
       id: `memory:${originalId}`,
       event: "corrected",
       correctionText: "The correct way.",
+      contextInjectionId: injectionId,
       source: "mcp",
     });
     await pipeline.runUntilIdle("w", { maxJobs: 5 });
@@ -128,6 +148,19 @@ describe("COR-001 verification and correction jobs", () => {
     ).get(originalId) as { event_type: string; correction_text: string | null };
     expect(row.event_type).toBe("corrected");
     expect(row.correction_text).toBe("Use HMAC not plain hash.");
+  });
+
+  it("does not create a replacement from ungrounded correction text", async () => {
+    const originalId = seedMemory("Ungrounded fact");
+    store.recordMemoryFeedback({
+      id: `memory:${originalId}`,
+      event: "corrected",
+      correctionText: "A claim without an attributable packet.",
+      source: "mcp",
+    });
+    await pipeline.runUntilIdle("w", { maxJobs: 5 });
+    expect(store.getMemory(originalId)?.lifecycle_state).toBe("conflicted");
+    expect(store.getRecentMemories(10)).toHaveLength(1);
   });
 
   it("insufficient evidence: conflicted memories are excluded from default retrieval", async () => {

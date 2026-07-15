@@ -266,7 +266,7 @@ export async function runLifecycleEval(): Promise<EvalReport> {
     usage_count: 0,
     last_accessed_at: null,
     last_reinforced_at: null,
-  }, "used", nowMs);
+  }, "helpful", nowMs);
 
   const key = canonicalMemoryKey({
     type: "fact",
@@ -296,8 +296,8 @@ export async function runLifecycleEval(): Promise<EvalReport> {
   if (staleScore >= 0.22) {
     failures.push({ caseId: "decay", message: `Expected old low-value memory to decay below stale threshold, got ${staleScore}` });
   }
-  if (reinforced.state !== "active" || reinforced.usage_count !== 1) {
-    failures.push({ caseId: "feedback", message: "Used stale memory was not reinforced/reactivated" });
+  if (reinforced.state !== "active" || reinforced.importance <= 0.5) {
+    failures.push({ caseId: "feedback", message: "Helpful stale memory was not reinforced/reactivated" });
   }
   if (!duplicate) {
     failures.push({ caseId: "dedupe", message: "Canonical duplicate was not detected" });
@@ -337,10 +337,21 @@ export async function runCorrectionEval(): Promise<EvalReport> {
       embedding: await embeddings.embed("Use old API\nThe old API should be used."),
     });
     store.updateMemoryEmbedding(original.id, await embeddings.embed("Use old API\nThe old API should be used."));
+    const episode = store.startEpisode({ sessionId: "s1", repoId: "repo", workspaceRoot: "/w", task: "Correct old API" });
+    const packet = store.recordContextPacket({
+      sessionId: "s1", episodeId: episode.id, repoId: "repo", agent: "eval", task: "Correct old API",
+      tokenBudget: 100, estimatedTokens: 1, retrievalMode: "fts", latencyMs: 1,
+      renderedText: "context", candidates: [],
+    });
+    store.recordContextInjection({
+      id: "eval-correction-injection", sessionId: "s1", repoId: "repo", memoryIds: [original.id],
+      surface: "eval", packetId: packet.id,
+    });
     store.recordMemoryFeedback({
       id: `memory:${original.id}`,
       event: "corrected",
       correctionText: "Use the new API instead of the old one.",
+      contextInjectionId: "eval-correction-injection",
       source: "eval",
     });
 

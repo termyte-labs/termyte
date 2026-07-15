@@ -67,6 +67,10 @@ export function applyFeedback(
   const nextConfidence = clamp01(current.confidence + delta.confidenceDelta);
   let nextState = current.state;
 
+  if (eventType === "helpful" && current.state === "stale") {
+    nextState = "active";
+  }
+
   if (eventType === "harmful" || eventType === "corrected") {
     nextState = "conflicted";
   }
