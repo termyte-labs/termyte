@@ -78,6 +78,7 @@ export function buildConsolidationSystemPrompt(): string {
 }
 
 export interface TraceForPrompt {
+  id?: number;
   tool_name: string;
   tool_input: unknown;
   tool_output: unknown;
@@ -100,6 +101,14 @@ export function buildObservationPrompt(trace: TraceForPrompt): string {
     "Extract observations from this tool execution. Return <observation> blocks or <skip_summary />.",
   ];
   return lines.filter(Boolean).join("\n");
+}
+
+export function buildObservationBatchPrompt(traces: TraceForPrompt[]): string {
+  return traces.map((trace, index) => [
+    `<trace id="${trace.id ?? index + 1}">`,
+    buildObservationPrompt(trace),
+    "</trace>",
+  ].join("\n")).join("\n\n");
 }
 
 /**

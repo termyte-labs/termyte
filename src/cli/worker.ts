@@ -35,12 +35,12 @@ async function main(): Promise<void> {
   const pipeline = new MemoryPipeline({ store, llm, embeddings });
 
   try {
-    const enqueued = pipeline.enqueueUnprocessedTraces(args.batchSize);
+    const enqueued = pipeline.enqueueUnprocessedEpisodes(args.batchSize);
     const reconciled = pipeline.reconcileIneligibleObservationJobs();
     const maxJobs = args.once ? 1 : args.maxJobs;
     const jobsProcessed = args.untilIdle || args.once
-      ? await pipeline.runUntilIdle(args.workerId, { maxJobs })
-      : await pipeline.runUntilIdle(args.workerId, { maxJobs });
+      ? await pipeline.runUntilIdle(args.workerId, { maxJobs, waitForScheduledMs: 5_000 })
+      : await pipeline.runUntilIdle(args.workerId, { maxJobs, waitForScheduledMs: 5_000 });
     const stats = pipeline.getQueueStats();
 
     if (args.json) {

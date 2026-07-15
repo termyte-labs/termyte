@@ -311,6 +311,45 @@ export class Store {
     return rows.map(mapTrace);
   }
 
+  getCapturedTracesForEpisode(episodeId: string, limit = 50): Trace[] {
+    const rows = this.ctx.db.prepare(`
+      SELECT t.* FROM traces t
+      JOIN episode_traces et ON et.trace_id = t.id
+      WHERE et.episode_id = ? AND t.processed_at IS NULL
+        AND COALESCE(t.pipeline_state, 'captured') = 'captured'
+      ORDER BY t.timestamp ASC LIMIT ?
+    `).all(episodeId, limit) as any[];
+    return rows.map(mapTrace);
+  }
+
+  getEpisodeIdsWithCapturedTraces(limit = 50): string[] {
+    const rows = this.ctx.db.prepare(`
+      SELECT DISTINCT et.episode_id FROM episode_traces et
+      JOIN traces t ON t.id = et.trace_id
+      WHERE t.processed_at IS NULL AND COALESCE(t.pipeline_state, 'captured') = 'captured'
+      ORDER BY t.timestamp ASC LIMIT ?
+    `).all(limit) as Array<{ episode_id: string }>;
+    return rows.map((row) => row.episode_id);
+  }
+
+  getCapturedTracesWithoutEpisode(limit = 50): Trace[] {
+    const rows = this.ctx.db.prepare(`
+      SELECT t.* FROM traces t
+      LEFT JOIN episode_traces et ON et.trace_id = t.id
+      WHERE et.trace_id IS NULL AND t.processed_at IS NULL
+        AND COALESCE(t.pipeline_state, 'captured') = 'captured'
+      ORDER BY t.timestamp ASC LIMIT ?
+    `).all(limit) as any[];
+    return rows.map(mapTrace);
+  }
+
+  getEpisodeIdForTrace(traceId: number): string | null {
+    const row = this.ctx.db.prepare(
+      `SELECT episode_id FROM episode_traces WHERE trace_id = ? LIMIT 1`,
+    ).get(traceId) as { episode_id: string } | undefined;
+    return row?.episode_id ?? null;
+  }
+
   /** Get unprocessed traces from sessions in a particular repo. Used
    *  by the background synthesizer when a user wants to scope
    *  synthesis to a single repo. */
@@ -408,6 +447,17 @@ export class Store {
     const rows = this.ctx.db.prepare(
       `SELECT * FROM observations WHERE session_id = ? ORDER BY created_at DESC, id DESC LIMIT ?`
     ).all(session_id, limit) as any[];
+    return rows.map(mapObservation);
+  }
+
+  getObservationsForEpisode(episodeId: string): Observation[] {
+    const rows = this.ctx.db.prepare(`
+      SELECT DISTINCT o.* FROM observations o
+      JOIN trace_observations ot ON ot.observation_id = o.id
+      JOIN episode_traces et ON et.trace_id = ot.trace_id
+      WHERE et.episode_id = ? AND o.processed_at IS NULL
+      ORDER BY o.created_at ASC, o.id ASC
+    `).all(episodeId) as any[];
     return rows.map(mapObservation);
   }
 

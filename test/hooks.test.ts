@@ -4,6 +4,7 @@ import { Observer } from "../src/observer/pipeline.js";
 import { HookRunner, shouldEnqueueObservation } from "../src/hooks/runner.js";
 import { openDatabase, type DatabaseContext } from "../src/storage/connection.js";
 import { MockLLM } from "./mock-llm.js";
+import { FakeLLMProvider } from "../src/observer/fake-provider.js";
 
 let ctx: DatabaseContext;
 
@@ -36,7 +37,7 @@ describe("HookRunner", () => {
     expect(llm.calls).toHaveLength(0);
     expect(store.getRecentObservations(10)).toHaveLength(0);
     const queued = store.getDB().prepare(
-      `SELECT state FROM jobs WHERE kind = 'extract_observation'`
+      `SELECT state FROM jobs WHERE kind = 'synthesize_episode'`
     ).get() as { state: string };
     expect(queued.state).toBe("pending");
     await observer.flush();
@@ -80,12 +81,7 @@ describe("HookRunner", () => {
 
   it("handles each of the adapters", async () => {
     const store = new Store(ctx);
-    const llm = new MockLLM();
-    const obs = `<observation>
-      <type>bugfix</type>
-      <title>Adapter test</title>
-    </observation>`;
-    llm.setResponses([obs, obs, obs, obs, obs, obs, obs]);
+    const llm = new FakeLLMProvider();
     const observer = new Observer({ store, llm });
     const runner = new HookRunner({ store, observer });
 

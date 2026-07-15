@@ -7,6 +7,7 @@ import { parseAgentXml } from "../observer/parser.js";
 import {
   buildConsolidationPrompt,
   buildConsolidationSystemPrompt,
+  buildObservationBatchPrompt,
   buildObservationPrompt,
   buildSummaryPrompt,
   buildSummarySystemPrompt,
@@ -35,6 +36,7 @@ export interface MemoryPipelineConfig {
 
 export interface RunUntilIdleOptions {
   maxJobs?: number;
+  waitForScheduledMs?: number;
 }
 
 export class MemoryPipeline {
@@ -68,6 +70,16 @@ export class MemoryPipeline {
     });
   }
 
+  ingestEpisode(episodeId: string, nextRunAt = Date.now()): void {
+    if (!this.store.getEpisode(episodeId)) throw new PermanentJobError(`Episode not found: ${episodeId}`);
+    this.queue.coalesceJob({
+      kind: "synthesize_episode",
+      subjectType: "episode",
+      subjectId: episodeId,
+      nextRunAt,
+    });
+  }
+
   enqueueUnprocessedTraces(limit = 50): number {
     const traces = this.store.getCapturedTraces(limit);
     this.store.transaction(() => {
@@ -81,6 +93,18 @@ export class MemoryPipeline {
       }
     });
     return traces.length;
+  }
+
+  enqueueUnprocessedEpisodes(limit = 50): number {
+    const episodeIds = this.store.getEpisodeIdsWithCapturedTraces(limit);
+    const legacyTraces = this.store.getCapturedTracesWithoutEpisode(limit);
+    this.store.transaction(() => {
+      for (const episodeId of episodeIds) {
+        this.queue.enqueueJob({ kind: "synthesize_episode", subjectType: "episode", subjectId: episodeId });
+      }
+      for (const trace of legacyTraces) this.ingestTrace(trace.id);
+    });
+    return episodeIds.length + legacyTraces.length;
   }
 
   /**
@@ -133,6 +157,12 @@ export class MemoryPipeline {
 
     try {
       switch (job.kind) {
+        case "synthesize_episode":
+          await this.synthesizeEpisode(job);
+          break;
+        case "consolidate_episode":
+          await this.consolidateEpisode(job);
+          break;
         case "extract_observation":
           await this.extractObservation(job);
           break;
@@ -161,7 +191,11 @@ export class MemoryPipeline {
           throw new PermanentJobError(`Unsupported job kind: ${(job as Job).kind}`);
       }
 
-      this.queue.markSucceeded(job.id, Date.now(), workerId);
+      const completed = this.queue.markSucceeded(job.id, Date.now(), workerId);
+      if (completed && job.kind === "synthesize_episode"
+        && this.store.getCapturedTracesForEpisode(job.subjectId, 1).length > 0) {
+        this.ingestEpisode(job.subjectId, Date.now() + 1_000);
+      }
       return true;
     } catch (error) {
       this.markSubjectFailed(job, error);
@@ -174,11 +208,22 @@ export class MemoryPipeline {
 
   async runUntilIdle(workerId: string, options: RunUntilIdleOptions = {}): Promise<number> {
     const maxJobs = options.maxJobs ?? Number.POSITIVE_INFINITY;
+    const maxWait = options.waitForScheduledMs ?? 0;
+    let waited = 0;
     let processed = 0;
 
     while (processed < maxJobs) {
       const ran = await this.runOnce(workerId);
-      if (!ran) break;
+      if (!ran) {
+        const nextRunAt = this.queue.getNextRunAt();
+        if (nextRunAt === null) break;
+        const remaining = maxWait - waited;
+        const delay = Math.max(0, nextRunAt - Date.now());
+        if (remaining <= 0 || delay > remaining) break;
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        waited += delay;
+        continue;
+      }
       processed++;
     }
 
@@ -187,6 +232,61 @@ export class MemoryPipeline {
 
   getQueueStats() {
     return this.queue.getQueueStats();
+  }
+
+  private async synthesizeEpisode(job: Job): Promise<void> {
+    const episode = this.store.getEpisode(job.subjectId);
+    if (!episode) throw new PermanentJobError(`Episode not found: ${job.subjectId}`);
+    const captured = this.store.getCapturedTracesForEpisode(episode.id, 50);
+    const traces = captured.filter(isObservationEligibleTrace);
+    const ineligible = captured.filter((trace) => !isObservationEligibleTrace(trace));
+    if (ineligible.length > 0) this.store.markTracesProcessed(ineligible.map((trace) => trace.id));
+    if (traces.length === 0) return;
+
+    const response = await chatWithRetry(
+      this.llm,
+      [
+        { role: "system", content: buildSystemPrompt() },
+        { role: "user", content: buildObservationBatchPrompt(traces.map(traceForPrompt)) },
+      ],
+      this.chatOptions,
+      (content) => {
+        const parsed = parseAgentXml(content);
+        return parsed.valid && parsed.observations.every((observation) => validateObservation(observation));
+      },
+    );
+    const parsed = parseAgentXml(response.content);
+    if (!parsed.valid) throw new PermanentJobError(`Invalid observation XML for episode ${episode.id}`);
+
+    if (parsed.observations.length === 0) {
+      this.store.markTracesProcessed(traces.map((trace) => trace.id));
+      return;
+    }
+
+    const traceIds = traces.map((trace) => trace.id);
+    const commands = unique(traces.flatMap(commandFromTrace));
+    this.store.transaction(() => {
+      for (const traceId of traceIds) this.store.updateTracePipelineState(traceId, "observation_pending");
+      for (const parsedObservation of parsed.observations) {
+        const observation = this.store.insertObservation({
+          session_id: episode.session_id,
+          repo_id: episode.repo_id,
+          workspace_root: episode.workspace_root,
+          type: parsedObservation.type as ObservationType,
+          title: parsedObservation.title,
+          description: parsedObservation.description,
+          files_read: parsedObservation.files_read,
+          files_modified: parsedObservation.files_modified,
+          commands_executed: commands,
+          source_trace_ids: traceIds,
+          created_at: Date.now(),
+          processed_at: null,
+        });
+        this.store.updateObservationLifecycleState(observation.id, "awaiting_embedding");
+        this.store.insertTraceObservationLinks(observation.id, traceIds);
+        this.queue.enqueueJob({ kind: "embed_observation", subjectType: "observation", subjectId: observation.id });
+      }
+    });
   }
 
   private async extractObservation(job: Job): Promise<void> {
@@ -288,12 +388,34 @@ export class MemoryPipeline {
         this.store.updateTracePipelineState(traceId, "observation_ready");
       }
 
-      this.queue.enqueueJob({
-        kind: "consolidate_memory",
-        subjectType: "observation",
-        subjectId: observation.id,
-      });
+      const episodeId = observation.source_trace_ids.length > 0
+        ? this.store.getEpisodeIdForTrace(observation.source_trace_ids[0]!)
+        : null;
+      if (episodeId) {
+        this.queue.coalesceJob({
+          kind: "consolidate_episode",
+          subjectType: "episode",
+          subjectId: episodeId,
+        });
+      } else {
+        this.queue.enqueueJob({
+          kind: "consolidate_memory",
+          subjectType: "observation",
+          subjectId: observation.id,
+        });
+      }
     });
+  }
+
+  private async consolidateEpisode(job: Job): Promise<void> {
+    const episode = this.store.getEpisode(job.subjectId);
+    if (!episode) throw new PermanentJobError(`Episode not found: ${job.subjectId}`);
+    const observations = this.store.getObservationsForEpisode(episode.id);
+    if (observations.length === 0) return;
+    if (observations.some((observation) => observation.lifecycle_state !== "indexed")) {
+      throw new RetryableJobError(`Episode ${episode.id} has observations awaiting indexing`);
+    }
+    await this.consolidateObservations(observations, `episode ${episode.id}`);
   }
 
   private async consolidateMemory(job: Job): Promise<void> {
@@ -302,84 +424,68 @@ export class MemoryPipeline {
     if (observation.lifecycle_state !== "indexed") {
       throw new RetryableJobError(`Observation ${observation.id} is not indexed`);
     }
+    await this.consolidateObservations([observation], `observation ${observation.id}`);
+  }
 
+  private async consolidateObservations(observations: Observation[], label: string): Promise<void> {
     const response = await chatWithRetry(
       this.llm,
       [
         { role: "system", content: buildConsolidationSystemPrompt() },
-        {
-          role: "user",
-          content: buildConsolidationPrompt([{
-            id: observation.id,
-            title: observation.title,
-            description: observation.description,
-            type: observation.type,
-            files_read: observation.files_read,
-            files_modified: observation.files_modified,
-          }]),
-        },
+        { role: "user", content: buildConsolidationPrompt(observations) },
       ],
       this.chatOptions,
       (content) => {
         const parsed = parseAgentXml(content);
-        if (!parsed.valid) return false;
-        if (parsed.observations.length === 0) return true;
-        return parsed.observations.every((o) => validateMemory(o));
+        return parsed.valid && parsed.observations.every((memory) => validateMemory(memory));
       },
     );
     const parsed = parseAgentXml(response.content);
+    if (!parsed.valid) throw new PermanentJobError(`Invalid consolidation XML for ${label}`);
 
-    if (!parsed.valid) {
-      throw new PermanentJobError(`Invalid consolidation XML for observation ${observation.id}`);
-    }
-
+    const traceIds = uniqueNumbers(observations.flatMap((observation) => observation.source_trace_ids));
     if (parsed.observations.length === 0) {
       this.store.transaction(() => {
-        this.store.markObservationProcessed(observation.id);
-        for (const traceId of observation.source_trace_ids) {
-          this.store.markTraceProcessedIfObservationsReady(traceId);
-        }
+        for (const observation of observations) this.store.markObservationProcessed(observation.id);
+        for (const traceId of traceIds) this.store.markTraceProcessedIfObservationsReady(traceId);
       });
       return;
     }
 
-    const session = this.store.getSession(observation.session_id);
-    const repo_id = session?.repo_id ?? observation.repo_id;
-    const workspace_root = session?.workspace_root ?? observation.workspace_root;
+    const first = observations[0]!;
+    const session = this.store.getSession(first.session_id);
+    const filesRead = unique(observations.flatMap((observation) => observation.files_read));
+    const filesModified = unique(observations.flatMap((observation) => observation.files_modified));
+    const commands = unique(observations.flatMap((observation) => observation.commands_executed));
+    const observationIds = observations.map((observation) => observation.id);
 
     this.store.transaction(() => {
-      this.store.updateObservationLifecycleState(observation.id, "indexed");
-
-      for (const traceId of observation.source_trace_ids) {
-        this.store.updateTracePipelineState(traceId, "memory_pending");
-      }
-
+      for (const traceId of traceIds) this.store.updateTracePipelineState(traceId, "memory_pending");
       for (const parsedMemory of parsed.observations) {
         const memory = this.store.insertMemory({
-          session_id: observation.session_id,
-          repo_id,
-          workspace_root,
+          session_id: first.session_id,
+          repo_id: session?.repo_id ?? first.repo_id,
+          workspace_root: session?.workspace_root ?? first.workspace_root,
           type: parsedMemory.type as MemoryType,
           title: parsedMemory.title,
           description: parsedMemory.description,
-          files_read: unique([...observation.files_read, ...parsedMemory.files_read]),
-          files_modified: unique([...observation.files_modified, ...parsedMemory.files_modified]),
-          source_observation_ids: [observation.id],
-          source_trace_ids: observation.source_trace_ids,
+          files_read: unique([...filesRead, ...parsedMemory.files_read]),
+          files_modified: unique([...filesModified, ...parsedMemory.files_modified]),
+          source_observation_ids: observationIds,
+          source_trace_ids: traceIds,
           created_at: Date.now(),
           embedding: null,
           applicability_evidence: buildApplicabilityEvidence({
-            observation,
-            traceIds: observation.source_trace_ids,
+            filesRead,
+            filesModified,
+            commandsExecuted: commands,
+            observationIds,
+            traceIds,
           }),
         });
         this.store.updateMemoryLifecycleState(memory.id, "awaiting_embedding");
-        this.store.insertObservationMemoryLinks(memory.id, memory.source_observation_ids);
-        this.queue.enqueueJob({
-          kind: "embed_memory",
-          subjectType: "memory",
-          subjectId: memory.id,
-        });
+        this.store.insertObservationMemoryLinks(memory.id, observationIds);
+        this.queue.enqueueJob({ kind: "embed_memory", subjectType: "memory", subjectId: memory.id });
       }
     });
   }
@@ -741,6 +847,7 @@ export function isObservationEligibleTrace(trace: Pick<Trace, "event_type" | "to
 
 function traceForPrompt(trace: Trace) {
   return {
+    id: trace.id,
     tool_name: trace.tool_name ?? "",
     tool_input: trace.tool_input,
     tool_output: trace.tool_output,

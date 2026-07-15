@@ -38,6 +38,38 @@ beforeEach(() => {
 });
 
 describe("MemoryPipeline durable processing", () => {
+  it("extracts and consolidates an episode with two model calls", async () => {
+    store.upsertSession("batch", "demo", "r1", "/w");
+    const episode = store.startEpisode({ sessionId: "batch", repoId: "r1", workspaceRoot: "/w", task: "batch work" });
+    const traces = ["npm test", "npm run build", "npm run lint"].map((command, index) => {
+      const trace = store.insertTrace({
+        session_id: "batch", timestamp: index + 1, event_type: "tool_use",
+        tool_name: "Bash", tool_input: { command }, tool_output: { status: "ok" },
+        files_read: ["src/a.ts"], files_modified: null, user_prompt: null, final_response: null,
+      });
+      store.linkTraceToEpisode(episode.id, trace.id);
+      return trace;
+    });
+    llm.setResponses([
+      `<observation><type>procedure</type><title>Validated batch</title><files_read><file>src/a.ts</file></files_read></observation>`,
+      `<observation><type>procedure</type><title>Run validation commands</title></observation>`,
+    ]);
+
+    pipeline.ingestEpisode(episode.id, 0);
+    pipeline.ingestEpisode(episode.id, 0);
+    expect(pipeline.getQueueStats().pending).toBe(1);
+
+    await pipeline.runUntilIdle("worker-batch", { maxJobs: 5 });
+
+    expect(llm.calls).toHaveLength(2);
+    const observation = store.getRecentObservations(1)[0]!;
+    expect(observation.source_trace_ids).toEqual(traces.map((trace) => trace.id));
+    const memory = store.getRecentMemories(1)[0]!;
+    expect(memory.source_observation_ids).toEqual([observation.id]);
+    expect(memory.source_trace_ids).toEqual(traces.map((trace) => trace.id));
+    expect(traces.every((trace) => store.getTrace(trace.id)?.processed_at != null)).toBe(true);
+  });
+
   it("still indexes an observation when no embedding provider is configured", async () => {
     store.upsertSession("s1", "demo", "r1", "/w");
     const trace = store.insertTrace({

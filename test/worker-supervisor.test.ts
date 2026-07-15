@@ -203,7 +203,7 @@ describe("RUN-001 hook triggers supervision", () => {
     }, deps);
 
     expect(supervisor.launchCount).toBe(1);
-    const job = store.getDB().prepare(`SELECT state FROM jobs WHERE kind='extract_observation'`).get() as { state: string };
+    const job = store.getDB().prepare(`SELECT state FROM jobs WHERE kind='synthesize_episode'`).get() as { state: string };
     expect(job.state).toBe("pending");
     store.close();
   });
@@ -252,7 +252,7 @@ describe("RUN-001 hook triggers supervision", () => {
 
     // ...the supervisor's worker drains the durable queue to idle.
     const pipeline = new MemoryPipeline({ store, llm, embeddings });
-    const processed = await pipeline.runUntilIdle("worker-supervised", { maxJobs: 20 });
+    const processed = await pipeline.runUntilIdle("worker-supervised", { maxJobs: 20, waitForScheduledMs: 1_500 });
 
     expect(processed).toBeGreaterThan(0);
     const memory = store.getRecentMemories(1)[0]!;
@@ -284,7 +284,7 @@ describe("RUN-001 hook triggers supervision", () => {
     const pipeline = new MemoryPipeline({ store, llm, embeddings });
     // Simulate a worker that extracted the observation then crashed, leaving
     // a stale lock whose holder PID is dead.
-    await pipeline.runOnce("worker-crashed");
+    await pipeline.runUntilIdle("worker-crashed", { maxJobs: 1, waitForScheduledMs: 1_500 });
     const p = join(tmp, "crash.db");
     const child = spawn(process.execPath, ["-e", "process.exit(0)"], { stdio: "ignore" });
     await new Promise<void>((r) => child.once("exit", () => r()));

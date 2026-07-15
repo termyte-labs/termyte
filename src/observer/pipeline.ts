@@ -29,6 +29,10 @@ export class Observer {
     this.pipeline.ingestTrace(trace.id);
   }
 
+  enqueueEpisode(episodeId: string, nextRunAt?: number): void {
+    this.pipeline.ingestEpisode(episodeId, nextRunAt);
+  }
+
   enqueueMany(traces: Trace[]): void {
     this.store.transaction(() => {
       for (const trace of traces) this.pipeline.ingestTrace(trace.id);
@@ -37,7 +41,7 @@ export class Observer {
 
   /** Process queued work under durable leases. Hooks intentionally do not call this. */
   async flush(): Promise<void> {
-    await this.pipeline.runUntilIdle(this.workerId);
+    await this.pipeline.runUntilIdle(this.workerId, { waitForScheduledMs: 5_000 });
   }
 
   destroy(): void {

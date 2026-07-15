@@ -8,6 +8,8 @@ import {
 export type JobState = "pending" | "leased" | "succeeded" | "failed" | "dead";
 
 export type JobKind =
+  | "synthesize_episode"
+  | "consolidate_episode"
   | "extract_observation"
   | "embed_observation"
   | "consolidate_memory"
@@ -278,6 +280,14 @@ export class JobQueue {
     }
 
     return stats;
+  }
+
+  getNextRunAt(): number | null {
+    const row = this.db.prepare(`
+      SELECT MIN(next_run_at) AS next_run_at FROM jobs
+      WHERE state IN ('pending', 'failed') AND attempt_count < max_attempts
+    `).get() as { next_run_at: number | null };
+    return row.next_run_at;
   }
 
   getJob(id: string): Job | null {

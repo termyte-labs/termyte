@@ -64,8 +64,10 @@ export class HookRunner {
     const workspace_root = detectWorkspaceRoot(event.cwd);
     const session = this.store.upsertSession(event.session_id, project, repo_id, workspace_root);
     const trace = this.ingestor.ingest(event);
-    this.experience.record(event, trace, session);
-    if (shouldEnqueueObservation(event)) this.observer.enqueue(trace);
+    const episodeId = this.experience.record(event, trace, session);
+    if (episodeId && (shouldEnqueueObservation(event) || event.event_type === "session_end")) {
+      this.observer.enqueueEpisode(episodeId, event.event_type === "session_end" ? Date.now() : Date.now() + 1_000);
+    }
   }
 
   /**
