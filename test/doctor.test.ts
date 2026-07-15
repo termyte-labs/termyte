@@ -70,12 +70,14 @@ describe("doctor command", () => {
     const parsed = JSON.parse(output) as {
       dbPath: string;
       synthesis: string;
-      queue: { pending: number; leased: number; dead: number };
+      queue: { pending: number; leased: number; dead: number; ready: number; oldestReadyAgeMs: number | null; completedLastMinute: number };
       integrations: Array<{ name: string; installed: boolean }>;
     };
     expect(parsed.dbPath).toContain("termyte.db");
     expect(parsed.synthesis).toBe("capture-only");
     expect(typeof parsed.queue.pending).toBe("number");
+    expect(typeof parsed.queue.ready).toBe("number");
+    expect(typeof parsed.queue.completedLastMinute).toBe("number");
     expect(parsed.integrations.length).toBeGreaterThan(0);
   });
 });

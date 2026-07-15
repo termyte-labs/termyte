@@ -45,6 +45,8 @@ describe("viewer diagnostics server", () => {
 
     expect(response.status).toBe(200);
     expect(body.data.health.queue.pending).toBe(1);
+    expect(body.data.health.queue.ready).toBe(1);
+    expect(body.data.health.queue.oldestReadyAgeMs).toBeGreaterThan(0);
     expect(body.data.health.queue.failed).toBe(0);
     expect(body.data.health.queue.dead).toBe(0);
   });

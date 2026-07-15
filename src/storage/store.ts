@@ -1102,10 +1102,11 @@ export class Store {
 
   /** Get health diagnostics: queue stats, oldest pending age, dead count. */
   getHealthDiagnostics(): {
-    queue: { pending: number; leased: number; succeeded: number; failed: number; dead: number };
+    queue: { pending: number; leased: number; succeeded: number; failed: number; dead: number; ready: number; oldestReadyAgeMs: number | null; completedLastMinute: number };
     oldestPendingAgeMs: number | null;
     deadJobs: number;
   } {
+    const nowMs = Date.now();
     const stats = this.ctx.db.prepare(`
       SELECT
         SUM(CASE WHEN state='pending' THEN 1 ELSE 0 END) AS pending,
@@ -1116,9 +1117,16 @@ export class Store {
       FROM jobs
     `).get() as { pending: number; leased: number; succeeded: number; failed: number; dead: number };
 
-    const oldest = this.ctx.db.prepare(
-      `SELECT MIN(next_run_at) AS oldest FROM jobs WHERE state IN ('pending','failed')`,
-    ).get() as { oldest: number | null };
+    const timing = this.ctx.db.prepare(`
+      SELECT
+        MIN(CASE WHEN state IN ('pending','failed') THEN next_run_at END) AS oldest,
+        MIN(CASE WHEN state IN ('pending','failed') AND next_run_at <= @nowMs THEN next_run_at END) AS oldest_ready,
+        SUM(CASE WHEN state IN ('pending','failed') AND next_run_at <= @nowMs THEN 1 ELSE 0 END) AS ready,
+        SUM(CASE WHEN state='succeeded' AND updated_at >= @minuteAgo THEN 1 ELSE 0 END) AS completed_last_minute
+      FROM jobs
+    `).get({ nowMs, minuteAgo: nowMs - 60_000 }) as {
+      oldest: number | null; oldest_ready: number | null; ready: number; completed_last_minute: number;
+    };
 
     return {
       queue: {
@@ -1127,8 +1135,11 @@ export class Store {
         succeeded: stats.succeeded ?? 0,
         failed: stats.failed ?? 0,
         dead: stats.dead ?? 0,
+        ready: timing.ready ?? 0,
+        oldestReadyAgeMs: timing.oldest_ready == null ? null : Math.max(0, nowMs - timing.oldest_ready),
+        completedLastMinute: timing.completed_last_minute ?? 0,
       },
-      oldestPendingAgeMs: oldest.oldest != null ? Date.now() - oldest.oldest : null,
+      oldestPendingAgeMs: timing.oldest != null ? Math.max(0, nowMs - timing.oldest) : null,
       deadJobs: stats.dead ?? 0,
     };
   }
