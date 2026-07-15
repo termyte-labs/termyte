@@ -290,6 +290,14 @@ export class JobQueue {
     return row.next_run_at;
   }
 
+  getNextPendingRunAt(): number | null {
+    const row = this.db.prepare(`
+      SELECT MIN(next_run_at) AS next_run_at FROM jobs
+      WHERE state = 'pending' AND attempt_count < max_attempts
+    `).get() as { next_run_at: number | null };
+    return row.next_run_at;
+  }
+
   getJob(id: string): Job | null {
     const row = this.db.prepare(`SELECT * FROM jobs WHERE id = ?`).get(id);
     return row ? mapJob(row) : null;

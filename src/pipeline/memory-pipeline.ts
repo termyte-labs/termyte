@@ -215,11 +215,11 @@ export class MemoryPipeline {
     while (processed < maxJobs) {
       const ran = await this.runOnce(workerId);
       if (!ran) {
-        // Scheduled waiting is only for a worker that starts before its first
-        // job is due. Once work has run, leave retries for the next worker
-        // invocation instead of hiding a failure inside this one-shot run.
-        if (processed > 0) break;
-        const nextRunAt = this.queue.getNextRunAt();
+        // After work begins, wait only for new pending work. Failed retries
+        // remain visible for the next worker invocation.
+        const nextRunAt = processed > 0
+          ? this.queue.getNextPendingRunAt()
+          : this.queue.getNextRunAt();
         if (nextRunAt === null) break;
         const remaining = maxWait - waited;
         const delay = Math.max(0, nextRunAt - Date.now());
