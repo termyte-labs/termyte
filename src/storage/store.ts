@@ -814,11 +814,12 @@ export class Store {
     return row ? mapContextPacket(row) : null;
   }
 
-  getContextPackets(options: { sessionId?: string; repoId?: string; limit?: number } = {}): ContextPacket[] {
+  getContextPackets(options: { sessionId?: string; repoId?: string; episodeId?: string; limit?: number } = {}): ContextPacket[] {
     const where: string[] = [];
     const params: unknown[] = [];
     if (options.sessionId) { where.push("session_id = ?"); params.push(options.sessionId); }
     if (options.repoId) { where.push("repo_id = ?"); params.push(options.repoId); }
+    if (options.episodeId) { where.push("episode_id = ?"); params.push(options.episodeId); }
     params.push(options.limit ?? 100);
     const clause = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
     return (this.ctx.db.prepare(`SELECT * FROM context_packets ${clause} ORDER BY created_at DESC LIMIT ?`).all(...params) as any[])
@@ -977,6 +978,20 @@ export class Store {
       WHERE ci.id = ?
     `).get(injectionId) as { episode_id: string | null } | undefined;
     return row?.episode_id ?? null;
+  }
+
+  getContextInjectionsForEpisode(episodeId: string): NonNullable<ReturnType<Store["getContextInjection"]>>[] {
+    const rows = this.ctx.db.prepare(`
+      SELECT ci.id
+      FROM context_injections ci
+      JOIN context_packets cp ON cp.id = ci.packet_id
+      WHERE cp.episode_id = ?
+      ORDER BY ci.created_at DESC, ci.rowid DESC
+    `).all(episodeId) as Array<{ id: string }>;
+    return rows.flatMap((row) => {
+      const injection = this.getContextInjection(row.id);
+      return injection ? [injection] : [];
+    });
   }
 
   /** Mark a memory superseded by `supersededBy`, locking it out of default
@@ -1218,7 +1233,7 @@ export class Store {
 
   /** Get health diagnostics: queue stats, oldest pending age, dead count. */
   getHealthDiagnostics(): {
-    queue: { pending: number; leased: number; succeeded: number; failed: number; dead: number; ready: number; oldestReadyAgeMs: number | null; completedLastMinute: number };
+    queue: { pending: number; leased: number; succeeded: number; failed: number; dead: number; ready: number; oldestReadyAgeMs: number | null; completedLastMinute: number; retries: number };
     oldestPendingAgeMs: number | null;
     deadJobs: number;
   } {
@@ -1243,6 +1258,10 @@ export class Store {
     `).get({ nowMs, minuteAgo: nowMs - 60_000 }) as {
       oldest: number | null; oldest_ready: number | null; ready: number; completed_last_minute: number;
     };
+    const retryRow = this.ctx.db.prepare(`
+      SELECT COALESCE(SUM(CASE WHEN attempt_count > 1 THEN attempt_count - 1 ELSE 0 END), 0) AS retries
+      FROM jobs
+    `).get() as { retries: number };
 
     return {
       queue: {
@@ -1254,6 +1273,7 @@ export class Store {
         ready: timing.ready ?? 0,
         oldestReadyAgeMs: timing.oldest_ready == null ? null : Math.max(0, nowMs - timing.oldest_ready),
         completedLastMinute: timing.completed_last_minute ?? 0,
+        retries: retryRow.retries ?? 0,
       },
       oldestPendingAgeMs: timing.oldest != null ? Math.max(0, nowMs - timing.oldest) : null,
       deadJobs: stats.dead ?? 0,

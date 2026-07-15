@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { existsSync, readFileSync } from "node:fs";
 import { extname, join, normalize } from "node:path";
 import type { Store } from "../storage/store.js";
+import { buildMemoryExplain } from "../explain/memory-explain.js";
 
 export interface ViewerRouteContext {
   store: Store;
@@ -52,6 +53,8 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL, co
       evidence: store.getEvidenceForEpisode(row.id),
       outcomes: store.getEpisodeOutcomes(row.id),
       currentOutcome: store.getCurrentEpisodeOutcome(row.id),
+      packets: store.getContextPackets({ episodeId: row.id }),
+      injections: store.getContextInjectionsForEpisode(row.id),
     });
   }
   const outcome = match(url.pathname, /^\/api\/episodes\/([^/]+)\/outcomes$/);
@@ -64,22 +67,30 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL, co
   if (req.method === "GET" && packet) {
     const row = store.getContextPacket(packet);
     if (!row) return error(res, 404, "not_found", "Context packet not found");
-    return data(res, { packet: row, candidates: store.getContextCandidates(row.id) });
+    const candidates = store.getContextCandidates(row.id);
+    return data(res, { packet: row, candidates, abstained: !candidates.some((candidate) => candidate.selected) });
   }
   if (req.method === "GET" && url.pathname === "/api/memories") return data(res, store.getRecentMemories(readLimit(url)));
   const memory = match(url.pathname, /^\/api\/memories\/(\d+)$/);
   if (req.method === "GET" && memory) {
     const row = store.getMemory(Number(memory));
     if (!row) return error(res, 404, "not_found", "Memory not found");
-    return data(res, { memory: row, feedback: store.getMemoryFeedbackForMemory(row.id), edges: store.getMemoryEdges(row.id) });
+    return data(res, { memory: row, explanation: buildMemoryExplain(store, String(row.id)) });
   }
   const feedback = match(url.pathname, /^\/api\/memories\/(\d+)\/feedback$/);
   if (req.method === "POST" && feedback) {
     const body = await readJson(req);
-    const eventMap: Record<string, "helpful" | "harmful" | "ignored" | "corrected"> = { helpful: "helpful", harmful: "harmful", irrelevant: "ignored", corrected: "corrected" };
-    const event = eventMap[String(body.event)];
+    const event = ["helpful", "harmful", "ignored", "corrected"].includes(String(body.event))
+      ? body.event as "helpful" | "harmful" | "ignored" | "corrected"
+      : null;
     if (!event) return error(res, 400, "invalid_feedback", "Invalid feedback event");
-    const result = store.recordMemoryFeedback({ id: `memory:${feedback}`, event, source: "viewer", correctionText: typeof body.correctionText === "string" ? body.correctionText : undefined });
+    const result = store.recordMemoryFeedback({
+      id: `memory:${feedback}`,
+      event,
+      source: "viewer",
+      contextInjectionId: typeof body.contextInjectionId === "string" ? body.contextInjectionId : undefined,
+      correctionText: typeof body.correctionText === "string" ? body.correctionText : undefined,
+    });
     if (!result.recorded) return error(res, 404, "not_found", result.reason ?? "Memory not found");
     return data(res, result);
   }
@@ -88,7 +99,12 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL, co
       SELECT id, kind, subject_type, subject_id, state, attempt_count, last_error, updated_at
       FROM jobs WHERE state IN ('failed', 'dead') ORDER BY updated_at DESC LIMIT 100
     `).all();
-    return data(res, { health: store.getHealthDiagnostics(), problemJobs, audit: store.getAuditLog({ limit: 100 }) });
+    return data(res, {
+      health: store.getHealthDiagnostics(),
+      problemJobs,
+      deadLetters: store.getDeadJobs(100),
+      audit: store.getAuditLog({ limit: 100 }),
+    });
   }
   const retry = match(url.pathname, /^\/api\/jobs\/([^/]+)\/retry$/);
   if (req.method === "POST" && retry) return store.retryDeadJob(retry) ? data(res, { retried: true }) : error(res, 404, "not_found", "Dead job not found");
