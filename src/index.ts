@@ -46,7 +46,6 @@ export { ContextBuilder, renderContext, renderHybridResults, type ContextInput, 
 
 export { loadConfig, type TermyteConfig } from "./cli/config.js";
 export { runMcpServer } from "./mcp/server.js";
-export { Batcher, type BatcherOptions, type BatcherRunResult, SYNTHESIS_SYSTEM_PROMPT } from "./synth/batcher.js";
 export {
   type AgentAdapter,
   type AgentAdapterId,

@@ -121,7 +121,7 @@
         "type": "procedure",
         "title": "Use one durable pipeline for synth and worker",
         "description": "Both synth and worker entry points must enqueue the same job sequence so the corpus does not fracture.",
-        "filesModified": ["src/pipeline/memory-pipeline.ts", "src/synth/batcher.ts"],
+        "filesModified": ["src/pipeline/memory-pipeline.ts"],
         "keywords": ["synth", "worker", "pipeline"]
       }
     ],

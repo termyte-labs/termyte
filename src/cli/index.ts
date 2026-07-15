@@ -249,14 +249,6 @@ async function main(): Promise<void> {
         await runMcpServer();
         process.exit(0);
       }
-      case "synth": {
-        // Forward to the synth CLI. Re-exec via dynamic import so we
-        // don't have to import the (large) LocalEmbeddingsProvider
-        // graph when the user runs other subcommands.
-        const mod = await import("./synth.js");
-        await mod.runMain();
-        process.exit(0);
-      }
       case "stats": {
         const mod = await import("./stats.js");
         await mod.runMain();
@@ -345,7 +337,7 @@ async function main(): Promise<void> {
 }
 
 async function runMvpAlias(
-  command: "start" | "synth" | "context" | "viewer" | "eval",
+  command: "start" | "context" | "viewer" | "eval",
   rest: string[],
   opts: Record<string, string | boolean>,
 ): Promise<void> {
@@ -386,11 +378,6 @@ async function runMvpAlias(
         corpus: typeof opts["corpus"] === "string" ? opts["corpus"] : undefined,
         json: opts["json"] === true,
       });
-      return;
-    }
-    case "synth": {
-      const mod = await import("./synth.js");
-      await mod.runSynth(rest);
       return;
     }
   }

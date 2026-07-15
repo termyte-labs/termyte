@@ -1,6 +1,5 @@
 export const MVP_COMMAND_ALIASES = {
   capture: "start",
-  learn: "synth",
   remember: "context",
   inspect: "viewer",
   evaluate: "eval",
@@ -20,7 +19,6 @@ export function renderMvpCommandGuide(): string {
   return [
     "MVP aliases:",
     "  capture   -> start       record coding experience",
-    "  learn     -> synth",
     "  remember  -> context     retrieve compact experience cards",
     "  inspect   -> viewer      inspect evidence and provenance",
     "  evaluate  -> eval",
