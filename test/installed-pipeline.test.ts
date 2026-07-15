@@ -146,6 +146,56 @@ describe("EVAL-002 packed installed pipeline", () => {
     );
     expect(memoryProof.status, buildMessage("memory proof", memoryProof)).toBe(0);
     expect(JSON.parse(memoryProof.stdout).count).toBeGreaterThan(0);
+
+    const contextProofScript = `
+      import { pathToFileURL } from "node:url";
+      const termyteModule = await import(pathToFileURL(process.argv[1]).href);
+      const termyte = termyteModule.createTermyte({
+        dbPath: process.env.TERMYTE_DB,
+        llm: { baseUrl: "http://example.invalid", apiKey: "", model: "fake" },
+        embeddings: { model: null }
+      });
+      try {
+        const related = await termyte.context.build({
+          repo_id: "unknown", query: "npm test src/app.ts", currentFiles: ["src/app.ts"],
+          tokenBudget: 300, surface: "packed-test"
+        });
+        const relatedCandidates = termyte.store.getContextCandidates(related.contextPacketId);
+        const unrelated = await termyte.context.build({
+          repo_id: "packed-unrelated", query: "quantum banana ocean",
+          currentFiles: ["unrelated/planet.rs"], tokenBudget: 300, surface: "packed-test"
+        });
+        const unrelatedCandidates = termyte.store.getContextCandidates(unrelated.contextPacketId);
+        console.log(JSON.stringify({
+          relatedSelected: relatedCandidates.filter((candidate) => candidate.selected).length,
+          relatedRejectedHaveReasons: relatedCandidates.filter((candidate) => !candidate.selected)
+            .every((candidate) => typeof candidate.rejection_reason === "string" && candidate.rejection_reason.length > 0),
+          relatedHaveComponents: relatedCandidates.every((candidate) => Object.keys(candidate.score_breakdown).length > 0),
+          unrelatedAbstained: unrelated.text === "" && unrelatedCandidates.every((candidate) => !candidate.selected),
+          unrelatedMemoryIds: termyte.store.getContextInjection(unrelated.contextInjectionId)?.memory_ids ?? null
+        }));
+      } finally {
+        termyte.close();
+      }
+    `;
+    const contextProof = await run(
+      process.execPath,
+      ["--input-type=module", "-e", contextProofScript, join(pkgRoot, "dist", "index.js")],
+      { cwd: projectDir, env: secondEnv, shell: false },
+    );
+    expect(contextProof.status, buildMessage("context proof", contextProof)).toBe(0);
+    const contextProofJson = JSON.parse(contextProof.stdout.trim()) as {
+      relatedSelected: number;
+      relatedRejectedHaveReasons: boolean;
+      relatedHaveComponents: boolean;
+      unrelatedAbstained: boolean;
+      unrelatedMemoryIds: number[] | null;
+    };
+    expect(contextProofJson.relatedSelected).toBeGreaterThan(0);
+    expect(contextProofJson.relatedRejectedHaveReasons).toBe(true);
+    expect(contextProofJson.relatedHaveComponents).toBe(true);
+    expect(contextProofJson.unrelatedAbstained).toBe(true);
+    expect(contextProofJson.unrelatedMemoryIds).toEqual([]);
   });
 }, 300_000);
 
