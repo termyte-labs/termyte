@@ -573,7 +573,14 @@ function ensureFeedbackEventKinds(db: DB): void {
         correction_text TEXT,
         created_at INTEGER NOT NULL
       );
-      INSERT INTO memory_feedback SELECT * FROM memory_feedback_legacy;
+      INSERT INTO memory_feedback (
+        id, memory_id, doc_id, event_type, weight, source,
+        context_injection_id, correction_text, created_at
+      )
+      SELECT
+        id, memory_id, doc_id, event_type, weight, source,
+        context_injection_id, correction_text, created_at
+      FROM memory_feedback_legacy;
       DROP TABLE memory_feedback_legacy;
       CREATE INDEX idx_memory_feedback_memory ON memory_feedback(memory_id);
       CREATE INDEX idx_memory_feedback_context ON memory_feedback(context_injection_id);
