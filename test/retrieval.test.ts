@@ -307,7 +307,7 @@ describe("HybridSearch", () => {
       files_read: [], files_modified: [], source_observation_ids: [], source_trace_ids: [],
       created_at: Date.now(), embedding: null,
     }).id);
-    store.recordMemoryFeedback({ id: `memory:${ids[1]}`, event: "used", source: "test" });
+    store.recordMemoryFeedback({ id: `memory:${ids[1]}`, event: "helpful", source: "test" });
     const unavailable: EmbeddingsProvider = {
       dimensions: 4,
       async embed(): Promise<Float32Array> { throw new Error("offline"); },
