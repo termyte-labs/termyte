@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -53,7 +53,7 @@ describe("EVAL-002 packed installed pipeline", () => {
 
   it("survives a packed install, an injected worker failure, and a recovery run", async () => {
     const packDir = mkdtempSync(join(tmpdir(), "termyte-pack-"));
-    const pack = run(npmCmd, ["pack", "--json", "--pack-destination", packDir], { cwd: root });
+    const pack = await run(npmCmd, ["pack", "--json", "--pack-destination", packDir], { cwd: root });
     expect(pack.status, buildMessage("pack", pack)).toBe(0);
 
     const packInfo = JSON.parse(pack.stdout.trim()) as Array<{ filename: string }>;
@@ -64,7 +64,7 @@ describe("EVAL-002 packed installed pipeline", () => {
     mkdirSync(projectDir, { recursive: true });
     writeFileSync(join(projectDir, "package.json"), JSON.stringify({ name: "termyte-packed-test", private: true }, null, 2));
 
-    const install = run(npmCmd, ["install", "--no-package-lock", tarball], { cwd: projectDir });
+    const install = await run(npmCmd, ["install", "--no-package-lock", tarball], { cwd: projectDir });
     expect(install.status, buildMessage("install", install)).toBe(0);
 
     const pkgRoot = join(projectDir, "node_modules", "termyte");
@@ -88,7 +88,7 @@ describe("EVAL-002 packed installed pipeline", () => {
       TERMYTE_FAKE_LLM_FAIL_MARKER: failMarker,
     };
 
-    const doctor = run(process.execPath, [indexCli, "doctor", "--json"], { cwd: projectDir, env: baseEnv });
+    const doctor = await run(process.execPath, [indexCli, "doctor", "--json"], { cwd: projectDir, env: baseEnv });
     expect(doctor.status, buildMessage("doctor", doctor)).toBe(0);
 
     const tracePayload = {
@@ -99,14 +99,14 @@ describe("EVAL-002 packed installed pipeline", () => {
       tool_input: { command: "npm test", file_path: "src/app.ts" },
       tool_output: { status: "ok" },
     };
-    const hook = run(
+    const hook = await run(
       process.execPath,
       [hookCli, "raw"],
       { cwd: projectDir, env: baseEnv, input: JSON.stringify(tracePayload) + "\n" },
     );
     expect(hook.status, buildMessage("hook", hook)).toBe(0);
 
-    const firstWorker = run(process.execPath, [workerCli, "--until-idle", "--json"], { cwd: projectDir, env: baseEnv });
+    const firstWorker = await run(process.execPath, [workerCli, "--until-idle", "--json"], { cwd: projectDir, env: baseEnv });
     expect(firstWorker.status, buildMessage("first worker", firstWorker)).toBe(0);
     const firstWorkerJson = JSON.parse(firstWorker.stdout.trim()) as {
       enqueued: number;
@@ -117,19 +117,19 @@ describe("EVAL-002 packed installed pipeline", () => {
     expect(firstWorkerJson.queue.failed).toBeGreaterThan(0);
     expect(readFileSync(failMarker, "utf8")).toContain("failed-once");
 
-    const firstHealth = run(process.execPath, [indexCli, "doctor", "--json"], { cwd: projectDir, env: baseEnv });
+    const firstHealth = await run(process.execPath, [indexCli, "doctor", "--json"], { cwd: projectDir, env: baseEnv });
     expect(firstHealth.status, buildMessage("doctor", firstHealth)).toBe(0);
     expect(JSON.parse(firstHealth.stdout).queue.failed).toBe(1);
 
     const secondEnv = { ...baseEnv, TERMYTE_FAKE_LLM_FAIL_ONCE: "0" };
-    const rewind = run(
+    const rewind = await run(
       process.execPath,
       ["-e", `const Database = require("better-sqlite3"); const db = new Database(process.env.TERMYTE_DB); db.prepare("UPDATE jobs SET next_run_at = ? WHERE state = ?").run(Date.now(), "failed"); db.close();`],
       { cwd: projectDir, env: secondEnv, shell: false },
     );
     expect(rewind.status, buildMessage("rewind", rewind)).toBe(0);
 
-    const secondWorker = run(process.execPath, [workerCli, "--until-idle", "--json"], { cwd: projectDir, env: secondEnv });
+    const secondWorker = await run(process.execPath, [workerCli, "--until-idle", "--json"], { cwd: projectDir, env: secondEnv });
     expect(secondWorker.status, buildMessage("second worker", secondWorker)).toBe(0);
     const secondWorkerJson = JSON.parse(secondWorker.stdout.trim()) as {
       enqueued: number;
@@ -139,7 +139,7 @@ describe("EVAL-002 packed installed pipeline", () => {
     expect(secondWorkerJson.queue.succeeded).toBeGreaterThan(0);
     expect(secondWorkerJson.queue.failed).toBe(0);
 
-    const memoryProof = run(
+    const memoryProof = await run(
       process.execPath,
       ["-e", `const Database = require("better-sqlite3"); const db = new Database(process.env.TERMYTE_DB); const row = db.prepare("SELECT COUNT(*) AS count FROM memories").get(); console.log(JSON.stringify(row)); db.close();`],
       { cwd: projectDir, env: secondEnv, shell: false },
@@ -152,21 +152,24 @@ describe("EVAL-002 packed installed pipeline", () => {
 function run(
   file: string,
   args: string[],
-  options: { cwd?: string; env?: NodeJS.ProcessEnv; input?: string },
-): { status: number | null; stdout: string; stderr: string } {
-  const result = spawnSync(file, args, {
-    cwd: options.cwd,
-    env: options.env,
-    input: options.input,
-    encoding: "utf8",
-    windowsHide: true,
-    shell: options.shell ?? true,
+  options: { cwd?: string; env?: NodeJS.ProcessEnv; input?: string; shell?: boolean },
+): Promise<{ status: number | null; stdout: string; stderr: string }> {
+  return new Promise((resolve) => {
+    const child = spawn(file, args, {
+      cwd: options.cwd,
+      env: options.env,
+      windowsHide: true,
+      shell: options.shell ?? true,
+      stdio: "pipe",
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8").on("data", (chunk: string) => { stdout += chunk; });
+    child.stderr.setEncoding("utf8").on("data", (chunk: string) => { stderr += chunk; });
+    child.on("error", (error) => { stderr += error.message; });
+    child.on("close", (status) => resolve({ status, stdout, stderr }));
+    child.stdin.end(options.input);
   });
-  return {
-    status: result.status,
-    stdout: result.stdout ?? "",
-    stderr: result.stderr ?? "",
-  };
 }
 
 function buildMessage(step: string, result: { status: number | null; stdout: string; stderr: string }): string {
