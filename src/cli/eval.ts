@@ -1,4 +1,5 @@
 import { runEval, type EvalSuiteName, type EvalReport } from "../eval/harness.js";
+import { pathToFileURL } from "node:url";
 
 export interface EvalCommandOptions {
   suite?: string;
@@ -53,4 +54,18 @@ function title(value: string): string {
 
 function formatMetric(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(2);
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const args = process.argv.slice(2);
+  const value = (name: string): string | undefined => {
+    const index = args.indexOf(name);
+    return index >= 0 ? args[index + 1] : undefined;
+  };
+  evalCommand({ suite: value("--suite"), corpus: value("--corpus"), json: args.includes("--json") })
+    .then((report) => { process.exitCode = report.passed ? 0 : 1; })
+    .catch((error) => {
+      process.stderr.write(`termyte eval: ${error instanceof Error ? error.message : String(error)}\n`);
+      process.exitCode = 1;
+    });
 }

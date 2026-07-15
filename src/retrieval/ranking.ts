@@ -23,15 +23,19 @@ export function scoreMemoryCandidate(input: {
   currentFiles?: string[];
   rrfK?: number;
 }): RetrievalScoreBreakdown {
-  const k = input.rrfK ?? 60;
-  const fts = input.ftsRank ? 1 / (k + input.ftsRank) : 0;
+  const k = input.rrfK ?? 5;
+  // Sparse matches carry exact technical evidence. Weight them above the
+  // semantic branch so a noisy embedding list cannot bury an FTS rank-1 hit.
+  const fts = input.ftsRank ? 2 / (k + input.ftsRank) : 0;
   const vector = input.vectorRank ? 1 / (k + input.vectorRank) : 0;
   const base = fts + vector;
   const confidence = (clamp01(input.memory.confidence ?? 0.5) - 0.5) * 0.10;
   const importance = (clamp01(input.memory.importance ?? 0.5) - 0.5) * 0.10;
   const decay = (clamp01(input.memory.decayed_score ?? 0.5) - 0.5) * 0.10;
   const usage = Math.min(1, Math.log1p(Math.max(0, input.memory.usage_count ?? 0)) / Math.log(11)) * 0.05;
-  const feedback = clamp(input.feedbackScore ?? 0, -1, 1) * 0.10;
+  // One explicit helpful event has persisted weight 0.25; normalize it to a
+  // full positive ranking signal while keeping all feedback bounded.
+  const feedback = clamp((input.feedbackScore ?? 0) * 4, -1, 1) * 0.20;
   const applicability = computeApplicabilityAdjustment(input.memory, input.query, input.currentFiles);
   const multiplier = clamp(1 + confidence + importance + decay + usage + feedback + applicability, 0.75, 1.25);
   return {

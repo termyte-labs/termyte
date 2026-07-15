@@ -71,4 +71,17 @@ describe("preprocessQuery", () => {
     expect(terms.find((t) => t.original === "a")).toBeUndefined();
     expect(terms.find((t) => t.original === "database")).toBeDefined();
   });
+
+  it("drops question framing while preserving technical tokens", () => {
+    const { terms, ftsQuery } = preprocessQuery("Which file owns src/storage/store.ts CRUD and last_error?");
+    expect(terms.map((term) => term.original)).toEqual(["file", "owns", "src/storage/store.ts", "CRUD", "last_error"]);
+    expect(ftsQuery).toContain("src/storage/store.ts");
+    expect(ftsQuery).toContain("last_error");
+    expect(ftsQuery).not.toContain('\"which\"');
+  });
+
+  it("strips sentence punctuation from error and timeout queries", () => {
+    const { terms } = preprocessQuery("What happens if embedding generation times out?");
+    expect(terms.map((term) => term.original)).toEqual(["happens", "embedding", "generation", "times", "out"]);
+  });
 });

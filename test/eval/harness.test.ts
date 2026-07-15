@@ -72,11 +72,12 @@ describe("durability invariants", () => {
 });
 
 describe("eval suites", () => {
-  it("runs retrieval suite and reports honest non-leaked metrics", async () => {
+  it("passes the non-leaked retrieval corpus at Recall@5 >= 0.90", async () => {
     const report = await runEval({ suite: "retrieval" });
 
     expect(report.suite).toBe("retrieval");
-    expect(typeof report.metrics.recallAt5).toBe("number");
+    expect(report.passed, JSON.stringify(report, null, 2)).toBe(true);
+    expect(report.metrics.recallAt5).toBeGreaterThanOrEqual(0.9);
     expect(typeof report.metrics.mrr).toBe("number");
     expect(typeof report.metrics.precisionAt5).toBe("number");
     expect(Array.isArray(report.failures)).toBe(true);

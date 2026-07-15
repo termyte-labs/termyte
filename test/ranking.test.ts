@@ -13,6 +13,12 @@ function memory(overrides: Partial<Memory> = {}): Memory {
 }
 
 describe("bounded retrieval ranking signals", () => {
+  it("keeps an exact sparse hit above a noisy dual-branch candidate", () => {
+    const exact = scoreMemoryCandidate({ memory: memory(), ftsRank: 1 });
+    const noisy = scoreMemoryCandidate({ memory: memory(), ftsRank: 10, vectorRank: 1 });
+    expect(exact.final_score).toBeGreaterThan(noisy.final_score);
+  });
+
   it("leaves neutral candidates at their RRF score", () => {
     const score = scoreMemoryCandidate({ memory: memory(), ftsRank: 1, vectorRank: 1 });
     expect(score.multiplier).toBe(1);

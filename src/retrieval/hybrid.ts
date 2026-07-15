@@ -28,7 +28,7 @@ export interface HybridSearchResult {
 
 /**
  * Hybrid search: FTS5 keyword + cosine-similarity vector.
- * Combined via Reciprocal Rank Fusion (k=60).
+ * Combined via Reciprocal Rank Fusion over short candidate lists.
  * File-aware boosting applied in the vector branch.
  */
 export class HybridSearch {
@@ -80,7 +80,7 @@ export class HybridSearch {
     }
 
     // RRF combination.
-    const k = 60;
+    const k = 5;
     const seen = new Map<number, { fts_rank?: number; vector_rank?: number }>();
     ftsResults.forEach((m, i) => seen.set(m.id, { fts_rank: i + 1 }));
     vectorResults.forEach((r, i) => {

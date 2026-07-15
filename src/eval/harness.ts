@@ -125,7 +125,12 @@ export async function runRetrievalEval(options: EvalRunOptions = {}): Promise<Ev
             message: `Expected docs not found for query "${query.query}"`,
             details: {
               expectedDocIds: query.expectedDocIds,
-              actualDocIds: ranked.map((result) => result.id),
+              actualResults: results.map((result) => ({
+                id: idByMemoryId.get(result.memory.id) ?? `memory:${result.memory.id}`,
+                ftsRank: result.fts_rank ?? null,
+                vectorRank: result.vector_rank ?? null,
+                score: round(result.combined_score),
+              })),
             },
           });
         }
@@ -141,13 +146,15 @@ export async function runRetrievalEval(options: EvalRunOptions = {}): Promise<Ev
     precisionAt5: round(mean(precisionValues)),
   };
 
-  // EVAL-001: thresholds removed because the previous thresholds were only
-  // achievable through answer-key leakage (expected keywords appended to
-  // indexed documents and used as retrieval queries). The non-leaked
-  // baseline with the character-hash test embedder is recall ~0.30,
-  // MRR ~0.15 — these reflect the embedder, not production quality.
-  // The suite reports raw metrics and per-case failures for honest review.
+  // The checked-in corpus contains no answer-key text. Recall is the release
+  // gate; MRR, precision, and per-query misses remain diagnostic evidence.
   const allFailures = [...failures];
+  if (metrics.recallAt5 < 0.9) {
+    allFailures.push({
+      caseId: "retrieval_threshold",
+      message: `Recall@5 ${metrics.recallAt5.toFixed(3)} is below the required 0.900`,
+    });
+  }
   return {
     suite: "retrieval",
     passed: allFailures.length === 0,

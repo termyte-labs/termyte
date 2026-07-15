@@ -20,6 +20,11 @@ export interface ProcessedTerm {
 }
 
 const CJK_RANGE = /[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af]/;
+const TOKEN_PATTERN = /[\p{L}\p{N}_.:/\\-]+/gu;
+const QUESTION_STOP_WORDS = new Set([
+  "a", "an", "and", "are", "be", "did", "do", "does", "for", "how", "if", "in",
+  "is", "of", "on", "should", "the", "to", "what", "when", "which", "with",
+]);
 
 export function preprocessQuery(query: string): {
   terms: ProcessedTerm[];
@@ -28,7 +33,7 @@ export function preprocessQuery(query: string): {
   const normalized = query.normalize("NFKC").trim();
   if (!normalized) return { terms: [], ftsQuery: "" };
 
-  const rawTokens = normalized.split(/\s+/).filter(Boolean);
+  const rawTokens = normalized.match(TOKEN_PATTERN) ?? [];
   const terms: ProcessedTerm[] = [];
   const ftsParts: string[] = [];
 
@@ -51,7 +56,8 @@ export function preprocessQuery(query: string): {
       continue;
     }
 
-    const lower = token.toLowerCase();
+    const lower = token.toLowerCase().replaceAll("\\", "/");
+    if (QUESTION_STOP_WORDS.has(lower)) continue;
     const s = stem(lower);
     const syns = getSynonyms(s);
     terms.push({ original: token, stem: s, synonyms: syns });
