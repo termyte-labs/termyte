@@ -56,7 +56,8 @@ describe("CTX-001 context injection persistence", () => {
     const id = seedMemory("Compact fact", "This is a detailed explanation for later inspection.");
     const out = await builder.build({ repo_id: "r1", query: "compact fact", surface: "test" });
     expect(out.text).toContain(`memory:${id}`);
-    expect(out.text).toContain(`termyte memory ${id}`);
+    expect(out.text).toContain(`ID: memory:${id}`);
+    expect(out.text).not.toContain("termyte memory");
   });
 
   it("persists the injection with memory IDs, query, repo, and surface", async () => {

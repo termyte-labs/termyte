@@ -429,7 +429,7 @@ CREATE TABLE IF NOT EXISTS context_candidates (
   packet_id TEXT NOT NULL REFERENCES context_packets(id) ON DELETE CASCADE,
   candidate_id TEXT NOT NULL,
   kind TEXT NOT NULL CHECK(kind IN
-    ('current_state', 'repository_knowledge', 'episode', 'memory', 'procedure', 'evidence')),
+    ('current_state', 'repository_knowledge', 'episode', 'summary', 'observation', 'memory', 'procedure', 'evidence')),
   source_id TEXT,
   token_estimate INTEGER NOT NULL,
   selected INTEGER NOT NULL CHECK(selected IN (0, 1)),
@@ -451,6 +451,7 @@ export function runMigrations(db: DB): void {
   ensureProvenanceLinks(db);
   ensureFeedbackColumns(db);
   ensureContextInjectionColumns(db);
+  ensureContextCandidateKinds(db);
 }
 
 /**
@@ -547,6 +548,36 @@ function ensureContextInjectionColumns(db: DB): void {
   addColumnIfMissing(db, "context_injection_items", "score_breakdown_json", "TEXT NOT NULL DEFAULT '{}'");
   addColumnIfMissing(db, "context_injections", "packet_id", "TEXT REFERENCES context_packets(id) ON DELETE SET NULL");
   addColumnIfMissing(db, "context_injections", "delivery_method", "TEXT NOT NULL DEFAULT 'unknown'");
+}
+
+function ensureContextCandidateKinds(db: DB): void {
+  const row = db.prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'context_candidates'`)
+    .get() as { sql?: string } | undefined;
+  if (row?.sql?.includes("'observation'")) return;
+  db.transaction(() => {
+    db.exec(`
+      ALTER TABLE context_candidates RENAME TO context_candidates_legacy;
+      DROP INDEX IF EXISTS idx_context_candidates_selected;
+      CREATE TABLE context_candidates (
+        packet_id TEXT NOT NULL REFERENCES context_packets(id) ON DELETE CASCADE,
+        candidate_id TEXT NOT NULL,
+        kind TEXT NOT NULL CHECK(kind IN
+          ('current_state', 'repository_knowledge', 'episode', 'summary', 'observation', 'memory', 'procedure', 'evidence')),
+        source_id TEXT,
+        token_estimate INTEGER NOT NULL,
+        selected INTEGER NOT NULL CHECK(selected IN (0, 1)),
+        rank INTEGER,
+        final_score REAL NOT NULL,
+        score_breakdown_json TEXT NOT NULL DEFAULT '{}',
+        rejection_reason TEXT,
+        rendered_text TEXT NOT NULL,
+        PRIMARY KEY (packet_id, candidate_id)
+      );
+      INSERT INTO context_candidates SELECT * FROM context_candidates_legacy;
+      DROP TABLE context_candidates_legacy;
+      CREATE INDEX idx_context_candidates_selected ON context_candidates(packet_id, selected, rank);
+    `);
+  })();
 }
 
 function safeParseIntArray(raw: string): number[] {

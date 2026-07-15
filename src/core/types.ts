@@ -229,9 +229,35 @@ export type ContextCandidateKind =
   | "current_state"
   | "repository_knowledge"
   | "episode"
+  | "summary"
+  | "observation"
   | "memory"
   | "procedure"
   | "evidence";
+
+export type ContextRejectionReason =
+  | "below_threshold"
+  | "redundant"
+  | "token_budget"
+  | "ineligible_lifecycle"
+  | "wrong_repository"
+  | "broken_provenance"
+  | "missing_file";
+
+export interface CompiledContextCandidate {
+  candidate_id: string;
+  kind: ContextCandidateKind;
+  source_id: string | null;
+  rendered_text: string;
+  token_estimate: number;
+  final_score: number;
+  score_breakdown: Record<string, number>;
+  lifecycle_state: string | null;
+  applicability_state: "applicable" | "stale_exact_match" | "ineligible";
+  selected: boolean;
+  rank: number | null;
+  rejection_reason: ContextRejectionReason | null;
+}
 
 export interface ContextPacket {
   id: string;

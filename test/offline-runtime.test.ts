@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createTermyte } from "../src/index.js";
@@ -49,6 +49,8 @@ describe("offline runtime providers", () => {
 
     try {
       mkdirSync(join(homeDir, "repo"), { recursive: true });
+      mkdirSync(join(homeDir, "repo", "src"), { recursive: true });
+      writeFileSync(join(homeDir, "repo", "src", "app.ts"), "export const app = true;\n");
       const ok = await termyte.runner.processRaw("raw", {
         session_id: "offline-session",
         cwd: join(homeDir, "repo"),
@@ -75,7 +77,7 @@ describe("offline runtime providers", () => {
         maxMemories: 5,
         sessionId: "offline-session",
       });
-      expect(context.text).toContain("Consolidated");
+      expect(context.text).toContain("npm test");
       expect(context.contextInjectionId).toBeTruthy();
 
       const summary = termyte.store.getSummary("offline-session");

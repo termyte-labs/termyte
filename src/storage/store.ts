@@ -201,6 +201,18 @@ export class Store {
     return (this.ctx.db.prepare(`SELECT * FROM evidence WHERE episode_id = ? ORDER BY observed_at ASC`).all(episodeId) as any[]).map(mapEvidence);
   }
 
+  getRecentEvidenceForRepo(repoId: string, limit = 50): Evidence[] {
+    const rows = this.ctx.db.prepare(`
+      SELECT e.*
+      FROM evidence e
+      JOIN episodes ep ON ep.id = e.episode_id
+      WHERE ep.repo_id = ?
+      ORDER BY e.observed_at DESC
+      LIMIT ?
+    `).all(repoId, limit) as any[];
+    return rows.map(mapEvidence);
+  }
+
   getEvidenceForEpisodeSupportingTraces(episodeId: string, traceIds: number[]): Evidence[] {
     if (traceIds.length === 0) return [];
     const placeholders = traceIds.map(() => "?").join(", ");
