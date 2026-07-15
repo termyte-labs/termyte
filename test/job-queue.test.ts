@@ -90,6 +90,54 @@ describe("JobQueue", () => {
     expect(queue.getQueueStats().pending).toBe(2);
   });
 
+  it("coalesces pending and completed work into one refreshable row", () => {
+    const first = queue.coalesceJob({
+      kind: "update_summary", subjectType: "episode", subjectId: "ep-1",
+      id: "episode-job", nextRunAt: 500, nowMs: 100,
+    });
+    const refreshed = queue.coalesceJob({
+      kind: "update_summary", subjectType: "episode", subjectId: "ep-1",
+      id: "ignored", nextRunAt: 900, nowMs: 200,
+    });
+
+    expect(refreshed.id).toBe(first.id);
+    expect(refreshed.nextRunAt).toBe(900);
+    expect(queue.getQueueStats().pending).toBe(1);
+
+    queue.claimNextJob("worker", { nowMs: 900 });
+    queue.markSucceeded(first.id, 901, "worker");
+    const rerun = queue.coalesceJob({
+      kind: "update_summary", subjectType: "episode", subjectId: "ep-1",
+      nextRunAt: 1_000, nowMs: 950,
+    });
+    expect(rerun.state).toBe("pending");
+    expect(rerun.attemptCount).toBe(0);
+    expect(rerun.nextRunAt).toBe(1_000);
+  });
+
+  it("does not reset leased or dead work while coalescing", () => {
+    queue.coalesceJob({
+      kind: "update_summary", subjectType: "episode", subjectId: "ep-1",
+      id: "leased-job", nowMs: 100,
+    });
+    queue.claimNextJob("worker", { nowMs: 100, leaseMs: 1_000 });
+
+    const leased = queue.coalesceJob({
+      kind: "update_summary", subjectType: "episode", subjectId: "ep-1",
+      nextRunAt: 900, nowMs: 200,
+    });
+    expect(leased.state).toBe("leased");
+    expect(leased.leaseOwner).toBe("worker");
+
+    queue.markDead(leased, new PermanentJobError("bad episode"), 300);
+    const dead = queue.coalesceJob({
+      kind: "update_summary", subjectType: "episode", subjectId: "ep-1",
+      nextRunAt: 900, nowMs: 400,
+    });
+    expect(dead.state).toBe("dead");
+    expect(dead.lastError).toContain("bad episode");
+  });
+
   it("claims one ready job atomically and leases it", () => {
     queue.enqueueJob({
       kind: "extract_observation",

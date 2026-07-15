@@ -110,6 +110,46 @@ export class JobQueue {
     return job;
   }
 
+  /** Refresh one scheduled row without disturbing a live lease or dead letter. */
+  coalesceJob(input: EnqueueJobInput): Job {
+    const nowMs = input.nowMs ?? Date.now();
+    const subjectId = String(input.subjectId);
+    const dedupeKey = input.dedupeKey ?? "once";
+
+    this.db.prepare(`
+      INSERT INTO jobs (
+        id, kind, subject_type, subject_id, dedupe_key, state,
+        attempt_count, max_attempts, next_run_at, created_at, updated_at
+      ) VALUES (
+        @id, @kind, @subjectType, @subjectId, @dedupeKey, 'pending',
+        0, @maxAttempts, @nextRunAt, @nowMs, @nowMs
+      )
+      ON CONFLICT(kind, subject_type, subject_id, dedupe_key) DO UPDATE SET
+        state = 'pending',
+        attempt_count = 0,
+        max_attempts = excluded.max_attempts,
+        lease_owner = NULL,
+        lease_until = NULL,
+        next_run_at = excluded.next_run_at,
+        last_error = NULL,
+        updated_at = excluded.updated_at
+      WHERE jobs.state IN ('pending', 'failed', 'succeeded')
+    `).run({
+      id: input.id ?? createJobId(),
+      kind: input.kind,
+      subjectType: input.subjectType,
+      subjectId,
+      dedupeKey,
+      maxAttempts: input.maxAttempts ?? 5,
+      nextRunAt: input.nextRunAt ?? nowMs,
+      nowMs,
+    });
+
+    const job = this.getBySubject(input.kind, input.subjectType, subjectId, dedupeKey);
+    if (!job) throw new Error(`Failed to coalesce job ${input.kind}:${input.subjectType}:${subjectId}`);
+    return job;
+  }
+
   claimNextJob(workerId: string, options: { nowMs?: number; leaseMs?: number } = {}): Job | null {
     const nowMs = options.nowMs ?? Date.now();
     const leaseUntil = nowMs + (options.leaseMs ?? 60_000);
