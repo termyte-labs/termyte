@@ -38,6 +38,33 @@ beforeEach(() => {
 });
 
 describe("MemoryPipeline durable processing", () => {
+  it("does not retry a failed job inside the same one-shot worker run", async () => {
+    store.upsertSession("retry-boundary", "demo", "r1", "/w");
+    const episode = store.startEpisode({
+      sessionId: "retry-boundary",
+      repoId: "r1",
+      workspaceRoot: "/w",
+      task: "preserve failure visibility",
+    });
+    const trace = store.insertTrace({
+      session_id: "retry-boundary", timestamp: 1, event_type: "tool_use",
+      tool_name: "Read", tool_input: null, tool_output: null,
+      files_read: null, files_modified: null, user_prompt: null, final_response: null,
+    });
+    store.linkTraceToEpisode(episode.id, trace.id);
+    llm.throwOnCall(1, new Error("temporary provider failure"));
+    pipeline.ingestEpisode(episode.id, 0);
+
+    const processed = await pipeline.runUntilIdle("worker-retry-boundary", {
+      maxJobs: 10,
+      waitForScheduledMs: 5_000,
+    });
+
+    expect(processed).toBe(1);
+    expect(llm.calls).toHaveLength(1);
+    expect(pipeline.getQueueStats().failed).toBe(1);
+  });
+
   it("extracts and consolidates an episode with two model calls", async () => {
     store.upsertSession("batch", "demo", "r1", "/w");
     const episode = store.startEpisode({ sessionId: "batch", repoId: "r1", workspaceRoot: "/w", task: "batch work" });

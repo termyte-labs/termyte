@@ -215,6 +215,10 @@ export class MemoryPipeline {
     while (processed < maxJobs) {
       const ran = await this.runOnce(workerId);
       if (!ran) {
+        // Scheduled waiting is only for a worker that starts before its first
+        // job is due. Once work has run, leave retries for the next worker
+        // invocation instead of hiding a failure inside this one-shot run.
+        if (processed > 0) break;
         const nextRunAt = this.queue.getNextRunAt();
         if (nextRunAt === null) break;
         const remaining = maxWait - waited;
