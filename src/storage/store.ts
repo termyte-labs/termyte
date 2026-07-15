@@ -152,11 +152,16 @@ export class Store {
     return (this.ctx.db.prepare(`SELECT * FROM episodes ${clause} ORDER BY started_at DESC LIMIT ?`).all(...params) as any[]).map(mapEpisode);
   }
 
-  closeActiveEpisode(sessionId: string, status: Exclude<EpisodeStatus, "active"> = "unknown", nowMs = Date.now()): Episode | null {
+  closeActiveEpisode(
+    sessionId: string,
+    status: Exclude<EpisodeStatus, "active"> = "unknown",
+    nowMs = Date.now(),
+    finalCommit: string | null = null,
+  ): Episode | null {
     const active = this.getActiveEpisode(sessionId);
     if (!active) return null;
-    this.ctx.db.prepare(`UPDATE episodes SET status = ?, ended_at = ? WHERE id = ? AND status = 'active'`)
-      .run(status, nowMs, active.id);
+    this.ctx.db.prepare(`UPDATE episodes SET status = ?, ended_at = ?, final_commit = ? WHERE id = ? AND status = 'active'`)
+      .run(status, nowMs, finalCommit, active.id);
     return this.getEpisode(active.id);
   }
 

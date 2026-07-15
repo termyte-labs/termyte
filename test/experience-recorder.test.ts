@@ -1,3 +1,7 @@
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { Store } from "../src/storage/store.js";
 import { openDatabase } from "../src/storage/connection.js";
@@ -5,6 +9,42 @@ import { ExperienceRecorder } from "../src/experience/recorder.js";
 import type { NormalizedEvent } from "../src/capture/adapter.js";
 
 describe("ExperienceRecorder", () => {
+  it("stores episode commit boundaries and compact diff evidence", () => {
+    const root = mkdtempSync(join(tmpdir(), "termyte-recorder-git-"));
+    try {
+      execFileSync("git", ["init", "-q"], { cwd: root, stdio: "ignore" });
+      writeFileSync(join(root, "tracked.txt"), "initial\n");
+      execFileSync("git", ["add", "tracked.txt"], { cwd: root, stdio: "ignore" });
+      execFileSync("git", ["-c", "user.name=Termyte Test", "-c", "user.email=test@termyte.invalid", "commit", "-qm", "initial"], { cwd: root, stdio: "ignore" });
+      const baseCommit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
+
+      const store = new Store(openDatabase(":memory:"));
+      const session = store.upsertSession("s1", "repo", "repo-1", root);
+      const recorder = new ExperienceRecorder(store);
+      const prompt = event({ event_type: "user_prompt", user_prompt: "Change tracked file", cwd: root });
+      const episodeId = recorder.record(prompt, store.insertTrace(traceInput(prompt)), session)!;
+
+      writeFileSync(join(root, "tracked.txt"), "committed\n");
+      execFileSync("git", ["add", "tracked.txt"], { cwd: root, stdio: "ignore" });
+      execFileSync("git", ["-c", "user.name=Termyte Test", "-c", "user.email=test@termyte.invalid", "commit", "-qm", "change"], { cwd: root, stdio: "ignore" });
+      const finalCommit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
+      writeFileSync(join(root, "tracked.txt"), "working tree change\n");
+
+      const end = event({ event_type: "session_end", timestamp: 3, cwd: root });
+      recorder.record(end, store.insertTrace(traceInput(end)), session);
+
+      expect(store.getEpisode(episodeId)).toMatchObject({ base_commit: baseCommit, final_commit: finalCommit });
+      expect(store.getEvidenceForEpisode(episodeId)).toContainEqual(expect.objectContaining({
+        kind: "diff",
+        content: "tracked.txt",
+        metadata: expect.objectContaining({ changed_paths: ["tracked.txt"] }),
+      }));
+      store.close();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("segments prompts into episodes and keeps deterministic evidence", () => {
     const store = new Store(openDatabase(":memory:"));
     const session = store.upsertSession("s1", "repo", "repo-1", "/repo");

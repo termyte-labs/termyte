@@ -1,6 +1,7 @@
 import type { NormalizedEvent } from "../capture/adapter.js";
 import type { Session, Trace, EvidenceKind } from "../core/types.js";
 import type { Store } from "../storage/store.js";
+import { readGitDiffState, readGitHead } from "./git-state.js";
 
 /**
  * Deterministically groups captured traces into task episodes and extracts
@@ -13,19 +14,24 @@ export class ExperienceRecorder {
     let episode = this.store.getActiveEpisode(event.session_id);
 
     if (event.event_type === "user_prompt" && (!episode || this.startsNewEpisode(episode.id, event.user_prompt))) {
+      if (episode) this.closeEpisode(event.session_id, "unknown", event.timestamp);
+      const workspaceRoot = session.workspace_root ?? event.cwd;
       episode = this.store.startEpisode({
         sessionId: event.session_id,
         repoId: session.repo_id ?? "unknown",
-        workspaceRoot: session.workspace_root ?? event.cwd,
+        workspaceRoot,
         task: cleanText(event.user_prompt) || "Untitled coding task",
+        baseCommit: readGitHead(workspaceRoot),
         nowMs: event.timestamp,
       });
     } else if (!episode && event.event_type !== "session_init") {
+      const workspaceRoot = session.workspace_root ?? event.cwd;
       episode = this.store.startEpisode({
         sessionId: event.session_id,
         repoId: session.repo_id ?? "unknown",
-        workspaceRoot: session.workspace_root ?? event.cwd,
+        workspaceRoot,
         task: cleanText(event.user_prompt) || "Agent session",
+        baseCommit: readGitHead(workspaceRoot),
         nowMs: event.timestamp,
       });
     }
@@ -45,7 +51,7 @@ export class ExperienceRecorder {
     }
 
     if (event.event_type === "session_end") {
-      this.store.closeActiveEpisode(event.session_id, inferTerminalStatus(event), event.timestamp);
+      this.closeEpisode(event.session_id, inferTerminalStatus(event), event.timestamp);
       this.store.endSession(event.session_id);
     }
     return episode.id;
@@ -56,6 +62,28 @@ export class ExperienceRecorder {
       .some((evidence) => evidence.exit_code !== null && evidence.exit_code !== 0);
     const separateTask = /^(?:new|another|separate|switch(?:ing)?|next)\s+(?:task|issue|problem)/i.test(cleanText(prompt));
     return failedEvidence || separateTask;
+  }
+
+  private closeEpisode(sessionId: string, status: "succeeded" | "failed" | "unknown", nowMs: number): void {
+    const episode = this.store.getActiveEpisode(sessionId);
+    if (!episode) return;
+    const git = readGitDiffState(episode.workspace_root);
+    if (git && git.changedPaths.length > 0) {
+      this.store.insertEvidence({
+        episodeId: episode.id,
+        kind: "diff",
+        content: git.changedPaths.join("\n"),
+        metadata: {
+          changed_paths: git.changedPaths,
+          staged_paths: git.stagedPaths,
+          unstaged_paths: git.unstagedPaths,
+          staged_stat: git.stagedStat,
+          unstaged_stat: git.unstagedStat,
+        },
+        observedAt: nowMs,
+      });
+    }
+    this.store.closeActiveEpisode(sessionId, status, nowMs, git?.head ?? null);
   }
 }
 
