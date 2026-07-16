@@ -20,7 +20,7 @@ export type EventType =
   | "assistant_message"
   | "session_end";
 
-export type Platform = "claude-code" | "codex" | "opencode" | "cursor" | "gemini-cli" | "windsurf" | "raw";
+export type Platform = "claude-code" | "codex" | "raw";
 
 /** Memory types per MVP spec. */
 export type MemoryType =

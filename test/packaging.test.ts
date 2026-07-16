@@ -53,11 +53,4 @@ describe("PKG-001 package layout", () => {
     }
   });
 
-  it("emits the OpenCode built plugin at the path installers probe", () => {
-    // installers/opencode.ts resolves dist/integrations/opencode-plugin/index.js
-    const pluginSource = join(root, "src", "integrations", "opencode-plugin", "index.ts");
-    const pluginEmit = join(outDir, "integrations", "opencode-plugin", "index.js");
-    expect(existsSync(pluginSource)).toBe(true);
-    expect(sourceFor(pluginEmit)).toBe(pluginSource);
-  });
 });

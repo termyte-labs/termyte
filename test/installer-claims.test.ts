@@ -21,7 +21,6 @@ let originalUserProfile: string | undefined;
 let originalHook: string | undefined;
 let originalMcp: string | undefined;
 let originalCwd: string;
-let originalOcCfg: string | undefined;
 
 beforeEach(() => {
   homeDir = mkdtempSync(join(tmpdir(), "termyte-claims-"));
@@ -30,7 +29,6 @@ beforeEach(() => {
   originalUserProfile = process.env.USERPROFILE;
   originalHook = process.env.TERMYTE_HOOK_PATH;
   originalMcp = process.env.TERMYTE_MCP_PATH;
-  originalOcCfg = process.env.OPENCODE_CONFIG_DIR;
   const projectRoot = process.cwd();
   process.env.TERMYTE_HOOK_PATH = join(projectRoot, "dist", "cli", "hook.js");
   if (!existsSync(process.env.TERMYTE_HOOK_PATH)) {
@@ -42,7 +40,6 @@ beforeEach(() => {
   }
   process.env.HOME = homeDir;
   process.env.USERPROFILE = homeDir;
-  process.env.OPENCODE_CONFIG_DIR = join(homeDir, ".config", "opencode");
 });
 
 afterEach(() => {
@@ -55,8 +52,6 @@ afterEach(() => {
   else process.env.TERMYTE_HOOK_PATH = originalHook;
   if (originalMcp === undefined) delete process.env.TERMYTE_MCP_PATH;
   else process.env.TERMYTE_MCP_PATH = originalMcp;
-  if (originalOcCfg === undefined) delete process.env.OPENCODE_CONFIG_DIR;
-  else process.env.OPENCODE_CONFIG_DIR = originalOcCfg;
   rmSync(homeDir, { recursive: true, force: true });
 });
 

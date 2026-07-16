@@ -29,24 +29,6 @@ termyte uninstall
 termyte help
 ```
 
-MVP aliases:
-
-```text
-termyte capture
-termyte learn
-termyte remember
-termyte inspect
-termyte evaluate
-```
-
-These map onto the existing runtime flow:
-
-- `capture` bootstraps a repo for the capture loop;
-- `learn` synthesizes traces into observations and memories;
-- `remember` compiles scoped context for a task;
-- `inspect` opens the viewer for traces, episodes, and memories;
-- `evaluate` runs the local eval harness.
-
 ## Runtime
 
 ```text

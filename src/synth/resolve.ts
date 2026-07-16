@@ -1,7 +1,6 @@
 /**
  * Resolve the absolute path to an agent's binary, or null if not
- * found. Checks an env-var override first, then PATH / standard
- * install locations.
+ * found. Checks an env-var override first, then PATH / standard install locations.
  */
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";

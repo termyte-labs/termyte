@@ -19,7 +19,6 @@ Termyte is a local experience layer for coding agents. It captures execution, gr
 - `src/context/builder.ts` - context injection and feedback recording
 - `src/retrieval/hybrid.ts` - keyword + vector retrieval and ranking
 - `src/mcp/server.ts` - MCP tools and retrieval exposure
-- `src/integrations/opencode-plugin/index.ts` - OpenCode plugin behavior
 
 ## What To Assume
 

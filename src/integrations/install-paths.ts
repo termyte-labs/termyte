@@ -55,8 +55,7 @@ export function getTermyteMcpPath(): string | null {
   ]);
 }
 
-/** Path to the currently running Node executable — used by MCP-only
- *  integrations that need `node <mcp-server.js>` baked. */
+/** Path to the currently running Node executable for generated commands. */
 export function getNodeAbsolutePath(): string {
   return process.execPath;
 }

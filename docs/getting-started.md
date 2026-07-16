@@ -2,34 +2,30 @@
 
 ## Install
 
-Install Termyte and wire one supported agent:
+Install Termyte and connect Claude Code or Codex:
 
 ```bash
-termyte install <platform>
+npm install -g termyte
+termyte init
+termyte viewer
 ```
 
-Supported platforms include Claude Code, Codex, Cursor, OpenCode, Gemini CLI, Windsurf, and MCP-only targets.
+`termyte init` detects Claude Code and Codex, installs the selected hooks, and configures synthesis.
 
 ## Verify
 
 Run the local health checks:
 
 ```bash
-termyte smoke
 termyte doctor
-termyte stats
+termyte viewer
 ```
 
-`termyte smoke` is the quickest end-to-end proof. It checks queue health, writes a portable shared context file, and can optionally invoke a live agent adapter.
+`termyte doctor` reports database, hook, synthesis, queue, and trace health.
 
 ## Use
 
-- `termyte search <query>` to find relevant experience
-- `termyte context` to build compact, task-scoped experience cards
-- `termyte memory <id>` to expand one memory card
-- `termyte explain <id>` to see provenance, edges, and feedback
-
-Context cards include stable memory IDs and an explicit `termyte memory <id>` detail path. Termyte keeps the first packet small; request deeper provenance only when the card is relevant.
+The Viewer exposes sessions, episodes, context packets, memories, provenance, outcomes, and diagnostics.
 
 ## Configuration
 

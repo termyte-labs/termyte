@@ -6,8 +6,6 @@
 import type { AgentAdapter, AgentAdapterId } from "./types.js";
 import { ClaudeCodeAdapter } from "./claude-code.js";
 import { CodexAdapter } from "./codex.js";
-import { OpenCodeAdapter } from "./opencode.js";
-import { GeminiCliAdapter } from "./gemini-cli.js";
 import { FakeAdapter } from "./fake.js";
 
 export { FakeAdapter };
@@ -17,8 +15,6 @@ export type { AgentAdapter, AgentAdapterId, AgentInvokeOptions, AgentInvokeResul
 // from one place. Keep the class names stable; tests pin them.
 export { ClaudeCodeAdapter } from "./claude-code.js";
 export { CodexAdapter } from "./codex.js";
-export { OpenCodeAdapter } from "./opencode.js";
-export { GeminiCliAdapter } from "./gemini-cli.js";
 
 /** Create a fresh adapter for the given id. The caller owns the
  *  instance and is responsible for any teardown (none required today). */
@@ -26,8 +22,6 @@ export function createAdapter(id: AgentAdapterId): AgentAdapter {
   switch (id) {
     case "claude-code": return new ClaudeCodeAdapter();
     case "codex":       return new CodexAdapter();
-    case "opencode":    return new OpenCodeAdapter();
-    case "gemini-cli":  return new GeminiCliAdapter();
     case "fake":        return new FakeAdapter();
     default: {
       const exhaustive: never = id;
@@ -39,7 +33,7 @@ export function createAdapter(id: AgentAdapterId): AgentAdapter {
 /** Discover which synthesis-capable agent the user has installed.
  *  Probes in priority order; first hit wins. */
 export async function discoverAdapter(): Promise<AgentAdapterId | null> {
-  for (const id of ["claude-code", "codex", "opencode", "gemini-cli"] as const) {
+  for (const id of ["claude-code", "codex"] as const) {
     const a = createAdapter(id);
     if (await a.isAvailable()) return id;
   }

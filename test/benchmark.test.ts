@@ -11,9 +11,6 @@ import { evaluateQuery } from "../src/benchmark/metrics.js";
 import { runBenchmark, validateNoAnswerLeakage } from "../src/benchmark/runner.js";
 import { loadRawSessionDataset } from "../src/benchmark/datasets/raw-session.js";
 import { generateScaleDataset } from "../src/benchmark/datasets/scale.js";
-import { loadCompetitorExecutionAdapters } from "../src/benchmark/competitor-executions.js";
-import { planCompetitorBenchmarkRun, runCompetitorBenchmark } from "../src/benchmark/competitor-executions.js";
-import { loadCompetitorRunArtifacts } from "../src/benchmark/competitor-runs.js";
 
 let directory: string | undefined;
 const root = fileURLToPath(new URL("..", import.meta.url));
@@ -227,111 +224,6 @@ describe("benchmark framework", () => {
     expect(report).toContain("Dataset suite: custom");
     expect(report.indexOf("termyte")).toBeLessThan(report.indexOf("fts"));
     expect(renderComparisonReport(summaries)).toBe(report);
-  });
-
-  it("renders competitor execution adapters in comparison reports", async () => {
-    const adapters = await loadCompetitorExecutionAdapters("C:/Users/Palguna/Desktop/competitors");
-    const runs = await loadCompetitorRunArtifacts("C:/Users/Palguna/Desktop/competitors");
-    const report = renderComparisonReport([
-      {
-        directory: "run-a",
-        manifest: {
-          dataset: { name: "run-a", version: "1", suite: "custom" },
-          adapter: "fts",
-          track: "retrieval",
-        },
-        metrics: { recall_at_5: 0.5, mrr: 0.25, ndcg_at_10: 0.3, harmful_recall: 0, latency_p99_ms: 10 },
-      },
-      {
-        directory: "run-b",
-        manifest: {
-          dataset: { name: "run-b", version: "1", suite: "custom" },
-          adapter: "termyte",
-          track: "retrieval",
-        },
-        metrics: { recall_at_5: 1, mrr: 0.8, ndcg_at_10: 0.9, harmful_recall: 0, latency_p99_ms: 2 },
-      },
-    ], [], adapters, runs);
-
-    expect(report).toContain("## Competitor Execution Adapters");
-    expect(report).toContain("## Published Competitor Runs");
-    expect(report).toContain("agentmemory");
-    expect(report).toContain("claude-mem");
-  });
-
-  it("includes published competitor baselines when a competitor root is provided", async () => {
-    const baselines = await (await import("../src/benchmark/competitors.js")).loadPublishedBaselines("C:/Users/Palguna/Desktop/competitors");
-    expect(baselines.some((baseline) => baseline.source === "mem0" && baseline.benchmark === "BEAM (1M)")).toBe(true);
-    expect(baselines.some((baseline) => baseline.source === "mem0" && baseline.benchmark === "BEAM (10M)")).toBe(true);
-    expect(baselines.some((baseline) => baseline.source === "claude-mem" && baseline.benchmark === "Smart Explore")).toBe(true);
-  });
-
-  it("describes competitor execution adapters from local checkouts", async () => {
-    const adapters = await loadCompetitorExecutionAdapters("C:/Users/Palguna/Desktop/competitors");
-    const agentmemory = adapters.find((adapter) => adapter.source === "agentmemory");
-    const mem0 = adapters.find((adapter) => adapter.source === "mem0");
-    const claudeMem = adapters.find((adapter) => adapter.source === "claude-mem");
-
-    expect(agentmemory?.executable).toBe(true);
-    expect(agentmemory?.commands).toContain("npm run bench:quality");
-    expect(agentmemory?.publicArtifacts).toContain("benchmark/QUALITY.md");
-    expect(mem0?.executable).toBe(true);
-    expect(mem0?.commands.some((command) => command.includes("benchmarks.beam.run"))).toBe(true);
-    expect(claudeMem?.executable).toBe(false);
-    expect(claudeMem?.publicArtifacts).toContain("docs/public/smart-explore-benchmark.mdx");
-  });
-
-  it("resolves runnable competitor benchmark plans and guards missing submodules", async () => {
-    const agentmemoryPlan = await planCompetitorBenchmarkRun({
-      source: "agentmemory",
-      benchmark: "quality",
-      rootDirectory: "C:/Users/Palguna/Desktop/competitors",
-      dryRun: true,
-    });
-    expect(agentmemoryPlan.executable).toBe(true);
-    expect(agentmemoryPlan.command).toMatch(/npm(\.cmd)?$/);
-    expect(agentmemoryPlan.args).toContain("bench:quality");
-    expect(agentmemoryPlan.expectedArtifacts).toContain("benchmark/QUALITY.md");
-
-    const mem0Plan = await planCompetitorBenchmarkRun({
-      source: "mem0",
-      benchmark: "beam",
-      rootDirectory: "C:/Users/Palguna/Desktop/competitors",
-      projectName: "termyte-bench",
-      backend: "oss",
-      dryRun: true,
-    });
-    expect(mem0Plan.executable).toBe(true);
-    expect(mem0Plan.command).toMatch(/python(\.exe|3)?$/i);
-    expect(mem0Plan.args).toContain("benchmarks.beam.run");
-    expect(mem0Plan.reason).toBeUndefined();
-
-    const claudePlan = await planCompetitorBenchmarkRun({
-      source: "claude-mem",
-      benchmark: "beam",
-      rootDirectory: "C:/Users/Palguna/Desktop/competitors",
-      dryRun: true,
-    });
-    expect(claudePlan.executable).toBe(false);
-    expect(claudePlan.reason).toMatch(/no local benchmark runner/i);
-  });
-
-  it("returns a dry-run result for unsupported competitor execution", async () => {
-    const result = await runCompetitorBenchmark({
-      source: "claude-mem",
-      benchmark: "beam",
-      rootDirectory: "C:/Users/Palguna/Desktop/competitors",
-      dryRun: true,
-    });
-    expect(result.exitCode).toBe(1);
-    expect(result.plan.executable).toBe(false);
-  });
-
-  it("loads published competitor run artifacts from local checkouts", async () => {
-    const runs = await loadCompetitorRunArtifacts("C:/Users/Palguna/Desktop/competitors");
-    expect(runs.some((run) => run.source === "mem0" && run.benchmark === "BEAM (1M)")).toBe(true);
-    expect(runs.some((run) => run.source === "mem0" && run.benchmark === "BEAM (10M)")).toBe(true);
-    expect(runs.some((run) => run.source === "claude-mem" && run.benchmark === "Discovery")).toBe(true);
   });
 
   it("generates reproducible independently labeled scale corpora", () => {

@@ -28,10 +28,6 @@ export class HookRunner {
     this.adapters = {
       "claude-code": adapterFor("claude-code"),
       "codex": adapterFor("codex"),
-      "opencode": adapterFor("opencode"),
-      "cursor": adapterFor("cursor"),
-      "gemini-cli": adapterFor("gemini-cli"),
-      "windsurf": adapterFor("windsurf"),
       "raw": adapterFor("raw"),
     };
   }

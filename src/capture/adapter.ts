@@ -55,7 +55,7 @@ export interface PlatformAdapter {
 
 /**
  * Default output envelope for agents that just need `{continue:true}`.
- * Used by raw, windsurf, etc.
+ * Used by raw and adapters that do not need a platform-specific envelope.
  */
 export function passthroughFormatOutput(result: HookResult): unknown {
   return {

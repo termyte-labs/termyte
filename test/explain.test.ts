@@ -1,24 +1,12 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { openDatabase, type DatabaseContext } from "../src/storage/connection.js";
 import { Store } from "../src/storage/store.js";
 import { buildMemoryExplain, renderMemoryExplain } from "../src/explain/memory-explain.js";
-import { explainCommand } from "../src/cli/explain.js";
 
 let ctx: DatabaseContext;
-let tempDir: string | null = null;
 
 beforeEach(() => {
   ctx = openDatabase(":memory:");
-});
-
-afterEach(() => {
-  if (tempDir) {
-    rmSync(tempDir, { recursive: true, force: true });
-    tempDir = null;
-  }
 });
 
 describe("memory explainability", () => {
@@ -190,52 +178,4 @@ describe("memory explainability", () => {
     store.close();
   });
 
-  it("supports the CLI explain command", async () => {
-    tempDir = mkdtempSync(join(tmpdir(), "termyte-explain-"));
-    const dbPath = join(tempDir, "termyte.db");
-    const store = new Store(dbPath);
-    store.upsertSession("s1", "demo", "repo", "/work");
-    const memory = store.insertMemory({
-      session_id: "s1",
-      repo_id: "repo",
-      workspace_root: "/work",
-      type: "fact",
-      title: "CLI explain",
-      description: "Available via the CLI.",
-      files_read: [],
-      files_modified: [],
-      source_observation_ids: [],
-      source_trace_ids: [],
-      created_at: 1,
-      embedding: null,
-    });
-
-    const oldDb = process.env.TERMYTE_DB;
-    process.env.TERMYTE_DB = dbPath;
-    try {
-      const output = await captureStdout(() => explainCommand({ id: `memory:${memory.id}`, json: true }));
-      const parsed = JSON.parse(output) as { found: boolean; memory: { title: string } | null };
-      expect(parsed.found).toBe(true);
-      expect(parsed.memory?.title).toBe("CLI explain");
-    } finally {
-      process.env.TERMYTE_DB = oldDb;
-      store.close();
-    }
-  });
 });
-
-async function captureStdout(fn: () => Promise<void>): Promise<string> {
-  const originalWrite = process.stdout.write;
-  let output = "";
-  process.stdout.write = ((chunk: string | Uint8Array): boolean => {
-    output += chunk.toString();
-    return true;
-  }) as typeof process.stdout.write;
-
-  try {
-    await fn();
-    return output;
-  } finally {
-    process.stdout.write = originalWrite;
-  }
-}

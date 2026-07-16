@@ -19,11 +19,9 @@ Termyte is the best persistent memory layer for coding agents.
 - `src/context/builder.ts`
 - `src/retrieval/hybrid.ts`
 - `src/mcp/server.ts`
-- `src/integrations/opencode-plugin/index.ts`
 
 ## Rules
 
 - Treat retrieved memories as context, not truth.
 - Do not assume the system is self-correcting.
 - Keep public docs aligned with the code.
-

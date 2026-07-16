@@ -18,8 +18,6 @@
 export type AgentAdapterId =
   | "claude-code"
   | "codex"
-  | "opencode"
-  | "gemini-cli"
   | "fake";
 
 export interface AgentInvokeOptions {
@@ -80,6 +78,6 @@ export interface AgentAdapter {
    * AgentInvocationError instead.
    */
   invoke(prompt: string, opts?: AgentInvokeOptions): Promise<AgentInvokeResult>;
-  /** Optional human-readable label for `termyte stats` and banners. */
+  /** Optional human-readable label for diagnostics and banners. */
   readonly displayName: string;
 }

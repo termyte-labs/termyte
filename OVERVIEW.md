@@ -13,7 +13,7 @@ This repository is real software, not a pitch deck. The durable pipeline, proven
 - `src/eval` and `src/benchmark`: evaluation harnesses and retrieval benchmarks
 - `src/explain`: provenance and lifecycle explanation rendering
 - `src/hooks`: hook runner
-- `src/integrations`: installers for Claude Code, Codex, Cursor, Gemini CLI, OpenCode, Windsurf, and MCP-only setups
+- `src/integrations`: installers for Claude Code and Codex
 - `src/lifecycle`: decay, deduplication, and feedback state transitions
 - `src/mcp`: stdio MCP server, tool schema, and validation
 - `src/observer`: prompts, XML parsing, and the LLM-backed observation pipeline
@@ -21,7 +21,7 @@ This repository is real software, not a pitch deck. The durable pipeline, proven
 - `src/retrieval`: FTS, vector, hybrid search, ranking, and eligibility policy
 - `src/security`: deterministic redaction before persistence and LLM calls
 - `src/storage`: SQLite schema, migrations, document corpus, and repository state access
-- `src/synth`: agent-driven batch synthesis path and CLI adapters
+- `src/synth`: Claude Code/Codex synthesis adapters and shared prompts
 - `src/viewer`: local HTTP diagnostics viewer
 
 ## System Flow
@@ -70,7 +70,7 @@ The store preserves repository, workspace, session, observation, and trace prove
 - typed retrieval for the document corpus
 - context injections and explainability
 - explicit feedback persistence
-- local diagnostics, smoke checks, and benchmarks
+- local diagnostics and retrieval benchmarks
 
 ## What Does Not Work Yet
 
@@ -78,7 +78,6 @@ The store preserves repository, workspace, session, observation, and trace prove
 - automatic outcome attribution is not implemented
 - correction text is not verified against repository evidence
 - ranking calibration is still conservative
-- OpenCode still uses a shared context file refresh path instead of a true live injected memory object
 - the redaction layer is heuristic, not comprehensive
 
 ## Public Docs
