@@ -85,6 +85,16 @@ describe("CodexAdapter", () => {
     expect(event!.tool_input).toEqual({ file_path: "src/a.ts" });
   });
 
+  it("normalizes a Stop event with the final response", () => {
+    const event = a.normalize({
+      session_id: "s1",
+      cwd: "/work",
+      last_assistant_message: "Done.",
+      hook_event_name: "Stop",
+    });
+    expect(event).toMatchObject({ event_type: "assistant_message", final_response: "Done." });
+  });
+
   it("attaches filePaths on PreToolUse Bash", () => {
     const dir = mkdtempSync(join(tmpdir(), "termyte-codex-"));
     try {

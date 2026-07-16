@@ -58,7 +58,9 @@ describe("installers", () => {
     const path = join(homeDir, ".codex", "hooks.json");
     expect(existsSync(path)).toBe(true);
     const parsed = JSON.parse(readFileSync(path, "utf-8"));
+    expect(Object.keys(parsed.hooks).sort()).toEqual(["PostToolUse", "SessionStart", "Stop", "UserPromptSubmit"]);
     expect(parsed.hooks.UserPromptSubmit[0].hooks[0].command).toContain("codex context");
+    expect(parsed.hooks.Stop[0].hooks[0].command).toContain("codex summarize");
     expect(parsed.hooks.PreToolUse).toBeUndefined();
   });
 

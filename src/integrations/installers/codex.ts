@@ -18,6 +18,7 @@ const HOOK_EVENTS: Array<{ event: string; command: string; timeout: number }> = 
   { event: "SessionStart",      command: "session-init",  timeout: 60 },
   { event: "UserPromptSubmit",  command: "context",       timeout: 30 },
   { event: "PostToolUse",       command: "observation",   timeout: 60 },
+  { event: "Stop",              command: "summarize",     timeout: 60 },
 ];
 
 export interface CodexInstallOptions { target: "user" | "project"; homeDir?: string; }

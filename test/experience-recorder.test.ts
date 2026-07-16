@@ -69,7 +69,8 @@ describe("ExperienceRecorder", () => {
     const secondEpisodeId = recorder.record(second, secondTrace, session)!;
 
     expect(secondEpisodeId).not.toBe(firstEpisodeId);
-    expect(store.getEpisode(firstEpisodeId)?.status).toBe("unknown");
+    expect(store.getEpisode(firstEpisodeId)?.status).toBe("failed");
+    expect(store.getCurrentEpisodeOutcome(firstEpisodeId)?.status).toBe("failed");
     expect(store.getActiveEpisode("s1")?.id).toBe(secondEpisodeId);
     expect(store.getEpisodeTraces(firstEpisodeId).map((trace) => trace.id)).toEqual([firstTrace.id, toolTrace.id]);
     expect(store.getEvidenceForEpisode(firstEpisodeId)).toEqual(expect.arrayContaining([
@@ -138,6 +139,27 @@ describe("ExperienceRecorder", () => {
     expect(store.getCurrentEpisodeOutcome(episodeId)).toMatchObject({
       status: "succeeded", source: "inferred", context_injection_id: "injection-exact",
     });
+    store.close();
+  });
+
+  it("finalizes an episode on Stop without ending the session", () => {
+    const store = new Store(openDatabase(":memory:"));
+    const session = store.upsertSession("s1", "repo", "repo-1", "/not-a-git-repo");
+    const recorder = new ExperienceRecorder(store);
+    const prompt = event({ event_type: "user_prompt", user_prompt: "Run tests" });
+    const episodeId = recorder.record(prompt, store.insertTrace(traceInput(prompt)), session)!;
+    const tool = event({
+      event_type: "tool_use", timestamp: 3, tool_name: "Bash",
+      tool_input: { command: "npm test" }, tool_output: { exit_code: 0 },
+    });
+    recorder.record(tool, store.insertTrace(traceInput(tool)), session);
+    const stop = event({ event_type: "assistant_message", timestamp: 4, final_response: "Tests pass." });
+    recorder.record(stop, store.insertTrace(traceInput(stop)), session);
+
+    expect(store.getEpisode(episodeId)?.status).toBe("succeeded");
+    expect(store.getCurrentEpisodeOutcome(episodeId)?.status).toBe("succeeded");
+    expect(store.getActiveEpisode("s1")).toBeNull();
+    expect(store.getSession("s1")?.ended_at).toBeNull();
     store.close();
   });
 });

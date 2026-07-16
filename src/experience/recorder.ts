@@ -14,7 +14,10 @@ export class ExperienceRecorder {
     let episode = this.store.getActiveEpisode(event.session_id);
 
     if (event.event_type === "user_prompt" && (!episode || this.startsNewEpisode(episode.id, event.user_prompt))) {
-      if (episode) this.closeEpisode(event.session_id, "unknown", event.timestamp);
+      if (episode) {
+        const status = inferTerminalStatus(event, this.store.getEvidenceForEpisode(episode.id));
+        this.finalizeEpisode(event.session_id, status, event.timestamp);
+      }
       const workspaceRoot = session.workspace_root ?? event.cwd;
       episode = this.store.startEpisode({
         sessionId: event.session_id,
@@ -50,16 +53,12 @@ export class ExperienceRecorder {
       });
     }
 
-    if (event.event_type === "session_end") {
+    if (event.event_type === "assistant_message" && event.final_response) {
       const status = inferTerminalStatus(event, this.store.getEvidenceForEpisode(episode.id));
-      this.closeEpisode(event.session_id, status, event.timestamp);
-      this.store.recordEpisodeOutcome({
-        episodeId: episode.id,
-        status,
-        source: "inferred",
-        contextInjectionId: this.store.getLatestContextInjectionForEpisode(episode.id)?.id ?? null,
-        nowMs: event.timestamp,
-      });
+      this.finalizeEpisode(event.session_id, status, event.timestamp);
+    } else if (event.event_type === "session_end") {
+      const status = inferTerminalStatus(event, this.store.getEvidenceForEpisode(episode.id));
+      this.finalizeEpisode(event.session_id, status, event.timestamp);
       this.store.endSession(event.session_id);
     }
     return episode.id;
@@ -72,7 +71,7 @@ export class ExperienceRecorder {
     return failedEvidence || separateTask;
   }
 
-  private closeEpisode(sessionId: string, status: "succeeded" | "failed" | "unknown", nowMs: number): void {
+  private finalizeEpisode(sessionId: string, status: "succeeded" | "failed" | "unknown", nowMs: number): void {
     const episode = this.store.getActiveEpisode(sessionId);
     if (!episode) return;
     const git = readGitDiffState(episode.workspace_root);
@@ -92,6 +91,13 @@ export class ExperienceRecorder {
       });
     }
     this.store.closeActiveEpisode(sessionId, status, nowMs, git?.head ?? null);
+    this.store.recordEpisodeOutcome({
+      episodeId: episode.id,
+      status,
+      source: "inferred",
+      contextInjectionId: this.store.getLatestContextInjectionForEpisode(episode.id)?.id ?? null,
+      nowMs,
+    });
   }
 }
 
