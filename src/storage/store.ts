@@ -9,6 +9,8 @@ import type {
   CodeApplicabilityEvidence,
   ContextCandidate,
   ContextCandidateKind,
+  ContextEffect,
+  ContextEffectVerdict,
   ContextPacket,
   Episode,
   EpisodeOutcome,
@@ -994,6 +996,92 @@ export class Store {
     });
   }
 
+  upsertContextEffect(input: {
+    id?: string;
+    injectionId: string;
+    packetId?: string | null;
+    episodeId?: string | null;
+    memoryId?: number | null;
+    candidateId: string;
+    verdict: ContextEffectVerdict;
+    confidence: number;
+    outcomeStatus?: EpisodeOutcome["status"] | null;
+    signals?: Record<string, unknown>;
+    feedbackId?: string | null;
+    nowMs?: number;
+  }): ContextEffect {
+    const id = input.id ?? `effect_${randomUUID()}`;
+    this.ctx.db.prepare(`
+      INSERT INTO context_effects (
+        id, injection_id, packet_id, episode_id, memory_id, candidate_id,
+        verdict, confidence, outcome_status, signals_json, feedback_id, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(injection_id, candidate_id) DO UPDATE SET
+        packet_id = excluded.packet_id,
+        episode_id = excluded.episode_id,
+        memory_id = excluded.memory_id,
+        verdict = excluded.verdict,
+        confidence = excluded.confidence,
+        outcome_status = excluded.outcome_status,
+        signals_json = excluded.signals_json,
+        feedback_id = COALESCE(excluded.feedback_id, context_effects.feedback_id)
+    `).run(
+      id,
+      input.injectionId,
+      input.packetId ?? null,
+      input.episodeId ?? null,
+      input.memoryId ?? null,
+      input.candidateId,
+      input.verdict,
+      input.confidence,
+      input.outcomeStatus ?? null,
+      serialize(input.signals ?? {}),
+      input.feedbackId ?? null,
+      input.nowMs ?? Date.now(),
+    );
+    return this.getContextEffect(input.injectionId, input.candidateId)!;
+  }
+
+  getContextEffect(injectionId: string, candidateId: string): ContextEffect | null {
+    const row = this.ctx.db.prepare(`
+      SELECT * FROM context_effects WHERE injection_id = ? AND candidate_id = ?
+    `).get(injectionId, candidateId) as any;
+    return row ? mapContextEffect(row) : null;
+  }
+
+  getContextEffectsForInjection(injectionId: string): ContextEffect[] {
+    return (this.ctx.db.prepare(`
+      SELECT * FROM context_effects WHERE injection_id = ? ORDER BY created_at ASC, id ASC
+    `).all(injectionId) as any[]).map(mapContextEffect);
+  }
+
+  getContextEffectsForEpisode(episodeId: string): ContextEffect[] {
+    return (this.ctx.db.prepare(`
+      SELECT * FROM context_effects WHERE episode_id = ? ORDER BY created_at ASC, id ASC
+    `).all(episodeId) as any[]).map(mapContextEffect);
+  }
+
+  getContextEffectsForMemory(memoryId: number): ContextEffect[] {
+    return (this.ctx.db.prepare(`
+      SELECT * FROM context_effects WHERE memory_id = ? ORDER BY created_at DESC, id DESC
+    `).all(memoryId) as any[]).map(mapContextEffect);
+  }
+
+  getRecentContextEffectCounts(sinceMs = 0): Record<ContextEffectVerdict | "total", number> {
+    const counts: Record<ContextEffectVerdict | "total", number> = {
+      total: 0, helped: 0, hurt: 0, unused: 0, unknown: 0,
+    };
+    const rows = this.ctx.db.prepare(`
+      SELECT verdict, COUNT(*) AS count FROM context_effects
+      WHERE created_at >= ? GROUP BY verdict
+    `).all(sinceMs) as Array<{ verdict: ContextEffectVerdict; count: number }>;
+    for (const row of rows) {
+      counts[row.verdict] = row.count;
+      counts.total += row.count;
+    }
+    return counts;
+  }
+
   /** Mark a memory superseded by `supersededBy`, locking it out of default
    *  retrieval (enforced once lifecycle filtering is wired). */
   markMemorySuperseded(id: number, supersededBy: number): void {
@@ -1457,6 +1545,23 @@ function mapContextCandidate(row: any): ContextCandidate {
     selected: row.selected === 1, rank: row.rank, final_score: row.final_score,
     score_breakdown: parseJSON<Record<string, unknown>>(row.score_breakdown_json, {}),
     rejection_reason: row.rejection_reason, rendered_text: row.rendered_text,
+  };
+}
+
+function mapContextEffect(row: any): ContextEffect {
+  return {
+    id: row.id,
+    injection_id: row.injection_id,
+    packet_id: row.packet_id,
+    episode_id: row.episode_id,
+    memory_id: row.memory_id,
+    candidate_id: row.candidate_id,
+    verdict: row.verdict,
+    confidence: row.confidence,
+    outcome_status: row.outcome_status,
+    signals: parseJSON<Record<string, unknown>>(row.signals_json, {}),
+    feedback_id: row.feedback_id,
+    created_at: row.created_at,
   };
 }
 

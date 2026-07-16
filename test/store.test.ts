@@ -228,4 +228,44 @@ describe("Store", () => {
     expect(latest!.summary).toBe("second");
     store.close();
   });
+
+  it("upserts and queries context effects by injection, episode, and memory", () => {
+    const store = new Store(ctx);
+    store.upsertSession("s1", "demo", "r1", "/w");
+    const episode = store.startEpisode({ sessionId: "s1", repoId: "r1", workspaceRoot: "/w", task: "Task" });
+    const memory = store.insertMemory({
+      session_id: "s1", repo_id: "r1", workspace_root: "/w",
+      type: "procedure", title: "Run tests", description: "Use npm test",
+      files_read: [], files_modified: [], source_observation_ids: [], source_trace_ids: [],
+      created_at: 1, embedding: null,
+    });
+    const packet = store.recordContextPacket({
+      sessionId: "s1", episodeId: episode.id, repoId: "r1", agent: "test", task: "Task",
+      tokenBudget: 100, estimatedTokens: 5, retrievalMode: "fts", latencyMs: 1,
+      renderedText: "context", candidates: [], nowMs: 2,
+    });
+    store.recordContextInjection({
+      id: "inj-1", sessionId: "s1", repoId: "r1", memoryIds: [memory.id],
+      surface: "test", packetId: packet.id, nowMs: 3,
+    });
+
+    const first = store.upsertContextEffect({
+      injectionId: "inj-1", packetId: packet.id, episodeId: episode.id,
+      memoryId: memory.id, candidateId: `procedure:${memory.id}`,
+      verdict: "unknown", confidence: 0.5, signals: { reason: "no_signal" }, nowMs: 4,
+    });
+    const updated = store.upsertContextEffect({
+      injectionId: "inj-1", packetId: packet.id, episodeId: episode.id,
+      memoryId: memory.id, candidateId: `procedure:${memory.id}`,
+      verdict: "helped", confidence: 0.95, outcomeStatus: "succeeded",
+      signals: { feedback: "helpful" }, feedbackId: "feedback-1", nowMs: 5,
+    });
+
+    expect(updated.id).toBe(first.id);
+    expect(store.getContextEffectsForInjection("inj-1")).toHaveLength(1);
+    expect(store.getContextEffectsForEpisode(episode.id)[0]).toMatchObject({ verdict: "helped" });
+    expect(store.getContextEffectsForMemory(memory.id)[0]).toMatchObject({ feedback_id: "feedback-1" });
+    expect(store.getRecentContextEffectCounts()).toEqual({ total: 1, helped: 1, hurt: 0, unused: 0, unknown: 0 });
+    store.close();
+  });
 });

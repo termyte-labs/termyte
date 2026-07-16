@@ -442,6 +442,26 @@ CREATE TABLE IF NOT EXISTS context_candidates (
   PRIMARY KEY (packet_id, candidate_id)
 );
 CREATE INDEX IF NOT EXISTS idx_context_candidates_selected ON context_candidates(packet_id, selected, rank);
+
+CREATE TABLE IF NOT EXISTS context_effects (
+  id TEXT PRIMARY KEY,
+  injection_id TEXT NOT NULL REFERENCES context_injections(id) ON DELETE CASCADE,
+  packet_id TEXT REFERENCES context_packets(id) ON DELETE SET NULL,
+  episode_id TEXT REFERENCES episodes(id) ON DELETE SET NULL,
+  memory_id INTEGER REFERENCES memories(id) ON DELETE SET NULL,
+  candidate_id TEXT NOT NULL,
+  verdict TEXT NOT NULL CHECK(verdict IN ('helped', 'hurt', 'unused', 'unknown')),
+  confidence REAL NOT NULL DEFAULT 0.5,
+  outcome_status TEXT,
+  signals_json TEXT NOT NULL DEFAULT '{}',
+  feedback_id TEXT,
+  created_at INTEGER NOT NULL,
+  UNIQUE(injection_id, candidate_id)
+);
+CREATE INDEX IF NOT EXISTS idx_context_effects_injection ON context_effects(injection_id);
+CREATE INDEX IF NOT EXISTS idx_context_effects_episode ON context_effects(episode_id);
+CREATE INDEX IF NOT EXISTS idx_context_effects_memory ON context_effects(memory_id);
+CREATE INDEX IF NOT EXISTS idx_context_effects_verdict ON context_effects(verdict);
 `;
 
 export function runMigrations(db: DB): void {

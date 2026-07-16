@@ -289,3 +289,20 @@ export interface ContextCandidate {
   rejection_reason: string | null;
   rendered_text: string;
 }
+
+export type ContextEffectVerdict = "helped" | "hurt" | "unused" | "unknown";
+
+export interface ContextEffect {
+  id: string;
+  injection_id: string;
+  packet_id: string | null;
+  episode_id: string | null;
+  memory_id: number | null;
+  candidate_id: string;
+  verdict: ContextEffectVerdict;
+  confidence: number;
+  outcome_status: OutcomeStatus | null;
+  signals: Record<string, unknown>;
+  feedback_id: string | null;
+  created_at: number;
+}
