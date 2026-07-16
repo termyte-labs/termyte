@@ -17,7 +17,8 @@ export type JobKind =
   | "dedupe_memories"
   | "update_summary"
   | "decay_memories"
-  | "verify_memory";
+  | "verify_memory"
+  | "attribute_context";
 
 export type JobSubjectType = "trace" | "observation" | "memory" | "summary" | "episode";
 

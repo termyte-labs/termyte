@@ -26,6 +26,7 @@ import {
 } from "../lifecycle/dedupe.js";
 import { memoryDecayScore, nextMemoryStateAfterDecay } from "../lifecycle/decay.js";
 import type { CodeApplicabilityEvidence } from "../core/types.js";
+import { attributeEpisodeContext } from "../experience/context-attribution.js";
 
 export interface MemoryPipelineConfig {
   store: Store;
@@ -186,6 +187,9 @@ export class MemoryPipeline {
           break;
         case "verify_memory":
           await this.verifyMemory(job);
+          break;
+        case "attribute_context":
+          attributeEpisodeContext(this.store, job.subjectId);
           break;
         default:
           throw new PermanentJobError(`Unsupported job kind: ${(job as Job).kind}`);

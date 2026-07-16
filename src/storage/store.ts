@@ -262,14 +262,28 @@ export class Store {
     if (!this.getEpisode(input.episodeId)) throw new Error(`Episode not found: ${input.episodeId}`);
     const id = `outcome_${randomUUID()}`;
     const nowMs = input.nowMs ?? Date.now();
+    const contextInjectionId = input.contextInjectionId
+      ?? this.getLatestContextInjectionForEpisode(input.episodeId)?.id
+      ?? null;
     this.transaction(() => {
       this.ctx.db.prepare(`
         INSERT INTO episode_outcomes (id, episode_id, status, source, notes, context_injection_id, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?)
-      `).run(id, input.episodeId, input.status, input.source, input.notes ?? null, input.contextInjectionId ?? null, nowMs);
+      `).run(id, input.episodeId, input.status, input.source, input.notes ?? null, contextInjectionId, nowMs);
       const preferred = this.getCurrentEpisodeOutcome(input.episodeId);
       this.ctx.db.prepare(`UPDATE episodes SET status = ?, ended_at = COALESCE(ended_at, ?) WHERE id = ?`)
         .run(preferred?.status ?? input.status, nowMs, input.episodeId);
+      this.ctx.db.prepare(`
+        INSERT INTO jobs (
+          id, kind, subject_type, subject_id, state, attempt_count,
+          max_attempts, next_run_at, created_at, updated_at
+        ) VALUES (?, 'attribute_context', 'episode', ?, 'pending', 0, 5, ?, ?, ?)
+        ON CONFLICT(kind, subject_type, subject_id, dedupe_key) DO UPDATE SET
+          state = 'pending', attempt_count = 0, lease_owner = NULL,
+          lease_until = NULL, next_run_at = excluded.next_run_at,
+          last_error = NULL, updated_at = excluded.updated_at
+        WHERE jobs.state IN ('pending', 'failed', 'succeeded')
+      `).run(`attribute_${randomUUID()}`, input.episodeId, nowMs, nowMs, nowMs);
     });
     return this.getEpisodeOutcomes(input.episodeId)[0]!;
   }
@@ -1169,6 +1183,7 @@ export class Store {
     contextInjectionId?: string;
     source?: string;
     correctionText?: string;
+    feedbackId?: string;
     nowMs?: number;
   }): { recorded: boolean; memoryId?: number; reason?: string } {
     const memoryId = this.resolveMemoryId(input.id);
@@ -1190,8 +1205,29 @@ export class Store {
       last_accessed_at: memory.last_accessed_at ?? null,
       last_reinforced_at: memory.last_reinforced_at ?? null,
     }, input.event, nowMs);
+    const feedbackId = input.feedbackId ?? `feedback_${randomUUID()}`;
+    let inserted = false;
 
     this.transaction(() => {
+      const result = this.ctx.db.prepare(`
+        INSERT OR IGNORE INTO memory_feedback (
+          id, memory_id, doc_id, event_type, weight, source,
+          context_injection_id, correction_text, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        feedbackId,
+        memoryId,
+        input.id,
+        input.event,
+        next.weight,
+        input.source ?? "mcp",
+        input.contextInjectionId ?? null,
+        input.correctionText ?? null,
+        nowMs,
+      );
+      inserted = result.changes === 1;
+      if (!inserted) return;
+
       if (input.event === "corrected" && input.correctionText && input.contextInjectionId) {
         const episodeId = this.getEpisodeIdForContextInjection(input.contextInjectionId);
         if (episodeId) {
@@ -1208,24 +1244,6 @@ export class Store {
           });
         }
       }
-      this.ctx.db.prepare(`
-        INSERT INTO memory_feedback (
-          id, memory_id, doc_id, event_type, weight, source,
-          context_injection_id, correction_text, created_at
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        `feedback_${randomUUID()}`,
-        memoryId,
-        input.id,
-        input.event,
-        next.weight,
-        input.source ?? "mcp",
-        input.contextInjectionId ?? null,
-        input.correctionText ?? null,
-        nowMs,
-      );
-
       this.ctx.db.prepare(`
         UPDATE memories
         SET
@@ -1264,7 +1282,50 @@ export class Store {
       }
     });
 
+    if (input.contextInjectionId && input.source !== "inferred-effect" && input.event !== "shown") {
+      this.syncContextEffectFromFeedback({
+        injectionId: input.contextInjectionId,
+        memoryId,
+        event: input.event,
+        feedbackId,
+        nowMs,
+      });
+    }
     return { recorded: true, memoryId };
+  }
+
+  private syncContextEffectFromFeedback(input: {
+    injectionId: string;
+    memoryId: number;
+    event: MemoryFeedbackEvent;
+    feedbackId: string;
+    nowMs: number;
+  }): void {
+    const injection = this.getContextInjection(input.injectionId);
+    const memory = this.getMemory(input.memoryId);
+    if (!injection || !memory || !this.getContextInjectionItems(input.injectionId).some((item) => item.memory_id === input.memoryId)) return;
+    const episodeId = this.getEpisodeIdForContextInjection(input.injectionId);
+    const outcome = episodeId ? this.getCurrentEpisodeOutcome(episodeId) : null;
+    const verdict: ContextEffectVerdict = input.event === "harmful" || input.event === "corrected"
+      ? "hurt"
+      : input.event === "ignored" || input.event === "downranked"
+        ? "unused"
+        : outcome?.status === "succeeded" && (input.event === "helpful" || input.event === "used")
+          ? "helped"
+          : "unknown";
+    this.upsertContextEffect({
+      injectionId: input.injectionId,
+      packetId: injection.packet_id,
+      episodeId,
+      memoryId: input.memoryId,
+      candidateId: `${memory.type === "procedure" ? "procedure" : "memory"}:${memory.id}`,
+      verdict,
+      confidence: verdict === "unknown" ? 0.5 : 0.95,
+      outcomeStatus: outcome?.status ?? null,
+      signals: { source: "explicit", feedback_event: input.event },
+      feedbackId: input.feedbackId,
+      nowMs: input.nowMs,
+    });
   }
 
   /** Aggregate explicit behavioral feedback for bounded query-time ranking.
