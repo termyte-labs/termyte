@@ -33,6 +33,7 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL, co
       sessions: count(db, "sessions"), episodes: count(db, "episodes"),
       traces: count(db, "traces"), memories: count(db, "memories"),
       packets: count(db, "context_packets"), health: store.getHealthDiagnostics(),
+      effects: effectSummary(store),
     });
   }
   if (req.method === "GET" && url.pathname === "/api/sessions") return data(res, store.getRecentSessions(readLimit(url)));
@@ -55,6 +56,7 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL, co
       currentOutcome: store.getCurrentEpisodeOutcome(row.id),
       packets: store.getContextPackets({ episodeId: row.id }),
       injections: store.getContextInjectionsForEpisode(row.id),
+      effects: store.getContextEffectsForEpisode(row.id),
     });
   }
   const outcome = match(url.pathname, /^\/api\/episodes\/([^/]+)\/outcomes$/);
@@ -104,6 +106,7 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL, co
       problemJobs,
       deadLetters: store.getDeadJobs(100),
       audit: store.getAuditLog({ limit: 100 }),
+      effects: effectSummary(store),
     });
   }
   const retry = match(url.pathname, /^\/api\/jobs\/([^/]+)\/retry$/);
@@ -147,4 +150,14 @@ function contentType(path: string): string {
   if (path.endsWith(".css")) return "text/css; charset=utf-8";
   if (path.endsWith(".svg")) return "image/svg+xml";
   return "text/html; charset=utf-8";
+}
+
+function effectSummary(store: Store): Record<string, number> {
+  const counts = store.getRecentContextEffectCounts(Date.now() - 30 * 24 * 60 * 60 * 1_000);
+  return {
+    ...counts,
+    attributionRate: counts.total === 0 ? 0 : (counts.total - counts.unknown) / counts.total,
+    helpfulRate: counts.total === 0 ? 0 : counts.helped / counts.total,
+    harmfulRate: counts.total === 0 ? 0 : counts.hurt / counts.total,
+  };
 }

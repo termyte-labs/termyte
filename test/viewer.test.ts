@@ -112,12 +112,17 @@ describe("viewer diagnostics server", () => {
       episodeId: episode.id, status: "succeeded", source: "viewer",
       contextInjectionId: "injection-viewer",
     });
+    store.upsertContextEffect({
+      injectionId: "injection-viewer", packetId: packet.id, episodeId: episode.id,
+      candidateId: "memory:1", verdict: "helped", confidence: 0.8,
+    });
     running = await startViewerServer({ db: store.getDB(), port: 0 });
 
     const episodeBody = await (await fetch(`${running.url}/api/episodes/${episode.id}`)).json() as any;
     expect(episodeBody.data.packets.map((row: any) => row.id)).toEqual(["packet-viewer"]);
     expect(episodeBody.data.injections.map((row: any) => row.id)).toEqual(["injection-viewer"]);
     expect(episodeBody.data.currentOutcome.context_injection_id).toBe("injection-viewer");
+    expect(episodeBody.data.effects).toEqual([expect.objectContaining({ verdict: "helped", confidence: 0.8 })]);
 
     const packetBody = await (await fetch(`${running.url}/api/context-packets/${packet.id}`)).json() as any;
     expect(packetBody.data.abstained).toBe(false);

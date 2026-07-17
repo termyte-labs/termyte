@@ -17,13 +17,24 @@ type IntegrationStatus = {
   expectedPaths: string[];
   installed: boolean;
   evidence?: string;
+  expectedHooks: string[];
+  installedHooks: string[];
+  missingHooks: string[];
 };
+
+const EXPECTED_HOOKS = [
+  "SessionStart:session-init",
+  "UserPromptSubmit:context",
+  "PostToolUse:observation",
+  "Stop:summarize",
+];
 
 async function main(): Promise<void> {
   const config = loadConfig();
   const store = new Store(config.dbPath);
   try {
     const health = store.getHealthDiagnostics();
+    const effects = effectSummary(store);
     const integrations = inspectIntegrations();
     const lines = [
       "Termyte Doctor",
@@ -33,11 +44,14 @@ async function main(): Promise<void> {
       `queue:              pending=${health.queue.pending} ready=${health.queue.ready} leased=${health.queue.leased} dead=${health.queue.dead}`,
       `queue age:          ${health.queue.oldestReadyAgeMs ?? 0}ms; completed last minute=${health.queue.completedLastMinute}`,
       `unprocessed traces: ${store.getUnprocessedTraces(1000).length}`,
+      `context effects:    helped=${effects.helped} hurt=${effects.hurt} unused=${effects.unused} unknown=${effects.unknown}`,
+      `attribution rate:   ${(effects.attributionRate * 100).toFixed(1)}%`,
       "",
       "Integrations:",
       ...integrations.map((entry) => {
-        const status = entry.installed ? "installed" : "missing";
-        return `  ${entry.name}: ${status} (${entry.evidence ?? entry.expectedPaths[0] ?? "n/a"})`;
+        const status = entry.installed ? "installed" : entry.installedHooks.length > 0 ? "partial" : "missing";
+        const missing = entry.missingHooks.length > 0 ? `; missing ${entry.missingHooks.join(", ")}` : "";
+        return `  ${entry.name}: ${status} (${entry.evidence ?? entry.expectedPaths[0] ?? "n/a"}${missing})`;
       }),
       "",
       "Next steps:",
@@ -59,31 +73,44 @@ export function inspectIntegrations(): IntegrationStatus[] {
   ];
 
   return configs.map((cfg) => {
+    const installedHooks = new Set<string>();
+    let evidence: string | undefined;
     for (const p of cfg.paths) {
       if (!existsSync(p)) continue;
       try {
         const text = readFileSync(p, "utf-8");
-        if (text.includes(cfg.needle) || hasManagedAgentHook(text, cfg.name === "Codex" ? "codex" : "claude-code")) {
-          return { name: cfg.name, expectedPaths: cfg.paths, installed: true, evidence: p };
-        }
+        for (const hook of readManagedHookCoverage(text, cfg.name === "Codex" ? "codex" : "claude-code")) installedHooks.add(hook);
+        if (!evidence && (text.includes(cfg.needle) || installedHooks.size > 0)) evidence = p;
       } catch {
         // keep scanning other paths
       }
     }
-    return { name: cfg.name, expectedPaths: cfg.paths, installed: false };
+    const installed = EXPECTED_HOOKS.filter((hook) => installedHooks.has(hook));
+    const missing = EXPECTED_HOOKS.filter((hook) => !installedHooks.has(hook));
+    return {
+      name: cfg.name, expectedPaths: cfg.paths, installed: missing.length === 0, evidence,
+      expectedHooks: [...EXPECTED_HOOKS], installedHooks: installed, missingHooks: missing,
+    };
   });
 }
 
-function hasManagedAgentHook(text: string, agent: "claude-code" | "codex"): boolean {
+function readManagedHookCoverage(text: string, agent: "claude-code" | "codex"): string[] {
   try {
     const parsed = JSON.parse(text) as { hooks?: Record<string, Array<{ hooks?: Array<{ command?: string }> }>> };
-    return Object.values(parsed.hooks ?? {}).some((groups) =>
-      Array.isArray(groups) && groups.some((group) =>
-        group.hooks?.some((hook) => isTermyteHookCommand(hook.command) && hook.command?.includes(` ${agent} `)),
-      ),
-    );
+    const found: string[] = [];
+    for (const [event, groups] of Object.entries(parsed.hooks ?? {})) {
+      if (!Array.isArray(groups)) continue;
+      for (const group of groups) for (const hook of group.hooks ?? []) {
+        if (!isTermyteHookCommand(hook.command) || !hook.command?.includes(` ${agent} `)) continue;
+        for (const expected of EXPECTED_HOOKS) {
+          const [expectedEvent, handler] = expected.split(":");
+          if (event === expectedEvent && hook.command.includes(` ${handler}`)) found.push(expected);
+        }
+      }
+    }
+    return found;
   } catch {
-    return false;
+    return [];
   }
 }
 
@@ -96,6 +123,7 @@ export async function runDoctorJson(): Promise<void> {
   const store = new Store(config.dbPath);
   try {
     const health = store.getHealthDiagnostics();
+    const effects = effectSummary(store);
     process.stdout.write(JSON.stringify({
       dbPath: config.dbPath,
       hookEntry: getTermyteHookPath(),
@@ -103,10 +131,21 @@ export async function runDoctorJson(): Promise<void> {
       queue: health.queue,
       unprocessedTraces: store.getUnprocessedTraces(1000).length,
       integrations: inspectIntegrations(),
+      effects,
     }, null, 2) + "\n");
   } finally {
     store.close();
   }
+}
+
+function effectSummary(store: Store): Record<string, number> {
+  const counts = store.getRecentContextEffectCounts(Date.now() - 30 * 24 * 60 * 60 * 1_000);
+  return {
+    ...counts,
+    attributionRate: counts.total === 0 ? 0 : (counts.total - counts.unknown) / counts.total,
+    helpfulRate: counts.total === 0 ? 0 : counts.helped / counts.total,
+    harmfulRate: counts.total === 0 ? 0 : counts.hurt / counts.total,
+  };
 }
 
 function isMainEntry(): boolean {

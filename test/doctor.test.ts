@@ -38,6 +38,9 @@ describe("doctor command", () => {
     writeFileSync(join(claudePath, "settings.json"), JSON.stringify({
       hooks: {
         SessionStart: [{ matcher: "*", hooks: [{ type: "command", command: "node termyte-hook claude-code session-init" }] }],
+        UserPromptSubmit: [{ matcher: "*", hooks: [{ type: "command", command: "node termyte-hook claude-code context" }] }],
+        PostToolUse: [{ matcher: "*", hooks: [{ type: "command", command: "node termyte-hook claude-code observation" }] }],
+        Stop: [{ matcher: "*", hooks: [{ type: "command", command: "node termyte-hook claude-code summarize" }] }],
       },
     }, null, 2));
 
@@ -71,7 +74,8 @@ describe("doctor command", () => {
       dbPath: string;
       synthesis: string;
       queue: { pending: number; leased: number; dead: number; ready: number; oldestReadyAgeMs: number | null; completedLastMinute: number };
-      integrations: Array<{ name: string; installed: boolean }>;
+      integrations: Array<{ name: string; installed: boolean; installedHooks: string[]; missingHooks: string[] }>;
+      effects: { total: number; attributionRate: number; helpfulRate: number; harmfulRate: number };
     };
     expect(parsed.dbPath).toContain("termyte.db");
     expect(parsed.synthesis).toBe("capture-only");
@@ -79,5 +83,23 @@ describe("doctor command", () => {
     expect(typeof parsed.queue.ready).toBe("number");
     expect(typeof parsed.queue.completedLastMinute).toBe("number");
     expect(parsed.integrations.length).toBeGreaterThan(0);
+    expect(parsed.integrations[0]?.missingHooks).toEqual(expect.any(Array));
+    expect(parsed.effects.total).toBe(0);
+    expect(parsed.effects.attributionRate).toBe(0);
+  });
+
+  it("reports partial hook installations with exact missing events", async () => {
+    const claudePath = join(homeDir, ".claude");
+    mkdirSync(claudePath, { recursive: true });
+    writeFileSync(join(claudePath, "settings.json"), JSON.stringify({
+      hooks: { SessionStart: [{ hooks: [{ command: "node termyte-hook claude-code session-init" }] }] },
+    }));
+    const { inspectIntegrations } = await import("../src/cli/doctor.js");
+    const claude = inspectIntegrations().find((entry) => entry.name === "Claude Code")!;
+    expect(claude.installed).toBe(false);
+    expect(claude.installedHooks).toEqual(["SessionStart:session-init"]);
+    expect(claude.missingHooks).toEqual([
+      "UserPromptSubmit:context", "PostToolUse:observation", "Stop:summarize",
+    ]);
   });
 });
