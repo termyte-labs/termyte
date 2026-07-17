@@ -19,7 +19,7 @@ export const TERMYTE_TOOL_DEFS: ToolDef[] = [
   },
   {
     name: "termyte.context",
-    description: "Build a deterministic context block for an LLM client from Termyte retrieval.",
+    description: "Build an attributable context packet. Returns contextPacketId and a contextInjectionId only when context was delivered.",
     inputSchema: {
       type: "object",
       properties: {
@@ -63,7 +63,7 @@ export const TERMYTE_TOOL_DEFS: ToolDef[] = [
   },
   {
     name: "termyte.feedback",
-    description: "Record explicit feedback for a retrieved memory/document.",
+    description: "Record explicit feedback for a memory that was present in the named context injection.",
     inputSchema: {
       type: "object",
       properties: {
@@ -72,12 +72,12 @@ export const TERMYTE_TOOL_DEFS: ToolDef[] = [
         contextInjectionId: { type: "string" },
         correctionText: { type: "string", description: "Required when event=corrected: the replacement knowledge to verify and persist." },
       },
-      required: ["id", "event"],
+      required: ["id", "event", "contextInjectionId"],
     },
   },
   {
     name: "termyte.explain",
-    description: "Explain a memory/document with provenance, state, edges, and feedback when available.",
+    description: "Explain a memory with provenance, lifecycle, feedback, and measured context effects.",
     inputSchema: {
       type: "object",
       properties: { id: { type: "string" } },

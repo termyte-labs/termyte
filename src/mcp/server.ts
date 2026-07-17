@@ -37,22 +37,22 @@ import {
 } from "./schemas.js";
 import type { JsonRpcRequest, JsonRpcResponse } from "./types.js";
 import { createEmbeddingsProvider } from "../runtime/providers.js";
+import { randomUUID } from "node:crypto";
 
-class TermyteMcpServer {
+export class TermyteMcpServer {
   private store: Store;
   private search: HybridSearch;
   private contextBuilder: ContextBuilder;
   private embeddings: EmbeddingsProvider;
   private documents: DocumentStore;
 
-  constructor() {
-    const config = loadConfig();
-    this.store = new Store(config.dbPath);
-    try {
-      this.embeddings = createEmbeddingsProvider(config.embeddings.model);
-    } catch {
-      this.embeddings = new NoOpEmbeddingsProvider();
-    }
+  constructor(deps?: { store: Store; embeddings?: EmbeddingsProvider }) {
+    const config = deps ? null : loadConfig();
+    this.store = deps?.store ?? new Store(config!.dbPath);
+    if (deps?.embeddings) this.embeddings = deps.embeddings;
+    else if (deps) this.embeddings = new NoOpEmbeddingsProvider();
+    else try { this.embeddings = createEmbeddingsProvider(config!.embeddings.model); }
+    catch { this.embeddings = new NoOpEmbeddingsProvider(); }
     const fts = new FTSSearch(this.store);
     const vector = new VectorSearch(this.store);
     this.search = new HybridSearch({ fts, vector, embeddings: this.embeddings, feedbackStore: this.store });
@@ -142,6 +142,7 @@ class TermyteMcpServer {
         const input = validateContextInput(args);
         if (!input.ok) return validationErrorResult(input.error);
         if (!isCurrentMemorySearchSupported(input.value.type)) {
+          const startedAt = Date.now();
           const hits = this.searchDocuments(
             input.value.query,
             input.value.type,
@@ -150,11 +151,48 @@ class TermyteMcpServer {
             input.value.limit,
           );
           const markdown = renderDocumentContext(hits, input.value.tokenBudget);
+          const episode = input.value.sessionId ? this.store.getActiveEpisode(input.value.sessionId) : null;
+          const packet = this.store.recordContextPacket({
+            sessionId: input.value.sessionId,
+            episodeId: episode?.id,
+            repoId: input.value.repo_id ?? "unknown",
+            agent: "mcp",
+            task: input.value.query,
+            tokenBudget: input.value.tokenBudget ?? 4_000,
+            estimatedTokens: Math.ceil(markdown.length / 4),
+            retrievalMode: "fts-documents",
+            latencyMs: Date.now() - startedAt,
+            renderedText: markdown,
+            candidates: hits.map((hit, index) => ({
+              candidateId: hit.document.id,
+              kind: documentCandidateKind(hit.document.doc_type),
+              sourceId: hit.document.source_id,
+              tokenEstimate: Math.ceil(hit.document.content.length / 4),
+              selected: true,
+              rank: index + 1,
+              finalScore: hit.score,
+              scoreBreakdown: { sparse_score: hit.score },
+              renderedText: hit.document.content,
+            })),
+          });
+          const injectionId = markdown && hits.length > 0 ? randomUUID() : null;
+          if (injectionId) this.store.recordContextInjection({
+            id: injectionId,
+            sessionId: input.value.sessionId,
+            repoId: input.value.repo_id,
+            query: input.value.query,
+            files: input.value.files,
+            memoryIds: [],
+            surface: "mcp",
+            packetId: packet.id,
+            deliveryMethod: "mcp",
+          });
           return textResult(JSON.stringify({
             markdown,
             selectedIds: hits.map((hit) => hit.document.id),
             estimatedTokens: Math.ceil(markdown.length / 4),
-            contextInjectionId: null,
+            contextInjectionId: injectionId,
+            contextPacketId: packet.id,
           }, null, 2));
         }
         const context = await this.contextBuilder.build({
@@ -163,13 +201,16 @@ class TermyteMcpServer {
           maxMemories: input.value.limit ?? 50,
           currentFiles: input.value.files,
           sessionId: input.value.sessionId,
+          episodeId: input.value.sessionId ? this.store.getActiveEpisode(input.value.sessionId)?.id : undefined,
           surface: "mcp",
+          tokenBudget: input.value.tokenBudget,
         });
         return textResult(JSON.stringify({
           markdown: context.text,
           selectedIds: context.memories.map((memory) => `memory:${memory.id}`),
           estimatedTokens: Math.ceil(context.text.length / 4),
           contextInjectionId: context.contextInjectionId,
+          contextPacketId: context.contextPacketId,
         }, null, 2));
       }
       case "termyte.get_memory":
@@ -197,11 +238,20 @@ class TermyteMcpServer {
       case "termyte.feedback": {
         const input = validateFeedbackInput(args);
         if (!input.ok) return validationErrorResult(input.error);
+        const match = input.value.id.match(/^memory:(\d+)$/);
+        const injection = this.store.getContextInjection(input.value.contextInjectionId);
+        if (!match || !injection || !injection.memory_ids.includes(Number(match[1]))) {
+          return validationErrorResult({
+            code: "INVALID_ARGUMENT",
+            field: "contextInjectionId",
+            message: "id must name a memory present in contextInjectionId",
+          });
+        }
         const result = this.store.recordMemoryFeedback({
           id: input.value.id,
           event: input.value.event,
           contextInjectionId: input.value.contextInjectionId,
-          correctionText: (args as Record<string, unknown>).correctionText as string | undefined,
+          correctionText: input.value.correctionText,
           source: "mcp",
         });
         if (!result.recorded) {
@@ -332,6 +382,10 @@ function documentHitResult(hit: SparseHit): Record<string, unknown> {
     importance: hit.document.importance,
     provenance: [`${hit.document.doc_type}:${hit.document.source_id}`],
   };
+}
+
+function documentCandidateKind(type: DocumentType): "evidence" | "observation" | "memory" | "summary" | "episode" {
+  return type === "trace" ? "evidence" : type;
 }
 
 function renderDocumentContext(hits: SparseHit[], tokenBudget = 4_000): string {

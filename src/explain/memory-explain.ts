@@ -1,4 +1,4 @@
-import type { Evidence, Memory, Observation, Trace } from "../core/types.js";
+import type { ContextEffect, Evidence, Memory, Observation, Trace } from "../core/types.js";
 import type { Store } from "../storage/store.js";
 
 export interface ExplainMemoryEdge {
@@ -80,6 +80,7 @@ export interface ExplainOutput {
   source_evidence: Evidence[];
   edges: ExplainMemoryEdge[];
   feedback: ExplainFeedback[];
+  context_effects: ContextEffect[];
   missing_source_observation_ids: number[];
   missing_source_trace_ids: number[];
   missing_evidence_ids: string[];
@@ -131,6 +132,7 @@ export function buildMemoryExplain(store: Store, requestedId: string): ExplainOu
   const feedback = store.getMemoryFeedbackForMemory(resolvedId).map((row) => ({
     ...row,
   }));
+  const contextEffects = store.getContextEffectsForMemory(resolvedId);
 
   return {
     requested_id: requestedId,
@@ -142,6 +144,7 @@ export function buildMemoryExplain(store: Store, requestedId: string): ExplainOu
     source_evidence: sourceEvidence,
     edges,
     feedback,
+    context_effects: contextEffects,
     missing_source_observation_ids: missingSourceObservationIds,
     missing_source_trace_ids: missingSourceTraceIds,
     missing_evidence_ids: missingEvidenceIds,
@@ -277,6 +280,16 @@ export function renderMemoryExplain(output: ExplainOutput): string {
   }
 
   lines.push("");
+  lines.push("## Context Effects");
+  if (output.context_effects.length === 0) {
+    lines.push("(no measured effects)");
+  } else {
+    for (const effect of output.context_effects) {
+      lines.push(`- ${effect.verdict} confidence=${effect.confidence.toFixed(2)} injection=${effect.injection_id} episode=${effect.episode_id ?? "(none)"}`);
+    }
+  }
+
+  lines.push("");
   lines.push("## Feedback");
   if (output.feedback.length === 0) {
     lines.push("(no feedback)");
@@ -349,6 +362,7 @@ function emptyExplain(requestedId: string, resolvedId: number | null = null): Ex
     source_evidence: [],
     edges: [],
     feedback: [],
+    context_effects: [],
     missing_source_observation_ids: [],
     missing_source_trace_ids: [],
     missing_evidence_ids: [],

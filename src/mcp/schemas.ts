@@ -30,7 +30,8 @@ export interface ContextInput extends SearchInput {
 export interface FeedbackInput {
   id: string;
   event: FeedbackEvent;
-  contextInjectionId?: string;
+  contextInjectionId: string;
+  correctionText?: string;
 }
 
 export interface GetTraceInput {
@@ -168,6 +169,14 @@ export function validateFeedbackInput(args: Record<string, unknown>): Validation
 
   const contextInjectionId = readOptionalString(args, "contextInjectionId", "context_injection_id");
   if (!contextInjectionId.ok) return contextInjectionId;
+  if (!contextInjectionId.value) {
+    return { ok: false, error: invalidArgument("contextInjectionId is required", "contextInjectionId") };
+  }
+  const correctionText = readOptionalString(args, "correctionText");
+  if (!correctionText.ok) return correctionText;
+  if (event.value === "corrected" && !correctionText.value) {
+    return { ok: false, error: invalidArgument("correctionText is required when event is corrected", "correctionText") };
+  }
 
   return {
     ok: true,
@@ -175,6 +184,7 @@ export function validateFeedbackInput(args: Record<string, unknown>): Validation
       id: id.value,
       event: event.value as FeedbackEvent,
       contextInjectionId: contextInjectionId.value,
+      correctionText: correctionText.value,
     },
   };
 }

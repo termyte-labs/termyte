@@ -104,13 +104,15 @@ describe("MCP schema helpers", () => {
         id: "memory:1",
         event: "used",
         contextInjectionId: "ctx_1",
+        correctionText: undefined,
       },
     });
-    expect(validateFeedbackInput({ id: "memory:1", event: "helpful" })).toEqual({
-      ok: true,
-      value: { id: "memory:1", event: "helpful", contextInjectionId: undefined },
-    });
-    expect(validateFeedbackInput({ id: "memory:1", event: "harmful" }).ok).toBe(true);
+    expect(validateFeedbackInput({ id: "memory:1", event: "helpful" }).ok).toBe(false);
+    expect(validateFeedbackInput({ id: "memory:1", event: "harmful", contextInjectionId: "ctx_1" }).ok).toBe(true);
+    expect(validateFeedbackInput({ id: "memory:1", event: "corrected", contextInjectionId: "ctx_1" }).ok).toBe(false);
+    expect(validateFeedbackInput({
+      id: "memory:1", event: "corrected", contextInjectionId: "ctx_1", correctionText: "Use the current API",
+    }).ok).toBe(true);
 
     const invalid = validateFeedbackInput({ id: "memory:1", event: "boost" });
     expect(invalid.ok).toBe(false);

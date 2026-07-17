@@ -6,6 +6,7 @@ import { NoOpEmbeddingsProvider, type EmbeddingsProvider } from "../src/retrieva
 import { FTSSearch } from "../src/retrieval/fts.js";
 import { VectorSearch } from "../src/retrieval/vector.js";
 import { HybridSearch } from "../src/retrieval/hybrid.js";
+import { DocumentStore } from "../src/storage/documents.js";
 
 let dbCtx: DatabaseContext;
 
@@ -117,4 +118,66 @@ describe("MCP server", () => {
     expect(list[1]!.session_id).toBe("b");
     store.close();
   });
+
+  it("returns attributable context using the requested budget and active episode", async () => {
+    const store = new Store(dbCtx);
+    store.upsertSession("s1", "test", "r1", "/work");
+    const episode = store.startEpisode({ sessionId: "s1", repoId: "r1", workspaceRoot: "/work", task: "Fix auth" });
+    store.insertMemory({
+      session_id: "s1", repo_id: "r1", workspace_root: "/work", type: "fact",
+      title: "Authentication uses JWT", description: "JWT validation is in src/auth.ts.",
+      files_read: ["src/auth.ts"], files_modified: [], source_observation_ids: [], source_trace_ids: [],
+      created_at: Date.now(), embedding: null,
+    });
+    const { TermyteMcpServer } = await import("../src/mcp/server.js");
+    const server = new TermyteMcpServer({ store });
+    const response = await server.handle({
+      jsonrpc: "2.0", id: 1, method: "tools/call",
+      params: { name: "termyte.context", arguments: { query: "JWT auth", repo_id: "r1", sessionId: "s1", tokenBudget: 256 } },
+    });
+    const payload = parseToolPayload(response);
+    expect(payload.contextInjectionId).toEqual(expect.any(String));
+    expect(payload.contextPacketId).toEqual(expect.any(String));
+    expect(store.getContextPacket(String(payload.contextPacketId))).toMatchObject({ token_budget: 256, episode_id: episode.id });
+    server.close();
+  });
+
+  it("persists typed document deliveries and rejects feedback outside the injection", async () => {
+    const store = new Store(dbCtx);
+    store.upsertSession("s1", "test", "r1", "/work");
+    new DocumentStore(store.getDB()).upsertDocument({
+      id: "observation:7", doc_type: "observation", source_id: "7", session_id: "s1",
+      content: "Auth observation from src/auth.ts", files: ["src/auth.ts"],
+    });
+    const memory = store.insertMemory({
+      session_id: "s1", repo_id: "r1", workspace_root: "/work", type: "fact", title: "Auth memory",
+      description: null, files_read: [], files_modified: [], source_observation_ids: [], source_trace_ids: [],
+      created_at: Date.now(), embedding: null,
+    });
+    const { TermyteMcpServer } = await import("../src/mcp/server.js");
+    const server = new TermyteMcpServer({ store });
+    const contextResponse = await server.handle({
+      jsonrpc: "2.0", id: 1, method: "tools/call",
+      params: { name: "termyte.context", arguments: { query: "auth", type: "observation", sessionId: "s1", tokenBudget: 256 } },
+    });
+    const context = parseToolPayload(contextResponse);
+    expect(context.contextInjectionId).toEqual(expect.any(String));
+    expect(store.getContextCandidates(String(context.contextPacketId))).toHaveLength(1);
+
+    const feedbackResponse = await server.handle({
+      jsonrpc: "2.0", id: 2, method: "tools/call",
+      params: { name: "termyte.feedback", arguments: {
+        id: `memory:${memory.id}`, event: "harmful", contextInjectionId: context.contextInjectionId,
+      } },
+    });
+    const result = feedbackResponse.result as { isError?: boolean };
+    expect(result.isError).toBe(true);
+    expect(store.getMemoryFeedbackForMemory(memory.id)).toHaveLength(0);
+    server.close();
+  });
 });
+
+function parseToolPayload(response: { result?: unknown }): Record<string, unknown> {
+  const result = response.result as { content: Array<{ text: string }> };
+  return JSON.parse(result.content[0]!.text) as Record<string, unknown>;
+}

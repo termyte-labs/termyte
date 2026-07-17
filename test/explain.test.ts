@@ -74,7 +74,12 @@ describe("memory explainability", () => {
       embedding: null,
     });
     store.insertMemoryEdge({ source: memory.id, target: peer.id, edgeType: "supersedes" });
+    store.recordContextInjection({ id: "ctx-1", sessionId: "s1", repoId: "repo", memoryIds: [memory.id], surface: "mcp" });
     store.recordMemoryFeedback({ id: `memory:${memory.id}`, event: "used", contextInjectionId: "ctx-1", source: "mcp" });
+    store.upsertContextEffect({
+      injectionId: "ctx-1", memoryId: memory.id, candidateId: `memory:${memory.id}`,
+      verdict: "helped", confidence: 0.9,
+    });
 
     const explanation = buildMemoryExplain(store, `memory:${memory.id}`);
     expect(explanation.found).toBe(true);
@@ -83,10 +88,12 @@ describe("memory explainability", () => {
     expect(explanation.source_traces).toHaveLength(1);
     expect(explanation.edges).toHaveLength(1);
     expect(explanation.feedback).toHaveLength(1);
+    expect(explanation.context_effects).toEqual([expect.objectContaining({ verdict: "helped", confidence: 0.9 })]);
     expect(renderMemoryExplain(explanation)).toContain("Auth uses JWT");
     expect(renderMemoryExplain(explanation)).toContain("trace:");
     expect(renderMemoryExplain(explanation)).toContain("observation:");
     expect(renderMemoryExplain(explanation)).toContain("supersedes");
+    expect(renderMemoryExplain(explanation)).toContain("## Context Effects");
 
     store.close();
   });
