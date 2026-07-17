@@ -88,7 +88,7 @@ describe("context engine release gate", () => {
       expect(unrelated.text).toBe("");
       expect(unrelated.memories).toHaveLength(0);
       expect(store.getContextCandidates(unrelated.contextPacketId).some((candidate) => candidate.selected)).toBe(false);
-      expect(store.getContextInjection(unrelated.contextInjectionId)?.memory_ids).toEqual([]);
+      expect(unrelated.contextInjectionId).toBeNull();
     } finally {
       store.close();
     }

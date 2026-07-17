@@ -60,6 +60,7 @@ export function makeObservationHandler(deps: { store: Store; builder: ContextBui
         `After ${event.tool_name} on ${currentFiles[0]}, Termyte found related knowledge:`,
         "",
         contextText.length > 0 ? contextText : "(no related knowledge yet)",
+        `Context injection: ${context.contextInjectionId}`,
       ];
       return {
         handled: true,
@@ -68,7 +69,7 @@ export function makeObservationHandler(deps: { store: Store; builder: ContextBui
           hookSpecificOutput: {
             hookEventName: "PostToolUse",
             additionalContext: lines.join("\n"),
-            contextInjectionId: context.contextInjectionId,
+            contextInjectionId: context.contextInjectionId!,
           },
         },
       };

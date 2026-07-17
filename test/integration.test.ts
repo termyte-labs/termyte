@@ -99,7 +99,7 @@ describe("Integration: capture -> observe -> store -> retrieve", () => {
     const builder = new ContextBuilder(store, hybrid);
     const ctxOut = await builder.build({ repo_id: "unknown", query: "auth" });
     expect(ctxOut.text).toContain("Auth whitespace consolidated");
-    expect(ctxOut.text).toContain("Memory Context for");
+    expect(ctxOut.text).toContain("Termyte Context for");
 
     store.close();
   });

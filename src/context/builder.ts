@@ -24,7 +24,7 @@ export interface ContextOutput {
   observations: Observation[];
   summary: Summary | null;
   text: string;
-  contextInjectionId: string;
+  contextInjectionId: string | null;
   contextPacketId: string;
 }
 
@@ -107,8 +107,8 @@ export class ContextBuilder {
       })),
     });
 
-    const injectionId = randomUUID();
-    this.store.recordContextInjection({
+    const injectionId = compiled.text ? randomUUID() : null;
+    if (injectionId) this.store.recordContextInjection({
       id: injectionId,
       sessionId: input.sessionId,
       repoId: input.repo_id,
@@ -129,11 +129,11 @@ export class ContextBuilder {
       deliveryMethod: input.surface === "hook" ? "hook" : "cli",
     });
 
-    for (const memory of memories) {
+    for (const memory of injectionId ? memories : []) {
       this.store.recordMemoryFeedback({
         id: `memory:${memory.id}`,
         event: "shown",
-        contextInjectionId: injectionId,
+        contextInjectionId: injectionId!,
         source: input.surface ?? "context",
       });
     }
@@ -155,7 +155,7 @@ export function renderContext(scope: string, memories: Memory[], observations: O
   if (summary) blocks.push(renderSummary(summary));
   blocks.push(...memories.map(renderMemoryCard));
   blocks.push(...observations.map(renderObservation));
-  return blocks.length > 0 ? `# Memory Context for ${scope}\n\n${blocks.join("\n\n")}\n` : "";
+  return blocks.length > 0 ? `# Termyte Context for ${scope}\n\n${blocks.join("\n\n")}\n` : "";
 }
 
 export function renderMemory(memory: Memory): string {

@@ -94,10 +94,29 @@ describe("ContextCompiler", () => {
         selected: true,
         applicability_state: "stale_exact_match",
       });
+      expect(out.text).toContain("verify against the current repository");
     } finally {
       rmSync(root, { recursive: true, force: true });
       store.close();
     }
+  });
+
+  it("rejects a stale exact match when a stronger active answer exists", () => {
+    const store = setup();
+    const active = seedMemory(store, { title: "src/auth.ts active", files_read: ["src/auth.ts"] });
+    const staleInserted = seedMemory(store, { title: "src/auth.ts stale" });
+    store.updateMemoryLifecycleState(staleInserted.id, "stale");
+    const stale = store.getMemory(staleInserted.id)!;
+    const out = new ContextCompiler(store).compile({
+      repoId: "r1", query: "src/auth.ts", currentFiles: ["src/auth.ts"], tokenBudget: 200, maxMemories: 5,
+      rankedMemories: [ranked(active, { ftsRank: 1 }), ranked(stale, { ftsRank: 2 })],
+    });
+    expect(out.candidates.find((candidate) => candidate.source_id === String(active.id))?.selected).toBe(true);
+    expect(out.candidates.find((candidate) => candidate.source_id === String(stale.id))).toMatchObject({
+      selected: false,
+      rejection_reason: "redundant",
+    });
+    store.close();
   });
 });
 

@@ -44,13 +44,27 @@ export class ContextCompiler {
 
   compile(input: CompileContextInput): CompileContextOutput {
     const candidates = this.generateCandidates(input);
-    const framing = `# Memory Context for ${input.repoId}\n`;
+    const framing = `# Termyte Context for ${input.repoId}\nUse this as prior evidence, not as a substitute for checking the current repository.\n`;
     const framingTokens = estimateTokens(`${framing}\n`);
     const budget = input.tokenBudget > 0 ? input.tokenBudget : Number.POSITIVE_INFINITY;
     let remaining = Math.max(0, budget - framingTokens);
     let rank = 0;
     let selectedMemories = 0;
     const seen = new Set<string>();
+
+    for (const candidate of candidates) {
+      if (candidate.applicability_state !== "stale_exact_match") continue;
+      const strongerActive = candidates.some((other) =>
+        other !== candidate
+        && !other.rejection_reason
+        && other.lifecycle_state !== "stale"
+        && other.final_score > candidate.final_score,
+      );
+      if (strongerActive) {
+        candidate.rejection_reason = "redundant";
+        candidate.applicability_state = "ineligible";
+      }
+    }
 
     candidates.sort((a, b) =>
       b.final_score - a.final_score
@@ -130,7 +144,7 @@ export class ContextCompiler {
       candidates.push(this.candidate({
         kind: memory.type === "procedure" ? "procedure" : "memory",
         sourceId: String(memory.id),
-        text: renderMemory(memory),
+        text: renderMemory(memory, memory.lifecycle_state === "stale" && exactMatch),
         score: scoreText(text, input, result.fts_rank != null ? result.combined_score : 0, 0.006),
         rejection,
         lifecycle: memory.lifecycle_state ?? "active",
@@ -224,8 +238,9 @@ function scoreText(text: string, input: CompileContextInput, retrieval: number, 
   };
 }
 
-function renderMemory(memory: Memory): string {
+function renderMemory(memory: Memory, verificationRequired = false): string {
   const lines = [`## memory:${memory.id} [${memory.type}] ${memory.title}`];
+  if (verificationRequired) lines.push("Warning: stale exact match; verify against the current repository before use.");
   if (memory.description) lines.push(memory.description);
   const files = [...new Set([...memory.files_modified, ...memory.files_read])];
   if (files.length > 0) lines.push(`Files: ${files.join(", ")}`);

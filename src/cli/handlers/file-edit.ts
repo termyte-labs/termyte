@@ -39,6 +39,7 @@ export function makeFileEditHandler(deps: { store: Store; builder: ContextBuilde
         `After editing ${file}, Termyte found related knowledge:`,
         "",
         contextText.length > 0 ? contextText : "(no related knowledge yet)",
+        `Context injection: ${context.contextInjectionId}`,
       ];
       return {
         handled: true,
@@ -47,7 +48,7 @@ export function makeFileEditHandler(deps: { store: Store; builder: ContextBuilde
           hookSpecificOutput: {
             hookEventName: "PostToolUse",
             additionalContext: lines.join("\n"),
-            contextInjectionId: context.contextInjectionId,
+            contextInjectionId: context.contextInjectionId!,
           },
         },
       };

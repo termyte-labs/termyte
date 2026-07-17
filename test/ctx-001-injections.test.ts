@@ -64,7 +64,7 @@ describe("CTX-001 context injection persistence", () => {
     seedMemory("Fact A", "desc a");
     seedMemory("Fact B", "desc b");
     const out = await builder.build({ repo_id: "r1", query: "fact", surface: "mcp", sessionId: "s1", currentFiles: ["src/a.ts"] });
-    const record = store.getContextInjection(out.contextInjectionId);
+    const record = store.getContextInjection(out.contextInjectionId!);
     expect(record).not.toBeNull();
     expect(record!.surface).toBe("mcp");
     expect(record!.repo_id).toBe("r1");
@@ -72,7 +72,7 @@ describe("CTX-001 context injection persistence", () => {
     expect(record!.query).toBe("fact");
     expect(record!.files).toEqual(["src/a.ts"]);
     expect(record!.memory_ids.length).toBeGreaterThan(0);
-    const items = store.getContextInjectionItems(out.contextInjectionId);
+    const items = store.getContextInjectionItems(out.contextInjectionId!);
     expect(items).toHaveLength(record!.memory_ids.length);
     expect(items[0]!.rank).toBe(1);
     expect(items[0]!.score).toBeGreaterThan(0);
@@ -91,7 +91,7 @@ describe("CTX-001 context injection persistence", () => {
   it("injection is retrievable by ID for attribution", async () => {
     seedMemory("Attribution fact", "desc");
     const out = await builder.build({ repo_id: "r1", surface: "hook", sessionId: "s1" });
-    const record = store.getContextInjection(out.contextInjectionId);
+    const record = store.getContextInjection(out.contextInjectionId!);
     expect(record!.memory_ids).toEqual(out.memories.map((m) => m.id));
   });
 
@@ -110,6 +110,17 @@ describe("CTX-001 context injection persistence", () => {
 
   it("returns null for a non-existent injection ID", () => {
     expect(store.getContextInjection("nonexistent")).toBeNull();
+  });
+
+  it("persists the packet but not an injection when the compiler abstains", async () => {
+    const id = seedMemory("Package validation", "Run npm pack before release.");
+    const out = await builder.build({ repo_id: "r1", query: "ZZZ_NO_MATCH", surface: "hook" });
+    expect(id).toBeGreaterThan(0);
+    expect(out.text).toBe("");
+    expect(out.contextInjectionId).toBeNull();
+    expect(store.getContextPacket(out.contextPacketId)).not.toBeNull();
+    const count = store.getDB().prepare("SELECT COUNT(*) AS count FROM context_injections").get() as { count: number };
+    expect(count.count).toBe(0);
   });
 
   it("migration creates context_injections table with indexes", () => {

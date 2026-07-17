@@ -32,8 +32,8 @@ export function makeContextHandler(deps: { store: Store; search: HybridSearch; b
         continue: true,
         hookSpecificOutput: {
           hookEventName: "UserPromptSubmit",
-          additionalContext: result.text,
-          contextInjectionId: result.contextInjectionId,
+          additionalContext: `${result.text}\nContext injection: ${result.contextInjectionId}`,
+          contextInjectionId: result.contextInjectionId!,
         },
       },
     };

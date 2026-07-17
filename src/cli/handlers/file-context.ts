@@ -5,7 +5,6 @@
  */
 import type { EventHandler } from "../handler-types.js";
 import type { ContextBuilder } from "../../context/builder.js";
-import { renderHybridResults } from "../../context/builder.js";
 
 export function makeFileContextHandler(deps: { store: import("../../storage/store.js").Store; builder: ContextBuilder }): EventHandler {
   return async ({ event }) => {
@@ -32,15 +31,14 @@ export function makeFileContextHandler(deps: { store: import("../../storage/stor
       if (context.rankedMemories.length === 0) {
         return { handled: true, result: { continue: true, suppressOutput: true } };
       }
-      const text = renderHybridResults(context.rankedMemories);
       return {
         handled: true,
         result: {
           continue: true,
           hookSpecificOutput: {
             hookEventName: "PreToolUse",
-            additionalContext: `Prior knowledge for ${file}:\n\n${text}`,
-            contextInjectionId: context.contextInjectionId,
+            additionalContext: `Prior knowledge for ${file}:\n\n${context.text}\nContext injection: ${context.contextInjectionId}`,
+            contextInjectionId: context.contextInjectionId!,
           },
         },
       };
