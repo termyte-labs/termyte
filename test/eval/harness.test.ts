@@ -134,6 +134,17 @@ describe("eval suites", () => {
     expect(report.metrics.conflictedSuppressed).toBe(1);
   });
 
+  it("runs the closed-loop attribution and abstention suite", async () => {
+    const report = await runEval({ suite: "closed-loop" });
+
+    expect(report.passed, JSON.stringify(report, null, 2)).toBe(true);
+    expect(report.metrics.attributionRate).toBe(1);
+    expect(report.metrics.helpedEffects).toBe(1);
+    expect(report.metrics.hurtEffects).toBe(1);
+    expect(report.metrics.retryDuplicates).toBe(0);
+    expect(report.metrics.abstentionCorrect).toBe(1);
+  });
+
   it("runs all suites independently and combines metrics", async () => {
     const report = await runEval({ suite: "all" });
 
@@ -142,5 +153,6 @@ describe("eval suites", () => {
     expect(typeof report.metrics["durability.deadLetterJobs"]).toBe("number");
     expect(typeof report.metrics["lifecycle.duplicateDetected"]).toBe("number");
     expect(typeof report.metrics["correction.replacementCreated"]).toBe("number");
+    expect(report.metrics["closed-loop.attributionRate"]).toBe(1);
   });
 });

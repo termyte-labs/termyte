@@ -107,8 +107,13 @@ Additionally record for Termyte-on runs:
 - abstention status;
 - explicit helpful, harmful, ignored, or corrected feedback;
 - whether injected context was demonstrably used in the transcript.
+- each persisted context-effect verdict (`helped`, `hurt`, `unused`, or `unknown`), its confidence, signals, episode outcome, packet ID, and injection ID;
+- attribution coverage: non-unknown effects divided by all selected candidates;
+- helpful and harmful effect rates over all selected candidates.
 
 Do not infer usefulness from `shown` or mere exposure.
+
+Before paired trials, run `npm test -- test/eval/harness.test.ts`. The closed-loop case must report complete attribution, one deterministic helped case, one deterministic hurt case, zero retry duplicates, and a correct adversarial abstention. This proves mechanics only; it does not replace paired-agent utility evidence.
 
 ## Grading
 
@@ -142,6 +147,7 @@ Analyze matched pairs, not independent runs. Report:
 - bootstrap 95% confidence intervals over pairs;
 - abstention precision for the deliberately unrelated cases;
 - harmful-context count and disposition summary;
+- context-effect verdict counts, attribution coverage, helpful rate, harmful rate, and unknown rate;
 - invalidated pairs and infrastructure failures.
 
 Twenty pairs are a product signal, not proof of causality. Describe results as observed associations under this task set, agent set, and environment. Publish the task manifest, grading rubric, aggregate metrics, and limitations before making comparative claims.

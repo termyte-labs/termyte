@@ -14,8 +14,9 @@ import { buildMemoryExplain } from "../explain/memory-explain.js";
 import { loadRegressionCorpus, type EvalCorpusCase } from "./corpus.js";
 import { mean, mrr, precisionAtK, recallAtK, type RankedResultLike } from "./metrics.js";
 import { assertDurabilityInvariants, FaultInjector } from "./fault-injection.js";
+import { ContextBuilder } from "../context/builder.js";
 
-export type EvalSuiteName = "all" | "retrieval" | "durability" | "lifecycle" | "correction";
+export type EvalSuiteName = "all" | "retrieval" | "durability" | "lifecycle" | "correction" | "closed-loop";
 
 export interface EvalFailure {
   caseId: string;
@@ -71,6 +72,7 @@ export async function runEval(options: EvalRunOptions = {}): Promise<EvalReport>
       await runDurabilityEval(),
       await runLifecycleEval(),
       await runCorrectionEval(),
+      await runClosedLoopEval(),
     ]);
   }
 
@@ -78,6 +80,7 @@ export async function runEval(options: EvalRunOptions = {}): Promise<EvalReport>
   if (suite === "durability") return runDurabilityEval();
   if (suite === "lifecycle") return runLifecycleEval();
   if (suite === "correction") return runCorrectionEval();
+  if (suite === "closed-loop") return runClosedLoopEval();
 
   throw new Error(`Unknown eval suite: ${suite satisfies never}`);
 }
@@ -436,6 +439,91 @@ export async function runCorrectionEval(): Promise<EvalReport> {
         replacementCreated: replacement ? 1 : 0,
         originalSuperseded: store.getMemory(original.id)?.lifecycle_state === "superseded" ? 1 : 0,
         conflictedSuppressed: conflictedMemory?.lifecycle_state === "conflicted" ? 1 : 0,
+      },
+      failures,
+    };
+  } finally {
+    store.close();
+  }
+}
+
+export async function runClosedLoopEval(): Promise<EvalReport> {
+  const store = new Store(openDatabase(":memory:"));
+  const embeddings = new FixedEmbeddingsProvider();
+  const failures: EvalFailure[] = [];
+  try {
+    store.upsertSession("closed-loop", "eval", "repo", "/w");
+    const memory = store.insertMemory({
+      session_id: "closed-loop", repo_id: "repo", workspace_root: "/w", type: "procedure",
+      title: "Validate auth changes", description: "Run npm test after editing src/auth.ts.",
+      files_read: ["src/auth.ts"], files_modified: [], source_observation_ids: [], source_trace_ids: [],
+      created_at: 1, embedding: await embeddings.embed("Validate auth changes npm test src/auth.ts"),
+    });
+    const episodes = [
+      store.startEpisode({ sessionId: "closed-loop", repoId: "repo", workspaceRoot: "/w", task: "Fix src/auth.ts" }),
+      store.startEpisode({ sessionId: "closed-loop", repoId: "repo", workspaceRoot: "/w", task: "Retry src/auth.ts" }),
+    ];
+    const cases = [
+      { suffix: "helped", episode: episodes[0]!, event: "helpful" as const, outcome: "succeeded" as const },
+      { suffix: "hurt", episode: episodes[1]!, event: "harmful" as const, outcome: "failed" as const },
+    ];
+    for (const item of cases) {
+      const packet = store.recordContextPacket({
+        id: `eval-packet-${item.suffix}`, sessionId: "closed-loop", episodeId: item.episode.id,
+        repoId: "repo", agent: "eval", task: item.episode.task, tokenBudget: 256, estimatedTokens: 20,
+        retrievalMode: "eval", latencyMs: 1, renderedText: "memory context",
+        candidates: [{
+          candidateId: `memory:${memory.id}`, kind: "procedure", sourceId: String(memory.id),
+          tokenEstimate: 20, selected: true, rank: 1, finalScore: 1, renderedText: "memory context",
+        }],
+      });
+      const injectionId = `eval-injection-${item.suffix}`;
+      store.recordContextInjection({
+        id: injectionId, sessionId: "closed-loop", repoId: "repo", query: item.episode.task,
+        memoryIds: [memory.id], items: [{ memoryId: memory.id, rank: 1, score: 1, renderedText: "memory context" }],
+        surface: "eval", packetId: packet.id,
+      });
+      store.recordMemoryFeedback({ id: `memory:${memory.id}`, event: item.event, contextInjectionId: injectionId, source: "eval" });
+      store.recordEpisodeOutcome({ episodeId: item.episode.id, status: item.outcome, source: "human", contextInjectionId: injectionId });
+    }
+
+    const pipeline = new MemoryPipeline({
+      store, embeddings,
+      llm: { async chat() { return { content: "<skip_summary />", model: "eval" }; } },
+    });
+    await pipeline.runUntilIdle("closed-loop-worker", { maxJobs: 20 });
+    await pipeline.runUntilIdle("closed-loop-worker", { maxJobs: 20 });
+
+    const counts = store.getRecentContextEffectCounts();
+    const selectedCandidates = cases.length;
+    const attributionRate = counts.total / selectedCandidates;
+    if (counts.helped !== 1 || counts.hurt !== 1 || counts.total !== 2) {
+      failures.push({ caseId: "effect_classification", message: `Expected one helped and one hurt effect, got ${JSON.stringify(counts)}` });
+    }
+    if (attributionRate !== 1) failures.push({ caseId: "attribution", message: `Expected complete attribution, got ${attributionRate}` });
+
+    const search = new HybridSearch({
+      fts: new FTSSearch(store), vector: new VectorSearch(store), embeddings, feedbackStore: store,
+    });
+    const abstained = await new ContextBuilder(store, search).build({
+      repo_id: "repo", query: "ZZZ_UNRELATED_ADVERSARIAL_TASK", surface: "eval", tokenBudget: 256,
+    });
+    if (abstained.contextInjectionId !== null || abstained.text !== "") {
+      failures.push({ caseId: "abstention", message: "Unrelated task produced a context delivery" });
+    }
+
+    return {
+      suite: "closed-loop",
+      passed: failures.length === 0,
+      metrics: {
+        selectedCandidates,
+        attributedEffects: counts.total,
+        attributionRate: round(attributionRate),
+        helpedEffects: counts.helped,
+        hurtEffects: counts.hurt,
+        unknownEffects: counts.unknown,
+        retryDuplicates: Math.max(0, counts.total - selectedCandidates),
+        abstentionCorrect: abstained.contextInjectionId === null ? 1 : 0,
       },
       failures,
     };
