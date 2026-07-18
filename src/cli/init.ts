@@ -6,6 +6,7 @@ import { Store } from "../storage/store.js";
 import { installFor } from "../integrations/installers/index.js";
 import { discoverAgentCapabilities, capabilityLabel, type SupportedAgent } from "../runtime/capabilities.js";
 import { removeTermyteHookEntries } from "../integrations/installers/managed-hooks.js";
+import { openCodeConfigDir, uninstallOpenCode } from "../integrations/installers/opencode.js";
 import {
   defaultUserConfig,
   saveUserConfig,
@@ -14,7 +15,7 @@ import {
 } from "./config.js";
 
 export interface InitChoices {
-  agents: Array<"claude-code" | "codex">;
+  agents: SupportedAgent[];
   synthesis: UserConfig["synthesis"];
   acceptedDisclosure: boolean;
   synthesisVerified?: boolean;
@@ -23,13 +24,13 @@ export interface InitChoices {
 export async function initCommand(): Promise<number> {
   process.stdout.write("Checking installed agents and authenticated synthesis paths...\n");
   const capabilities = await discoverAgentCapabilities({ verifySynthesis: true });
-  const agents = await checkbox<"claude-code" | "codex">({
+  const agents = await checkbox<SupportedAgent>({
     message: "Select agents where Termyte should capture context",
     required: true,
     choices: capabilities.map((capability) => ({
       name: capabilityLabel(capability),
       value: capability.agent,
-      checked: capability.synthesis === "ready",
+      checked: capability.capture !== "not_found",
     })),
   });
 
@@ -71,12 +72,16 @@ export async function initializeTermyte(choices: InitChoices, env: NodeJS.Proces
   const hookPaths = {
     "claude-code": join(homeDir, ".claude", "settings.json"),
     codex: join(homeDir, ".codex", "hooks.json"),
+    opencode: join(homeDir, ".config", "opencode", "opencode.json"),
   } satisfies Record<SupportedAgent, string>;
-  const paths = [...Object.values(hookPaths), userConfigPath(env)];
+  const paths = [...Object.values(hookPaths), join(openCodeConfigDir(homeDir), "plugins", "termyte.js"), userConfigPath(env)];
   const snapshots = new Map(paths.map((path) => [path, existsSync(path) ? readFileSync(path) : null]));
   try {
     for (const agent of ["claude-code", "codex"] as SupportedAgent[]) {
-      if (!config.agents.includes(agent)) removeTermyteHookEntries(hookPaths[agent]);
+      if (!config.agents.includes(agent)) {
+        if (agent === "opencode") uninstallOpenCode(homeDir);
+        else removeTermyteHookEntries(hookPaths[agent]);
+      }
     }
     for (const agent of config.agents) {
       const code = installFor(agent, { target: "user", homeDir });

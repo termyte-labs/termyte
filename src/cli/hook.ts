@@ -29,7 +29,7 @@ import { createHookSupervisor, type WorkerSupervisor } from "../pipeline/worker-
 import { createLLMProvider } from "../runtime/providers.js";
 import { NoOpEmbeddingsProvider } from "../retrieval/embeddings.js";
 
-const KNOWN_PLATFORMS: Platform[] = ["claude-code", "codex", "raw"];
+const KNOWN_PLATFORMS: Platform[] = ["claude-code", "codex", "opencode", "raw"];
 
 async function main(supervisorOverride?: WorkerSupervisor): Promise<void> {
   // Synthesis may itself invoke Claude Code or Codex. Those subprocesses

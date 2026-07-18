@@ -38,6 +38,9 @@ import {
 import type { JsonRpcRequest, JsonRpcResponse } from "./types.js";
 import { createEmbeddingsProvider } from "../runtime/providers.js";
 import { randomUUID } from "node:crypto";
+import { TaskStateService } from "../task-state/service.js";
+import { ResumeCompiler } from "../task-state/resume.js";
+import type { Platform } from "../core/types.js";
 
 export class TermyteMcpServer {
   private store: Store;
@@ -213,6 +216,32 @@ export class TermyteMcpServer {
           contextPacketId: context.contextPacketId,
         }, null, 2));
       }
+      case "termyte.task_create": {
+        const repoId = requiredString(args, "repo_id"); const title = requiredString(args, "title"); const objective = requiredString(args, "objective");
+        if (!repoId || !title || !objective) return textResult("repo_id, title, and objective are required", true);
+        return textResult(JSON.stringify(new TaskStateService(this.store.getDB()).createTask({ repoId, title, objective }), null, 2));
+      }
+      case "termyte.task_get": {
+        const taskId = requiredString(args, "taskId"); if (!taskId) return textResult("taskId is required", true);
+        return textResult(JSON.stringify(new ResumeCompiler(this.store.getDB()).compile(taskId), null, 2));
+      }
+      case "termyte.step_add": {
+        const taskId = requiredString(args, "taskId"); const title = requiredString(args, "title");
+        const position = args["position"]; const expectedVersion = args["expectedVersion"];
+        if (!taskId || !title || !Number.isInteger(position) || !Number.isInteger(expectedVersion)) return textResult("taskId, title, integer position, and integer expectedVersion are required", true);
+        const step = new TaskStateService(this.store.getDB()).addStep({ taskId, title, position: position as number, expectedVersion: expectedVersion as number, verificationType: typeof args["verificationType"] === "string" ? args["verificationType"] : undefined });
+        return textResult(JSON.stringify(step, null, 2));
+      }
+      case "termyte.resume": {
+        const taskId = requiredString(args, "taskId"); if (!taskId) return textResult("taskId is required", true);
+        return textResult(JSON.stringify(new ResumeCompiler(this.store.getDB()).compile(taskId, typeof args["workspaceRoot"] === "string" ? args["workspaceRoot"] : undefined), null, 2));
+      }
+      case "termyte.handoff": {
+        const taskId = requiredString(args, "taskId"); const source = requiredString(args, "source") as Platform | null; const target = requiredString(args, "target") as Platform | null;
+        const supported = new Set<Platform>(["claude-code", "codex", "opencode"]);
+        if (!taskId || !source || !target || !supported.has(source) || !supported.has(target)) return textResult("taskId and supported source/target platforms are required", true);
+        return textResult(JSON.stringify(new ResumeCompiler(this.store.getDB()).handoff({ taskId, source, target, workspaceRoot: typeof args["workspaceRoot"] === "string" ? args["workspaceRoot"] : undefined }), null, 2));
+      }
       case "termyte.get_memory":
       case "get_memory": {
         const input = validateNumericIdInput(args);
@@ -361,6 +390,10 @@ export class TermyteMcpServer {
 
 function textResult(text: string, isError = false): { content: Array<{ type: "text"; text: string }>; isError?: boolean } {
   return { content: [{ type: "text", text }], isError };
+}
+
+function requiredString(args: Record<string, unknown>, field: string): string | null {
+  const value = args[field]; return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function validationErrorResult(error: { code: string; message: string; field?: string }): ReturnType<typeof textResult> {

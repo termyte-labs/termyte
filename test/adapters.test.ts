@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { ClaudeCodeAdapter } from "../src/capture/claude-code.js";
 import { CodexAdapter } from "../src/capture/codex.js";
 import { RawAdapter } from "../src/capture/raw.js";
+import { OpenCodeAdapter } from "../src/capture/opencode.js";
 import { extractCodexFilePaths } from "../src/capture/codex-file-context.js";
 import { existsSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -137,6 +138,32 @@ describe("RawAdapter", () => {
     });
     expect(event).not.toBeNull();
     expect(event!.event_type).toBe("tool_use");
+  });
+});
+
+describe("OpenCodeAdapter", () => {
+  const a = new OpenCodeAdapter();
+
+  it("normalizes completed tools with stable call identity", () => {
+    expect(a.normalize({
+      event: "tool_completed", session_id: "oc-1", event_id: "call-1", cwd: "/work",
+      tool_name: "bash", tool_input: { command: "npm test" }, tool_output: "ok",
+    })).toMatchObject({
+      event_type: "tool_use", session_id: "oc-1", platform_event_id: "call-1", tool_name: "bash",
+    });
+  });
+
+  it("keeps user and assistant messages distinct", () => {
+    expect(a.normalize({ event: "user_prompt", session_id: "oc-1", cwd: "/work", text: "fix it" }))
+      .toMatchObject({ event_type: "user_prompt", user_prompt: "fix it" });
+    expect(a.normalize({ event: "assistant_message", session_id: "oc-1", cwd: "/work", text: "done" }))
+      .toMatchObject({ event_type: "assistant_message", final_response: "done" });
+  });
+
+  it("normalizes only the verified lifecycle events", () => {
+    expect(a.normalize({ event: "compaction", session_id: "oc-1", cwd: "/work" })?.event_type).toBe("compaction");
+    expect(a.normalize({ event: "session_idle", session_id: "oc-1", cwd: "/work" })?.event_type).toBe("session_end");
+    expect(a.normalize({ event: "file.edited", session_id: "oc-1", cwd: "/work" })).toBeNull();
   });
 });
 

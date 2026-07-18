@@ -4,7 +4,12 @@ import { join } from "node:path";
 import { createAdapter } from "../synth/index.js";
 import type { AgentAdapter } from "../synth/types.js";
 
-export type SupportedAgent = "claude-code" | "codex";
+export type SupportedAgent = "claude-code" | "codex" | "opencode";
+export const VERIFIED_AGENT_BASELINES: Readonly<Record<SupportedAgent, string>> = {
+  "claude-code": "2.1.170",
+  codex: "0.144.5",
+  opencode: "1.17.18",
+};
 export type CaptureCapability = "ready" | "found_unverified" | "not_found";
 export type SynthesisCapability = "ready" | "unavailable" | "authentication_failed" | "unverified";
 
@@ -25,15 +30,15 @@ export async function discoverAgentCapabilities(options: {
 } = {}): Promise<AgentCapability[]> {
   const env = options.env ?? process.env;
   const home = options.homeDir ?? env.HOME ?? env.USERPROFILE ?? homedir();
-  return Promise.all(((["claude-code", "codex"] as SupportedAgent[])).map(async (agent) => {
-    const adapter = options.adapterFactory?.(agent) ?? createAdapter(agent);
-    const executable = await adapter.isAvailable();
+  return Promise.all(((["claude-code", "codex", "opencode"] as SupportedAgent[])).map(async (agent) => {
+    const adapter = agent === "opencode" ? null : options.adapterFactory?.(agent) ?? createAdapter(agent);
+    const executable = adapter ? await adapter.isAvailable() : localEvidence(agent, home).length > 0;
     const evidence = localEvidence(agent, home);
     const capture: CaptureCapability = evidence.length > 0
       ? "ready"
       : executable ? "found_unverified" : "not_found";
 
-    if (!executable) {
+    if (!adapter || !executable) {
       return { agent, capture, synthesis: "unavailable", executable, evidence };
     }
     if (!options.verifySynthesis) {
@@ -66,6 +71,12 @@ function localEvidence(agent: SupportedAgent, home: string): string[] {
       [join(home, ".codex", ".codex-global-state.json"), "Codex application state"],
     ].filter(([path]) => existsSync(path!)).map(([, label]) => label!);
   }
+  if (agent === "opencode") {
+    return [
+      [join(home, ".config", "opencode", "opencode.json"), "OpenCode configuration"],
+      [join(home, ".config", "opencode", "plugins", "termyte.js"), "Termyte OpenCode plugin"],
+    ].filter(([path]) => existsSync(path!)).map(([, label]) => label!);
+  }
   return [
     [join(home, ".claude", ".credentials.json"), "Claude Code authentication store"],
     [join(home, ".claude.json"), "Claude Code application state"],
@@ -73,7 +84,7 @@ function localEvidence(agent: SupportedAgent, home: string): string[] {
 }
 
 export function capabilityLabel(capability: AgentCapability): string {
-  const name = capability.agent === "codex" ? "Codex" : "Claude Code";
+  const name = capability.agent === "codex" ? "Codex" : capability.agent === "opencode" ? "OpenCode" : "Claude Code";
   if (capability.synthesis === "ready" && capability.capture === "ready") return `${name} (capture detected + authenticated synthesis)`;
   if (capability.synthesis === "ready") return `${name} (authenticated synthesis; capture installation unverified)`;
   if (capability.synthesis === "authentication_failed" && capability.capture === "ready") return `${name} (capture detected; authentication failed)`;

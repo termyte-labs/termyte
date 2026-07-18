@@ -35,7 +35,7 @@ describe("installers", () => {
     const list = listSupportedPlatforms();
     expect(list).toContain("claude-code");
     expect(list).toContain("codex");
-    expect(list).toEqual(["claude-code", "codex"]);
+    expect(list).toEqual(["claude-code", "codex", "opencode"]);
   });
 
   it("installs Claude Code hooks to ~/.claude/settings.json", () => {
@@ -73,6 +73,19 @@ describe("installers", () => {
     const parsed = JSON.parse(readFileSync(claudePath, "utf-8"));
     expect(parsed.theme).toBe("dark");
     expect(parsed.hooks.SessionStart).toBeDefined();
+  });
+
+  it("installs and reconciles an OpenCode plugin", () => {
+    expect(installFor("opencode", { target: "user", homeDir })).toBe(0);
+    expect(installFor("opencode", { target: "user", homeDir })).toBe(0);
+    const dir = join(homeDir, ".config", "opencode");
+    const config = JSON.parse(readFileSync(join(dir, "opencode.json"), "utf8"));
+    expect(config.plugin).toEqual(["./plugins/termyte.js"]);
+    const plugin = readFileSync(join(dir, "plugins", "termyte.js"), "utf8");
+    expect(plugin).toContain('"tool.execute.after"');
+    expect(plugin).toContain('"experimental.session.compacting"');
+    expect(plugin).toContain('event.type==="session.idle"');
+    expect(plugin).not.toContain("file.edited");
   });
 
   it("reconciles packaged hook.js commands without duplicating them", () => {

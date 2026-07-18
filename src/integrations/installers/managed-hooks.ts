@@ -3,7 +3,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 /** Match both packaged hook.js commands and legacy termyte-hook binaries. */
 export function isTermyteHookCommand(command: unknown): boolean {
   if (typeof command !== "string") return false;
-  return /termyte-hook\b|(?:hook\.js|hook\.ts)["']?\s+(?:claude-code|codex)\b/i.test(command);
+  return /termyte-hook\b|(?:hook\.js|hook\.ts)["']?\s+(?:claude-code|codex|opencode)\b/i.test(command);
 }
 
 export function removeTermyteHookEntries(path: string): boolean {

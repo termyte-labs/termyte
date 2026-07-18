@@ -14,6 +14,8 @@ import type { EventType, Platform } from "../core/types.js";
 /** Common trace shape, written to the `traces` table. */
 export interface NormalizedEvent {
   session_id: string;
+  /** Stable upstream event/call/message id when the platform exposes one. */
+  platform_event_id?: string | null;
   timestamp: number;
   event_type: EventType;
   tool_name: string | null;

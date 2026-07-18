@@ -8,7 +8,7 @@ export type SynthesisMode = "agent" | "api" | "capture-only";
 export interface UserConfig {
   version: 1;
   dbPath: string;
-  agents: Array<"claude-code" | "codex">;
+  agents: Array<"claude-code" | "codex" | "opencode">;
   synthesis: { mode: SynthesisMode; provider?: "claude-code" | "codex" };
   llm?: { baseUrl?: string; model?: string };
 }
@@ -80,7 +80,7 @@ export function loadUserConfig(env: NodeJS.ProcessEnv = process.env): UserConfig
     return {
       ...fallback,
       ...parsed,
-      agents: (parsed.agents ?? []).filter((agent): agent is "claude-code" | "codex" => agent === "claude-code" || agent === "codex"),
+      agents: (parsed.agents ?? []).filter((agent): agent is "claude-code" | "codex" | "opencode" => agent === "claude-code" || agent === "codex" || agent === "opencode"),
       synthesis: parsed.synthesis ?? fallback.synthesis,
       llm: parsed.llm,
     };

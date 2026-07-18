@@ -33,6 +33,7 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL, co
       sessions: count(db, "sessions"), episodes: count(db, "episodes"),
       traces: count(db, "traces"), memories: count(db, "memories"),
       packets: count(db, "context_packets"), health: store.getHealthDiagnostics(),
+      tasks: count(db, "tasks"),
       effects: effectSummary(store),
     });
   }
@@ -73,6 +74,14 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL, co
     return data(res, { packet: row, candidates, abstained: !candidates.some((candidate) => candidate.selected) });
   }
   if (req.method === "GET" && url.pathname === "/api/memories") return data(res, store.getRecentMemories(readLimit(url)));
+  if (req.method === "GET" && url.pathname === "/api/tasks") return data(res, store.getDB().prepare(`SELECT * FROM tasks ORDER BY updated_at DESC LIMIT ?`).all(readLimit(url)));
+  const task = match(url.pathname, /^\/api\/tasks\/([^/]+)$/);
+  if (req.method === "GET" && task) {
+    const id = decodeURIComponent(task); const db = store.getDB();
+    const row = db.prepare(`SELECT * FROM tasks WHERE id = ?`).get(id);
+    if (!row) return error(res, 404, "not_found", "Task not found");
+    return data(res, { task: row, requirements: db.prepare(`SELECT * FROM task_requirements WHERE task_id = ? ORDER BY created_at`).all(id), steps: db.prepare(`SELECT * FROM task_steps WHERE task_id = ? ORDER BY position`).all(id), decisions: db.prepare(`SELECT * FROM task_decisions WHERE task_id = ? ORDER BY created_at`).all(id), failures: db.prepare(`SELECT * FROM task_failures WHERE task_id = ? ORDER BY created_at`).all(id), checkpoints: db.prepare(`SELECT * FROM checkpoints WHERE task_id = ? ORDER BY created_at DESC`).all(id), transitions: db.prepare(`SELECT * FROM task_transitions WHERE task_id = ? ORDER BY created_at`).all(id) });
+  }
   const memory = match(url.pathname, /^\/api\/memories\/(\d+)$/);
   if (req.method === "GET" && memory) {
     const row = store.getMemory(Number(memory));

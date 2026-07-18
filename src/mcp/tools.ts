@@ -94,6 +94,31 @@ export const TERMYTE_TOOL_DEFS: ToolDef[] = [
     description: "Report local Termyte storage and retrieval statistics.",
     inputSchema: { type: "object", properties: {} },
   },
+  {
+    name: "termyte.task_create",
+    description: "Create an authoritative task for a repository.",
+    inputSchema: { type: "object", properties: { repo_id: { type: "string" }, title: { type: "string" }, objective: { type: "string" } }, required: ["repo_id", "title", "objective"] },
+  },
+  {
+    name: "termyte.task_get",
+    description: "Get authoritative task state and ordered plan.",
+    inputSchema: { type: "object", properties: { taskId: { type: "string" } }, required: ["taskId"] },
+  },
+  {
+    name: "termyte.step_add",
+    description: "Add a pending plan step using optimistic task versioning.",
+    inputSchema: { type: "object", properties: { taskId: { type: "string" }, title: { type: "string" }, position: { type: "number" }, expectedVersion: { type: "number" }, verificationType: { type: "string" } }, required: ["taskId", "title", "position", "expectedVersion"] },
+  },
+  {
+    name: "termyte.resume",
+    description: "Compile authoritative resume state with deterministic checkpoint drift.",
+    inputSchema: { type: "object", properties: { taskId: { type: "string" }, workspaceRoot: { type: "string" } }, required: ["taskId"] },
+  },
+  {
+    name: "termyte.handoff",
+    description: "Persist a cross-agent handoff packet.",
+    inputSchema: { type: "object", properties: { taskId: { type: "string" }, source: { type: "string", enum: ["claude-code", "codex", "opencode"] }, target: { type: "string", enum: ["claude-code", "codex", "opencode"] }, workspaceRoot: { type: "string" } }, required: ["taskId", "source", "target"] },
+  },
 ];
 
 export const LEGACY_TOOL_DEFS: ToolDef[] = [

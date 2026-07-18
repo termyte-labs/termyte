@@ -18,9 +18,10 @@ export type EventType =
   | "user_prompt"
   | "tool_use"
   | "assistant_message"
+  | "compaction"
   | "session_end";
 
-export type Platform = "claude-code" | "codex" | "raw";
+export type Platform = "claude-code" | "codex" | "opencode" | "raw";
 
 /** Memory types per MVP spec. */
 export type MemoryType =
@@ -96,6 +97,10 @@ export interface Trace {
   session_id: string;
   timestamp: number;
   event_type: EventType;
+  platform_event_id?: string | null;
+  content_hash?: string | null;
+  schema_version?: number;
+  ingested_at?: number;
   tool_name: string | null;
   tool_input: unknown | null;
   tool_output: unknown | null;

@@ -15,13 +15,13 @@ beforeAll(() => {
 }, 30_000);
 
 describe("public CLI surface", () => {
-  it("advertises exactly five commands", () => {
+  it("advertises the task-state command alongside the core surface", () => {
     const result = spawnSync(process.execPath, [cli, "help"], { cwd: root, encoding: "utf8" });
     expect(result.status).toBe(0);
     const commands = result.stdout.split(/\r?\n/)
-      .map((line) => line.match(/^  (init|viewer|doctor|uninstall|help)\b/)?.[1])
+      .map((line) => line.match(/^  (init|viewer|doctor|task|uninstall|help)\b/)?.[1])
       .filter(Boolean);
-    expect(commands).toEqual(["init", "viewer", "doctor", "uninstall", "help"]);
+    expect(commands).toEqual(["init", "viewer", "doctor", "task", "uninstall", "help"]);
     expect(result.stdout).not.toMatch(/^  (capture|remember|inspect|evaluate|search|context|eval|bench|mcp)\b/m);
   });
 

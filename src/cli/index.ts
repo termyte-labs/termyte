@@ -9,6 +9,7 @@ Commands:
   init       Connect Termyte to supported coding agents
   viewer     Open the local context and diagnostics viewer
   doctor     Check installation and runtime health
+  task       Create, inspect, verify, checkpoint, resume, or hand off tasks
   uninstall  Remove Termyte integrations
   help       Show this help
 `;
@@ -58,6 +59,11 @@ async function main(): Promise<void> {
         const doctor = await import("./doctor.js");
         if (options["json"] === true) await doctor.runDoctorJson();
         else await doctor.runMain();
+        return;
+      }
+      case "task": {
+        const { taskCommand } = await import("./task.js");
+        process.exitCode = await taskCommand(rest[0], options);
         return;
       }
       case "uninstall": {

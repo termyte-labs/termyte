@@ -268,4 +268,20 @@ describe("Store", () => {
     expect(store.getRecentContextEffectCounts()).toEqual({ total: 1, helped: 1, hurt: 0, unused: 0, unknown: 0 });
     store.close();
   });
+
+  it("deduplicates exact normalized event replays without collapsing later repeats", () => {
+    const store = new Store(ctx);
+    store.upsertSession("s-replay", "demo", "r1", "/w");
+    const base = {
+      session_id: "s-replay", timestamp: 1000, event_type: "tool_use" as const,
+      tool_name: "Bash", tool_input: { command: "npm test" }, tool_output: "ok",
+      files_read: null, files_modified: null, user_prompt: null, final_response: null,
+    };
+    expect(store.insertTraceIdempotent({ ...base, platform_event_id: "call-1" }).inserted).toBe(true);
+    expect(store.insertTraceIdempotent({ ...base, platform_event_id: "call-1" }).inserted).toBe(false);
+    expect(store.insertTraceIdempotent({ ...base, platform_event_id: null, timestamp: 2000 }).inserted).toBe(true);
+    expect(store.insertTraceIdempotent({ ...base, platform_event_id: null, timestamp: 3000 }).inserted).toBe(true);
+    expect(store.getTracesForSession("s-replay")).toHaveLength(3);
+    store.close();
+  });
 });

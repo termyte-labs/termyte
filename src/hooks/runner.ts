@@ -28,6 +28,7 @@ export class HookRunner {
     this.adapters = {
       "claude-code": adapterFor("claude-code"),
       "codex": adapterFor("codex"),
+      "opencode": adapterFor("opencode"),
       "raw": adapterFor("raw"),
     };
   }
@@ -59,7 +60,8 @@ export class HookRunner {
     const repo_id = detectRepoId(event.cwd);
     const workspace_root = detectWorkspaceRoot(event.cwd);
     const session = this.store.upsertSession(event.session_id, project, repo_id, workspace_root);
-    const trace = this.ingestor.ingest(event);
+    const { trace, inserted } = this.ingestor.ingest(event);
+    if (!inserted) return;
     const episodeId = this.experience.record(event, trace, session);
     if (episodeId && (shouldEnqueueObservation(event) || event.event_type === "session_end")) {
       this.observer.enqueueEpisode(episodeId, event.event_type === "session_end" ? Date.now() : Date.now() + 1_000);

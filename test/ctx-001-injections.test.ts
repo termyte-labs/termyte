@@ -5,6 +5,7 @@ import { FTSSearch } from "../src/retrieval/fts.js";
 import { VectorSearch } from "../src/retrieval/vector.js";
 import { HybridSearch } from "../src/retrieval/hybrid.js";
 import { ContextBuilder } from "../src/context/builder.js";
+import { TaskStateService } from "../src/task-state/service.js";
 
 class MockEmbeddings implements import("../src/retrieval/embeddings.js").EmbeddingsProvider {
   readonly dimensions = 4;
@@ -44,6 +45,14 @@ function seedMemory(title: string, desc: string): number {
 }
 
 describe("CTX-001 context injection persistence", () => {
+  it("places the sole active authoritative task before historical memory", async () => {
+    seedMemory("Contradictory history", "The objective is obsolete");
+    new TaskStateService(store.getDB()).createTask({ repoId: "r1", title: "Current task", objective: "Ship verified handoff" });
+    const out = await builder.build({ repo_id: "r1", query: "objective", surface: "test", tokenBudget: 1000 });
+    expect(out.text.startsWith("# Authoritative Termyte Task State")).toBe(true);
+    expect(out.text).toContain("Ship verified handoff");
+    expect(store.getContextCandidates(out.contextPacketId)[0]?.kind).toBe("current_state");
+  });
   it("returns a non-null contextInjectionId", async () => {
     seedMemory("Active fact", "important thing");
     const out = await builder.build({ repo_id: "r1", surface: "test" });

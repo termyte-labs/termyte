@@ -5,6 +5,7 @@ import type { HybridSearch, HybridSearchResult } from "../retrieval/hybrid.js";
 import { isMemoryEligible } from "../retrieval/eligibility.js";
 import { scoreMemoryCandidate } from "../retrieval/ranking.js";
 import { ContextCompiler } from "./compiler.js";
+import { ResumeCompiler } from "../task-state/resume.js";
 
 export interface ContextInput {
   repo_id?: string;
@@ -39,6 +40,8 @@ export class ContextBuilder {
     const startedAt = Date.now();
     const limit = input.maxMemories ?? 50;
     const repoId = input.repo_id ?? "unknown";
+    const taskText = this.renderActiveTask(repoId);
+    const taskTokens = Math.ceil(taskText.length / 4);
     let consideredMemories: HybridSearchResult[];
 
     if (input.query) {
@@ -61,7 +64,7 @@ export class ContextBuilder {
       repoId,
       query: input.query,
       currentFiles: input.currentFiles,
-      tokenBudget: input.tokenBudget ?? 0,
+      tokenBudget: input.tokenBudget ? Math.max(0, input.tokenBudget - taskTokens) : 0,
       maxMemories: limit,
       rankedMemories: consideredMemories,
     });
@@ -82,6 +85,7 @@ export class ContextBuilder {
     const candidateSummary = this.store.getMostRecentSummaryForRepo(repoId);
     const summary = candidateSummary && selected.has(`summary:${candidateSummary.id}`) ? candidateSummary : null;
 
+    const renderedText = taskText + compiled.text;
     const packet = this.store.recordContextPacket({
       sessionId: input.sessionId,
       episodeId: input.episodeId,
@@ -89,11 +93,15 @@ export class ContextBuilder {
       agent: input.agent ?? input.surface ?? "unknown",
       task: input.query ?? "Repository context",
       tokenBudget: input.tokenBudget ?? 0,
-      estimatedTokens: compiled.estimatedTokens,
+      estimatedTokens: compiled.estimatedTokens + taskTokens,
       retrievalMode: consideredMemories.some((result) => result.vector_rank) ? "hybrid" : "fts",
       latencyMs: Date.now() - startedAt,
-      renderedText: compiled.text,
-      candidates: compiled.candidates.map((candidate) => ({
+      renderedText,
+      candidates: [...(taskText ? [{
+        candidateId: `authoritative_task:${repoId}`, kind: "current_state" as const, sourceId: repoId,
+        tokenEstimate: taskTokens, selected: true, rank: 1, finalScore: 1,
+        scoreBreakdown: { authoritative: 1 }, rejectionReason: null, renderedText: taskText,
+      }] : []), ...compiled.candidates.map((candidate) => ({
         candidateId: candidate.candidate_id,
         kind: candidate.kind,
         sourceId: candidate.source_id,
@@ -104,10 +112,10 @@ export class ContextBuilder {
         scoreBreakdown: candidate.score_breakdown,
         rejectionReason: candidate.rejection_reason,
         renderedText: candidate.rendered_text,
-      })),
+      }))],
     });
 
-    const injectionId = compiled.text ? randomUUID() : null;
+    const injectionId = renderedText ? randomUUID() : null;
     if (injectionId) this.store.recordContextInjection({
       id: injectionId,
       sessionId: input.sessionId,
@@ -143,10 +151,17 @@ export class ContextBuilder {
       rankedMemories,
       observations,
       summary,
-      text: compiled.text,
+      text: renderedText,
       contextInjectionId: injectionId,
       contextPacketId: packet.id,
     };
+  }
+
+  private renderActiveTask(repoId: string): string {
+    const rows = this.store.getDB().prepare(`SELECT id FROM tasks WHERE repo_id = ? AND status = 'active' ORDER BY updated_at DESC LIMIT 2`).all(repoId) as Array<{ id: string }>;
+    if (rows.length !== 1) return "";
+    const packet = new ResumeCompiler(this.store.getDB()).compile(rows[0]!.id);
+    return `# Authoritative Termyte Task State\nThis state is primary; historical memory below is supplemental.\n\n${JSON.stringify(packet, null, 2)}\n\n`;
   }
 }
 

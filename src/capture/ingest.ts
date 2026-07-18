@@ -14,7 +14,7 @@ import { extractFilesFromEvent } from "./files.js";
 export class Ingestor {
   constructor(private store: Store) {}
 
-  ingest(event: NormalizedEvent): Trace {
+  ingest(event: NormalizedEvent): { trace: Trace; inserted: boolean } {
     // Project resolution: if the adapter didn't extract files, try from input.
     let files_read = event.files_read;
     let files_modified = event.files_modified;
@@ -38,19 +38,23 @@ export class Ingestor {
       }
     }
 
-    const trace = this.store.insertTrace({
-      session_id: event.session_id,
-      timestamp: event.timestamp,
-      event_type: event.event_type,
-      tool_name: event.tool_name,
-      tool_input: event.tool_input,
-      tool_output: event.tool_output,
-      files_read,
-      files_modified,
-      user_prompt: event.user_prompt,
-      final_response: event.final_response,
-    });
+    return this.store.getDB().transaction(() => {
+      const result = this.store.insertTraceIdempotent({
+        session_id: event.session_id,
+        platform_event_id: event.platform_event_id ?? null,
+        timestamp: event.timestamp,
+        event_type: event.event_type,
+        tool_name: event.tool_name,
+        tool_input: event.tool_input,
+        tool_output: event.tool_output,
+        files_read,
+        files_modified,
+        user_prompt: event.user_prompt,
+        final_response: event.final_response,
+      });
+      if (result.inserted) this.store.projectTrace(result.trace, event.cwd);
+      return result;
+    })();
 
-    return trace;
   }
 }

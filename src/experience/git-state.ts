@@ -6,8 +6,14 @@ export interface GitDiffState {
   changedPaths: string[];
   stagedPaths: string[];
   unstagedPaths: string[];
+  untrackedPaths: string[];
   stagedStat: string | null;
   unstagedStat: string | null;
+}
+
+export interface RepositoryState extends GitDiffState {
+  branch: string | null;
+  conflicts: string[];
 }
 
 export interface GitStateOptions {
@@ -28,15 +34,27 @@ export function readGitDiffState(workspaceRoot: string, options: GitStateOptions
 
   const stagedPaths = readPaths(workspaceRoot, ["diff", "--cached", "--name-only", "-z", "--no-ext-diff"], options);
   const unstagedPaths = readPaths(workspaceRoot, ["diff", "--name-only", "-z", "--no-ext-diff"], options);
-  if (stagedPaths === null || unstagedPaths === null) return null;
+  const untrackedPaths = readPaths(workspaceRoot, ["ls-files", "--others", "--exclude-standard", "-z"], options);
+  if (stagedPaths === null || unstagedPaths === null || untrackedPaths === null) return null;
 
   return {
     head,
     stagedPaths,
     unstagedPaths,
-    changedPaths: [...new Set([...stagedPaths, ...unstagedPaths])].sort(),
+    untrackedPaths,
+    changedPaths: [...new Set([...stagedPaths, ...unstagedPaths, ...untrackedPaths])].sort(),
     stagedStat: compact(runGit(workspaceRoot, ["diff", "--cached", "--stat", "--compact-summary", "--no-ext-diff"], options.timeoutMs)),
     unstagedStat: compact(runGit(workspaceRoot, ["diff", "--stat", "--compact-summary", "--no-ext-diff"], options.timeoutMs)),
+  };
+}
+
+export function readRepositoryState(workspaceRoot: string, options: GitStateOptions = {}): RepositoryState | null {
+  const state = readGitDiffState(workspaceRoot, options);
+  if (!state) return null;
+  return {
+    ...state,
+    branch: compact(runGit(workspaceRoot, ["branch", "--show-current"], options.timeoutMs)),
+    conflicts: readPaths(workspaceRoot, ["diff", "--name-only", "--diff-filter=U"], options) ?? [],
   };
 }
 

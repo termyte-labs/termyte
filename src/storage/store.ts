@@ -5,6 +5,7 @@ import { applyFeedback } from "../lifecycle/feedback.js";
 import { MemoryVecIndex, type MemoryVectorHit } from "../indexing/memory-vec-index.js";
 import type { RetrievalScoreBreakdown } from "../retrieval/ranking.js";
 import { redactTracePayload } from "../security/redaction.js";
+import { createHash } from "node:crypto";
 import type {
   CodeApplicabilityEvidence,
   ContextCandidate,
@@ -306,17 +307,33 @@ export class Store {
   // ---------- traces ----------
 
   insertTrace(trace: Omit<Trace, "id" | "processed_at">): Trace {
+    return this.insertTraceIdempotent(trace).trace;
+  }
+
+  insertTraceIdempotent(trace: Omit<Trace, "id" | "processed_at">): { trace: Trace; inserted: boolean } {
     const redacted = redactTracePayload({
       tool_input: trace.tool_input,
       tool_output: trace.tool_output,
       user_prompt: trace.user_prompt,
       final_response: trace.final_response,
     });
+    const contentHash = trace.content_hash ?? createHash("sha256").update(stableStringify({
+      event_type: trace.event_type,
+      tool_name: trace.tool_name,
+      tool_input: redacted.value.tool_input,
+      tool_output: redacted.value.tool_output,
+      files_read: trace.files_read,
+      files_modified: trace.files_modified,
+      user_prompt: redacted.value.user_prompt,
+      final_response: redacted.value.final_response,
+    })).digest("hex");
+    const ingestedAt = trace.ingested_at ?? Date.now();
     const stmt = this.ctx.db.prepare(`
-      INSERT INTO traces (
+      INSERT OR IGNORE INTO traces (
         session_id, timestamp, event_type, tool_name, tool_input, tool_output,
-        files_read, files_modified, user_prompt, final_response, redaction_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        files_read, files_modified, user_prompt, final_response, redaction_json,
+        platform_event_id, content_hash, schema_version, ingested_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const info = stmt.run(
       trace.session_id, trace.timestamp, trace.event_type,
@@ -324,17 +341,16 @@ export class Store {
       serialize(trace.files_read), serialize(trace.files_modified),
       redacted.value.user_prompt, redacted.value.final_response,
       serialize(redacted.redaction),
+      trace.platform_event_id ?? null, contentHash, trace.schema_version ?? 1, ingestedAt,
     );
-    return {
-      id: info.lastInsertRowid as number,
-      processed_at: null,
-      ...trace,
-      tool_input: redacted.value.tool_input,
-      tool_output: redacted.value.tool_output,
-      user_prompt: redacted.value.user_prompt,
-      final_response: redacted.value.final_response,
-      redaction: redacted.redaction,
-    };
+    const inserted = info.changes === 1;
+    const row = inserted
+      ? this.ctx.db.prepare(`SELECT * FROM traces WHERE id = ?`).get(info.lastInsertRowid)
+      : trace.platform_event_id
+        ? this.ctx.db.prepare(`SELECT * FROM traces WHERE session_id = ? AND platform_event_id = ?`).get(trace.session_id, trace.platform_event_id)
+        : this.ctx.db.prepare(`SELECT * FROM traces WHERE session_id = ? AND event_type = ? AND timestamp = ? AND content_hash = ?`).get(trace.session_id, trace.event_type, trace.timestamp, contentHash);
+    if (!row) throw new Error("Failed to persist normalized trace");
+    return { trace: mapTrace(row), inserted };
   }
 
   getTrace(id: number): Trace | null {
@@ -397,6 +413,25 @@ export class Store {
        ORDER BY timestamp ASC LIMIT ?`
     ).all(session_id, limit) as any[];
     return rows.map(mapTrace);
+  }
+
+  projectTrace(trace: Trace, cwd?: string): void {
+    if (trace.event_type === "user_prompt" && trace.user_prompt) {
+      const ordinal = ((this.ctx.db.prepare(`SELECT COALESCE(MAX(ordinal), 0) AS n FROM prompts WHERE session_id = ?`).get(trace.session_id) as { n: number }).n) + 1;
+      this.ctx.db.prepare(`INSERT OR IGNORE INTO prompts (id, session_id, trace_id, ordinal, content, created_at) VALUES (?, ?, ?, ?, ?, ?)`)
+        .run(`prompt:${trace.id}`, trace.session_id, trace.id, ordinal, trace.user_prompt, trace.timestamp);
+    }
+    if (trace.event_type === "tool_use" && trace.tool_name) {
+      const exitCode = readExitCode(trace.tool_output);
+      this.ctx.db.prepare(`INSERT OR IGNORE INTO tool_calls (id, session_id, completion_trace_id, platform_tool_id, name, input_json, output_json, status, exit_code, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(`tool:${trace.id}`, trace.session_id, trace.id, trace.platform_event_id ?? null, trace.tool_name, serialize(trace.tool_input), serialize(trace.tool_output), exitCode === null ? "unknown" : exitCode === 0 ? "completed" : "failed", exitCode, trace.timestamp);
+      const command = readCommand(trace.tool_name, trace.tool_input);
+      if (command) this.ctx.db.prepare(`INSERT OR IGNORE INTO commands (id, trace_id, command, cwd, exit_code, completed_at) VALUES (?, ?, ?, ?, ?, ?)`)
+        .run(`command:${trace.id}`, trace.id, command, cwd ?? null, exitCode, trace.timestamp);
+    }
+    const insertFile = this.ctx.db.prepare(`INSERT OR IGNORE INTO file_changes (id, trace_id, path, operation) VALUES (?, ?, ?, ?)`);
+    for (const path of trace.files_read ?? []) insertFile.run(`file:${trace.id}:read:${path}`, trace.id, path, "read");
+    for (const path of trace.files_modified ?? []) insertFile.run(`file:${trace.id}:modify:${path}`, trace.id, path, "modify");
   }
 
   getCapturedTracesForEpisode(episodeId: string, limit = 50): Trace[] {
@@ -1572,6 +1607,27 @@ function mapEpisode(row: any): Episode {
   };
 }
 
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => `${JSON.stringify(key)}:${stableStringify(item)}`).join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
+}
+
+function readCommand(toolName: string, input: unknown): string | null {
+  if (!/^(bash|shell|command)$/i.test(toolName) || !input || typeof input !== "object") return null;
+  const command = (input as Record<string, unknown>)["command"];
+  return typeof command === "string" && command.length > 0 ? command : null;
+}
+
+function readExitCode(output: unknown): number | null {
+  if (!output || typeof output !== "object") return null;
+  const record = output as Record<string, unknown>;
+  const value = record["exit_code"] ?? record["exitCode"] ?? record["code"];
+  return typeof value === "number" && Number.isInteger(value) ? value : null;
+}
+
 function mapEvidence(row: any): Evidence {
   return {
     id: row.id, episode_id: row.episode_id, kind: row.kind,
@@ -1630,6 +1686,10 @@ function mapTrace(row: any): Trace {
   return {
     id: row.id, session_id: row.session_id, timestamp: row.timestamp,
     event_type: row.event_type as EventType,
+    platform_event_id: row.platform_event_id ?? null,
+    content_hash: row.content_hash ?? null,
+    schema_version: row.schema_version ?? 1,
+    ingested_at: row.ingested_at ?? row.timestamp,
     tool_name: row.tool_name,
     tool_input: parseJSON(row.tool_input, null),
     tool_output: parseJSON(row.tool_output, null),

@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS traces (
   session_id TEXT NOT NULL,
   timestamp INTEGER NOT NULL,
   event_type TEXT NOT NULL CHECK(event_type IN
-    ('session_init', 'user_prompt', 'tool_use', 'assistant_message', 'session_end')),
+    ('session_init', 'user_prompt', 'tool_use', 'assistant_message', 'compaction', 'session_end')),
   tool_name TEXT,
   tool_input TEXT,
   tool_output TEXT,
@@ -49,6 +49,10 @@ CREATE TABLE IF NOT EXISTS traces (
   user_prompt TEXT,
   final_response TEXT,
   redaction_json TEXT NOT NULL DEFAULT '{}',
+  platform_event_id TEXT,
+  content_hash TEXT,
+  schema_version INTEGER NOT NULL DEFAULT 1,
+  ingested_at INTEGER,
   processed_at INTEGER,
   FOREIGN KEY (session_id) REFERENCES sessions(session_id)
 );
@@ -56,6 +60,162 @@ CREATE INDEX IF NOT EXISTS idx_traces_session ON traces(session_id);
 CREATE INDEX IF NOT EXISTS idx_traces_timestamp ON traces(timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_traces_unprocessed
   ON traces(processed_at) WHERE processed_at IS NULL;
+
+CREATE TABLE IF NOT EXISTS prompts (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL REFERENCES sessions(session_id) ON DELETE CASCADE,
+  trace_id INTEGER NOT NULL UNIQUE REFERENCES traces(id) ON DELETE CASCADE,
+  ordinal INTEGER NOT NULL,
+  content TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  UNIQUE(session_id, ordinal)
+);
+CREATE INDEX IF NOT EXISTS idx_prompts_session ON prompts(session_id, ordinal);
+
+CREATE TABLE IF NOT EXISTS tool_calls (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL REFERENCES sessions(session_id) ON DELETE CASCADE,
+  completion_trace_id INTEGER NOT NULL UNIQUE REFERENCES traces(id) ON DELETE CASCADE,
+  platform_tool_id TEXT,
+  name TEXT NOT NULL,
+  input_json TEXT,
+  output_json TEXT,
+  status TEXT NOT NULL CHECK(status IN ('completed', 'failed', 'unknown')),
+  exit_code INTEGER,
+  completed_at INTEGER NOT NULL,
+  UNIQUE(session_id, platform_tool_id)
+);
+CREATE INDEX IF NOT EXISTS idx_tool_calls_session ON tool_calls(session_id, completed_at);
+
+CREATE TABLE IF NOT EXISTS commands (
+  id TEXT PRIMARY KEY,
+  trace_id INTEGER NOT NULL UNIQUE REFERENCES traces(id) ON DELETE CASCADE,
+  command TEXT NOT NULL,
+  cwd TEXT,
+  exit_code INTEGER,
+  completed_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS file_changes (
+  id TEXT PRIMARY KEY,
+  trace_id INTEGER NOT NULL REFERENCES traces(id) ON DELETE CASCADE,
+  path TEXT NOT NULL,
+  operation TEXT NOT NULL CHECK(operation IN ('read', 'modify')),
+  UNIQUE(trace_id, path, operation)
+);
+CREATE INDEX IF NOT EXISTS idx_file_changes_path ON file_changes(path, trace_id);
+
+CREATE TABLE IF NOT EXISTS tasks (
+  id TEXT PRIMARY KEY,
+  repo_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  objective TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('active', 'completed', 'paused', 'cancelled')),
+  current_phase TEXT,
+  current_step_id TEXT,
+  version INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_tasks_repo_status ON tasks(repo_id, status, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS task_requirements (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  text TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('active', 'satisfied', 'superseded', 'rejected')),
+  confirmation_kind TEXT CHECK(confirmation_kind IN ('user', 'deterministic-verifier')),
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS task_steps (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  position INTEGER NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('pending', 'active', 'verified', 'failed', 'blocked')),
+  verification_type TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  UNIQUE(task_id, position)
+);
+
+CREATE TABLE IF NOT EXISTS task_decisions (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  text TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('proposed', 'active', 'superseded', 'rejected')),
+  confirmed_by TEXT,
+  supersedes_decision_id TEXT REFERENCES task_decisions(id),
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS task_failures (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  description TEXT NOT NULL,
+  command_id TEXT REFERENCES commands(id),
+  exit_code INTEGER,
+  user_note TEXT,
+  created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS verification_evidence (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  evidence_kind TEXT NOT NULL CHECK(evidence_kind IN ('command', 'test', 'git', 'file', 'user')),
+  trace_id INTEGER REFERENCES traces(id),
+  command_id TEXT REFERENCES commands(id),
+  payload_json TEXT NOT NULL DEFAULT '{}',
+  verdict TEXT NOT NULL CHECK(verdict IN ('passed', 'failed', 'inconclusive')),
+  created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS task_step_evidence (
+  step_id TEXT NOT NULL REFERENCES task_steps(id) ON DELETE CASCADE,
+  evidence_id TEXT NOT NULL REFERENCES verification_evidence(id) ON DELETE CASCADE,
+  PRIMARY KEY(step_id, evidence_id)
+);
+
+CREATE TABLE IF NOT EXISTS task_transitions (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  entity_type TEXT NOT NULL,
+  entity_id TEXT NOT NULL,
+  from_status TEXT,
+  to_status TEXT NOT NULL,
+  actor_type TEXT NOT NULL CHECK(actor_type IN ('user', 'verifier', 'agent')),
+  reason TEXT,
+  task_version INTEGER NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_task_transitions_task ON task_transitions(task_id, created_at);
+
+CREATE TABLE IF NOT EXISTS checkpoints (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  session_id TEXT REFERENCES sessions(session_id),
+  platform TEXT NOT NULL CHECK(platform IN ('claude-code', 'codex', 'opencode', 'raw')),
+  branch TEXT,
+  commit_hash TEXT,
+  changed_files_json TEXT NOT NULL DEFAULT '[]',
+  conflicts_json TEXT NOT NULL DEFAULT '[]',
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_checkpoints_task ON checkpoints(task_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS handoffs (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  source_platform TEXT NOT NULL,
+  target_platform TEXT NOT NULL,
+  checkpoint_id TEXT REFERENCES checkpoints(id),
+  task_version INTEGER NOT NULL,
+  packet_json TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS jobs (
   id TEXT PRIMARY KEY,
@@ -468,6 +628,8 @@ export function runMigrations(db: DB): void {
   db.exec(SCHEMA);
   ensureJobDedupeKeys(db);
   ensurePipelineColumns(db);
+  ensureEventLedgerColumns(db);
+  ensureTraceEventKinds(db);
   ensureLifecycleColumns(db);
   ensureProvenanceLinks(db);
   ensureFeedbackColumns(db);
@@ -570,6 +732,51 @@ function ensureContextInjectionColumns(db: DB): void {
   addColumnIfMissing(db, "context_injection_items", "score_breakdown_json", "TEXT NOT NULL DEFAULT '{}'");
   addColumnIfMissing(db, "context_injections", "packet_id", "TEXT REFERENCES context_packets(id) ON DELETE SET NULL");
   addColumnIfMissing(db, "context_injections", "delivery_method", "TEXT NOT NULL DEFAULT 'unknown'");
+}
+
+function ensureTraceEventKinds(db: DB): void {
+  const row = db.prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'traces'`).get() as { sql?: string } | undefined;
+  if (row?.sql?.includes("'compaction'")) return;
+  db.pragma("foreign_keys = OFF");
+  try {
+    db.transaction(() => db.exec(`
+      CREATE TABLE traces_next (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT NOT NULL,
+        timestamp INTEGER NOT NULL,
+        event_type TEXT NOT NULL CHECK(event_type IN ('session_init', 'user_prompt', 'tool_use', 'assistant_message', 'compaction', 'session_end')),
+        tool_name TEXT, tool_input TEXT, tool_output TEXT, files_read TEXT, files_modified TEXT,
+        user_prompt TEXT, final_response TEXT, redaction_json TEXT NOT NULL DEFAULT '{}', processed_at INTEGER,
+        pipeline_state TEXT DEFAULT 'captured', platform_event_id TEXT, content_hash TEXT,
+        schema_version INTEGER NOT NULL DEFAULT 1, ingested_at INTEGER,
+        FOREIGN KEY (session_id) REFERENCES sessions(session_id)
+      );
+      INSERT INTO traces_next (id, session_id, timestamp, event_type, tool_name, tool_input, tool_output, files_read, files_modified, user_prompt, final_response, redaction_json, processed_at, pipeline_state, platform_event_id, content_hash, schema_version, ingested_at)
+      SELECT id, session_id, timestamp, event_type, tool_name, tool_input, tool_output, files_read, files_modified, user_prompt, final_response, redaction_json, processed_at, pipeline_state, platform_event_id, content_hash, schema_version, ingested_at FROM traces;
+      DROP TABLE traces;
+      ALTER TABLE traces_next RENAME TO traces;
+      CREATE INDEX idx_traces_session ON traces(session_id);
+      CREATE INDEX idx_traces_timestamp ON traces(timestamp DESC);
+      CREATE INDEX idx_traces_unprocessed ON traces(processed_at) WHERE processed_at IS NULL;
+      CREATE INDEX idx_traces_pipeline_state ON traces(pipeline_state);
+      CREATE UNIQUE INDEX idx_traces_platform_event ON traces(session_id, platform_event_id) WHERE platform_event_id IS NOT NULL;
+      CREATE UNIQUE INDEX idx_traces_replay ON traces(session_id, event_type, timestamp, content_hash) WHERE platform_event_id IS NULL AND content_hash IS NOT NULL;
+    `))();
+  } finally { db.pragma("foreign_keys = ON"); }
+}
+
+function ensureEventLedgerColumns(db: DB): void {
+  addColumnIfMissing(db, "traces", "platform_event_id", "TEXT");
+  addColumnIfMissing(db, "traces", "content_hash", "TEXT");
+  addColumnIfMissing(db, "traces", "schema_version", "INTEGER NOT NULL DEFAULT 1");
+  addColumnIfMissing(db, "traces", "ingested_at", "INTEGER");
+  db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_traces_platform_event
+      ON traces(session_id, platform_event_id) WHERE platform_event_id IS NOT NULL;
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_traces_replay
+      ON traces(session_id, event_type, timestamp, content_hash)
+      WHERE platform_event_id IS NULL AND content_hash IS NOT NULL;
+  `);
 }
 
 function ensureFeedbackEventKinds(db: DB): void {

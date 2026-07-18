@@ -3,6 +3,7 @@ export type { Platform } from "../core/types.js";
 export { AdapterRejectedInput, isValidCwd } from "./errors.js";
 export { ClaudeCodeAdapter } from "./claude-code.js";
 export { CodexAdapter } from "./codex.js";
+export { OpenCodeAdapter } from "./opencode.js";
 export { RawAdapter } from "./raw.js";
 export { Ingestor } from "./ingest.js";
 export { extractFilesFromEvent, type ExtractedFiles } from "./files.js";
@@ -12,6 +13,7 @@ import type { Platform } from "../core/types.js";
 import type { PlatformAdapter } from "./adapter.js";
 import { ClaudeCodeAdapter } from "./claude-code.js";
 import { CodexAdapter } from "./codex.js";
+import { OpenCodeAdapter } from "./opencode.js";
 import { RawAdapter } from "./raw.js";
 
 /** Build the adapter for a given platform name. Unknown platforms fall
@@ -21,6 +23,7 @@ export function adapterFor(platform: Platform): PlatformAdapter {
   switch (platform) {
     case "claude-code": return new ClaudeCodeAdapter();
     case "codex":       return new CodexAdapter();
+    case "opencode":    return new OpenCodeAdapter();
     case "raw":         return new RawAdapter();
     default: {
       const exhaustive: never = platform;
