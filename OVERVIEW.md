@@ -1,7 +1,7 @@
 # Termyte Overview
 
-Termyte is the best persistent memory layer for coding agents.
-It captures agent execution as traces, derives observations and memories from those traces, and exposes retrieval through CLI, MCP, hook injection, and a local diagnostics viewer.
+Termyte is a local execution, task-state, and memory layer for coding agents.
+It captures agent execution as an idempotent event ledger, maintains evidence-backed task state, derives reusable memories, and exposes continuity through CLI, MCP, context injection, handoffs, and a local diagnostics viewer.
 
 This repository is real software, not a pitch deck. The durable pipeline, provenance, feedback, lifecycle, and ranking pieces exist. The closed loop that proves a memory helped or harmed a task and then repairs future retrieval is still incomplete.
 
@@ -22,6 +22,7 @@ This repository is real software, not a pitch deck. The durable pipeline, proven
 - `src/security`: deterministic redaction before persistence and LLM calls
 - `src/storage`: SQLite schema, migrations, document corpus, and repository state access
 - `src/synth`: Claude Code/Codex synthesis adapters and shared prompts
+- `src/task-state`: authoritative tasks, evidence gates, checkpoints, resume packets, and handoffs
 - `src/viewer`: local HTTP diagnostics viewer
 
 ## System Flow
@@ -30,13 +31,13 @@ This repository is real software, not a pitch deck. The durable pipeline, proven
 flowchart LR
   A[Agent event] --> B[PlatformAdapter.normalize()]
   B --> C[HookRunner]
-  C --> D[Redaction + trace insert]
-  D --> E[Durable jobs]
+  C --> D[Redaction + idempotent event ledger]
+  D --> E[Execution projections + durable jobs]
   E --> F[Detached termyte-worker]
   F --> G[Observation pipeline]
   G --> H[Memories + summaries]
   H --> I[FTS5 + sqlite-vec + scan fallback]
-  I --> J[ContextBuilder / CLI / MCP / hooks]
+  I --> J[Authoritative task state + historical context]
   J --> K[Context injections + feedback]
   K --> I
 ```
@@ -50,6 +51,8 @@ SQLite is the source of truth.
 | Area | Tables / Indexes | Role |
 |---|---|---|
 | Sessions and traces | `sessions`, `traces` | Immutable capture and repository scope |
+| Execution projections | `prompts`, `tool_calls`, `commands`, `file_changes` | Deterministic views of captured work |
+| Task continuity | `tasks`, `task_requirements`, `task_steps`, `task_decisions`, `task_failures`, `verification_evidence`, `checkpoints`, `handoffs`, `task_transitions` | Authoritative work state, verification, drift, and transfer |
 | Durable work | `jobs` | Leases, retries, backoff, dead letters |
 | Derived knowledge | `observations`, `memories`, `summaries` | Structured evidence and consolidated memory |
 | Provenance | `trace_observations`, `observation_memories`, `memory_edges` | Explicit lineage and relationships |
@@ -62,8 +65,10 @@ The store preserves repository, workspace, session, observation, and trace prove
 
 ## What Works
 
-- platform adapters for the supported agents
-- immutable trace capture
+- Claude Code, Codex, and OpenCode capture adapters
+- replay-safe trace capture and additive migration
+- evidence-backed task state with optimistic concurrency
+- checkpoints, drift-aware resume packets, and immutable handoffs
 - durable jobs with worker supervision
 - trace to observation to memory processing
 - local embeddings and hybrid retrieval
@@ -74,9 +79,10 @@ The store preserves repository, workspace, session, observation, and trace prove
 
 ## What Does Not Work Yet
 
-- the system is not self-correcting
-- automatic outcome attribution is not implemented
-- correction text is not verified against repository evidence
+- OpenCode synthesis and dynamic context injection are not implemented
+- import/export/delete operations are not implemented
+- the Viewer exposes task data through APIs but has no task-management UI
+- live three-agent acceptance proof is not complete
 - ranking calibration is still conservative
 - the redaction layer is heuristic, not comprehensive
 

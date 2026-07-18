@@ -2,17 +2,17 @@
 
 Termyte follows a simple runtime path:
 
-1. A supported agent emits a normalized event.
-2. Termyte redacts obvious secrets and stores the event as a trace.
-3. The recorder groups traces into task episodes and attaches observable evidence.
-4. The trace is queued for durable background processing.
-5. A detached `termyte-worker` claims the job and extracts observations.
-6. Observations are consolidated into reusable memories.
-7. Memories are embedded, indexed, and made searchable.
-8. Retrieval builds compact context cards, records what was injected, and exposes explicit detail lookup.
-9. A terminal event or task switch closes the episode with a deterministic outcome.
-10. Durable attribution classifies each delivered memory as `helped`, `hurt`, `unused`, or `unknown`.
-11. Explicit feedback and bounded inferred help can influence later lifecycle and ranking.
+1. Claude Code, Codex, or OpenCode emits an event.
+2. Termyte normalizes and redacts it, then inserts it into an idempotent event ledger.
+3. The same transaction projects prompts, completed tools, commands, and file changes.
+4. The recorder groups traces into task episodes and attaches observable evidence.
+5. The trace is queued for durable background processing.
+6. A detached `termyte-worker` extracts observations and consolidates memories.
+7. For an active repository task, authoritative task state is packed before historical memory.
+8. Checkpoints record Git state; resume and handoff packets report drift and the immediate next action.
+9. Retrieval records injected context, and durable attribution feeds bounded results back into lifecycle and ranking.
+
+Duplicate platform event IDs are ignored. Events without one use a content-based fallback key scoped to the session, event type, and timestamp.
 
 ## Episodes and Experience
 
@@ -27,6 +27,10 @@ The central store is SQLite.
 Important tables:
 
 - `traces`
+- `prompts`, `tool_calls`, `commands`, `file_changes`
+- `tasks`, `task_requirements`, `task_steps`, `task_decisions`, `task_failures`
+- `verification_evidence`, `task_step_evidence`, `task_transitions`
+- `checkpoints`, `handoffs`
 - `jobs`
 - `observations`
 - `memories`

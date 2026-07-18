@@ -2,7 +2,7 @@
 
 ## Install
 
-Install Termyte and connect Claude Code or Codex:
+Install Termyte and connect Claude Code, Codex, or OpenCode:
 
 ```bash
 npm install -g termyte
@@ -10,7 +10,7 @@ termyte init
 termyte viewer
 ```
 
-`termyte init` detects Claude Code and Codex, installs the selected hooks, and configures synthesis.
+`termyte init` detects supported agents, installs the selected integrations, and configures synthesis. OpenCode currently supports capture, not synthesis.
 
 ## Verify
 
@@ -26,6 +26,18 @@ termyte viewer
 ## Use
 
 The Viewer exposes sessions, episodes, context packets, memories, provenance, outcomes, and diagnostics.
+
+For durable task continuity:
+
+```bash
+termyte task create --repo <repo-id> --title "Fix login" --objective "Restore login"
+termyte task add-step --task <task-id> --title "Reproduce failure" --position 1 --version 1
+termyte task checkpoint --task <task-id> --workspace <repo-path> --platform codex
+termyte task resume --task <task-id> --workspace <repo-path>
+termyte task handoff --task <task-id> --source codex --target opencode --workspace <repo-path>
+```
+
+Task commands emit JSON. IDs and the current optimistic-lock version come from the preceding command output.
 
 ## Configuration
 

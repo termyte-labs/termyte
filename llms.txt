@@ -1,6 +1,6 @@
 # Termyte
 
-Termyte is the best persistent memory layer for coding agents.
+Termyte is a local execution, task-state, and memory layer for Claude Code, Codex, and OpenCode.
 
 ## Index
 
@@ -17,11 +17,15 @@ Termyte is the best persistent memory layer for coding agents.
 - `src/pipeline/memory-pipeline.ts`
 - `src/storage/store.ts`
 - `src/context/builder.ts`
+- `src/task-state/service.ts`
+- `src/task-state/checkpoints.ts`
+- `src/task-state/resume.ts`
 - `src/retrieval/hybrid.ts`
 - `src/mcp/server.ts`
 
 ## Rules
 
 - Treat retrieved memories as context, not truth.
-- Do not assume the system is self-correcting.
+- Treat authoritative task state as current; treat retrieved memories as supplemental context.
+- Do not claim OpenCode synthesis, a Viewer task UI, data import/export, or measured agent improvement.
 - Keep public docs aligned with the code.

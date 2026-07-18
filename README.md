@@ -1,6 +1,6 @@
 # Termyte
 
-Termyte is a local experience layer for coding agents. It records agent execution, preserves evidence, derives repository-specific experience, and quietly supplies relevant context at the start of later tasks.
+Termyte is a local execution and continuity layer for coding agents. It records agent execution, preserves evidence, maintains authoritative task state, and supplies relevant state and experience to later sessions.
 
 Termyte closes the local context loop: delivered memories are linked to task episodes, evidence, outcomes, item-level effects, and bounded feedback that can influence later admission and ranking.
 
@@ -11,7 +11,7 @@ npm install -g termyte
 termyte init
 ```
 
-`termyte init` lets you select Claude Code and/or Codex and choose one synthesis source:
+`termyte init` lets you select Claude Code, Codex, and/or OpenCode and choose one synthesis source:
 
 - existing Claude Code or Codex authentication;
 - an OpenAI-compatible API key from `TERMYTE_LLM_API_KEY`;
@@ -25,6 +25,7 @@ Termyte stores its configuration and SQLite database under `~/.termyte`. Hooks r
 termyte init
 termyte viewer [--no-open]
 termyte doctor [--json]
+termyte task <create|show|add-step|verify-step|checkpoint|resume|handoff> [options]
 termyte uninstall
 termyte help
 ```
@@ -33,26 +34,28 @@ termyte help
 
 ```text
 agent event
-  -> redaction and trace persistence
+  -> redaction and idempotent trace persistence
+  -> deterministic prompts, tools, commands, and file-change projections
   -> episode and evidence recording
   -> durable background jobs
   -> observations and memories with provenance
-  -> task-scoped context packet
-  -> Claude Code or Codex prompt context
+  -> authoritative task state, then historical context
+  -> agent prompt context or explicit resume/handoff packet
   -> episode outcome and item-level context effect
   -> bounded feedback into lifecycle and ranking
 ```
 
-Context retrieval is repository-scoped, lifecycle-aware, budgeted, and allowed to abstain. Packets contain compact experience cards with stable memory and injection IDs. Attribution runs durably after an episode outcome: explicit feedback is decisive, conservative evidence can infer low-confidence help, and ambiguity remains `unknown`. The foreground hook uses FTS-only retrieval, so it never downloads or initializes an embedding model while the agent is waiting.
+Task state covers requirements, ordered steps, decisions, failures, verification evidence, transitions, checkpoints, and immutable handoffs. Step verification requires passing evidence and explicit user authority; optimistic version checks reject stale writes. Historical retrieval remains repository-scoped, lifecycle-aware, budgeted, and allowed to abstain.
 
 ## Current boundaries
 
-- integrations are limited to Claude Code and Codex;
+- capture integrations support Claude Code, Codex, and OpenCode; OpenCode synthesis is not supported;
+- OpenCode capture is installed through a generated local plugin and has not yet completed a published live cross-agent acceptance trial;
 - redaction is heuristic, not comprehensive;
 - ranking has deterministic bounds but is not calibrated on a public coding-agent corpus;
 - deterministic attribution is not causal proof that context produced an outcome;
 - inferred `unused` is effect-only, and inferred harm is never applied without explicit harmful/correction feedback;
-- component, closed-loop, and packed-install tests pass; controlled paired Claude Code/Codex trials are still required before claiming product-value improvements.
+- component, migration, closed-loop, and packed-install tests pass; controlled paired agent trials are still required before claiming product-value improvements.
 
 ## Development
 
