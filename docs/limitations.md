@@ -10,7 +10,7 @@ Termyte works, but it is not finished.
 - Corrections depend on repository evidence becoming available to the verification worker; otherwise the memory remains conflicted.
 - Redaction is heuristic, so sensitive-data handling still needs review for high-risk repos.
 - Ranking calibration is still incomplete.
-- Claude Code, Codex, and OpenCode capture are supported; OpenCode synthesis and dynamic injection are not.
+- Claude Code, Codex, and OpenCode capture and non-interactive synthesis are supported; OpenCode automatic context injection is not.
 - OpenCode uses a generated local plugin and still needs published live acceptance proof.
 - Task data is available through CLI, MCP, context injection, and Viewer APIs; the Viewer has no task-management UI.
 - Import, export, bulk deletion, and Claude-Mem migration are not implemented.

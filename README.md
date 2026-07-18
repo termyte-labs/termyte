@@ -13,7 +13,7 @@ termyte init
 
 `termyte init` lets you select Claude Code, Codex, and/or OpenCode and choose one synthesis source:
 
-- existing Claude Code or Codex authentication;
+- existing Claude Code, Codex, or OpenCode authentication;
 - an OpenAI-compatible API key from `TERMYTE_LLM_API_KEY`;
 - capture-only mode.
 
@@ -47,9 +47,15 @@ agent event
 
 Task state covers requirements, ordered steps, decisions, failures, verification evidence, transitions, checkpoints, and immutable handoffs. Step verification requires passing evidence and explicit user authority; optimistic version checks reject stale writes. Historical retrieval remains repository-scoped, lifecycle-aware, budgeted, and allowed to abstain.
 
+### Background synthesis
+
+In agent mode, `termyte-worker` reuses an authenticated coding-agent CLI as a one-shot, non-interactive synthesis provider. Claude Code runs with `claude -p`, Codex with `codex exec`, and OpenCode with `opencode run --format json`. Termyte sends redacted trace-derived prompts to the selected provider, validates its structured response, stores observations with trace provenance, and then consolidates those observations into memories.
+
+This happens outside the foreground capture hook. API mode uses an OpenAI-compatible endpoint instead; capture-only mode stores events without forming observations or memories.
+
 ## Current boundaries
 
-- capture integrations support Claude Code, Codex, and OpenCode; OpenCode synthesis is not supported;
+- capture and non-interactive synthesis support Claude Code, Codex, and OpenCode; OpenCode automatic context injection is not supported;
 - OpenCode capture is installed through a generated local plugin and has not yet completed a published live cross-agent acceptance trial;
 - redaction is heuristic, not comprehensive;
 - ranking has deterministic bounds but is not calibrated on a public coding-agent corpus;

@@ -20,6 +20,24 @@ An episode is a coherent unit of coding work. Ordinary follow-up prompts remain 
 
 Experience is the combination of an episode, its evidence, and its outcome. Memories are reusable knowledge derived from that experience; they are not raw transcripts.
 
+## Observation and Memory Synthesis
+
+The foreground integration only captures and queues work. A detached `termyte-worker` performs semantic processing in the background:
+
+1. Redacted tool traces are grouped and sent to the configured synthesis provider.
+2. The provider returns structured observation blocks describing durable technical evidence.
+3. Termyte parses and validates those blocks before persistence and links every observation to its source traces.
+4. Indexed observations are sent through a second consolidation prompt.
+5. The validated result is stored as reusable memories linked to both observations and traces.
+
+In `agent` mode, Termyte invokes an already authenticated coding-agent CLI non-interactively:
+
+- Claude Code: `claude -p`
+- Codex: `codex exec`
+- OpenCode: `opencode run --format json`
+
+These are isolated one-shot background invocations, not continuations of the active coding session. `api` mode uses an OpenAI-compatible chat endpoint. `capture-only` mode makes no synthesis call, so raw traces remain available but new observations and memories are not formed.
+
 ## Storage
 
 The central store is SQLite.

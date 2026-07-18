@@ -10,7 +10,7 @@ termyte init
 termyte viewer
 ```
 
-`termyte init` detects supported agents, installs the selected integrations, and configures synthesis. OpenCode currently supports capture, not synthesis.
+`termyte init` detects supported agents, installs the selected integrations, and configures synthesis. Claude Code, Codex, and OpenCode can all be selected as a non-interactive synthesis provider after an authenticated verification request succeeds.
 
 ## Verify
 
@@ -49,6 +49,12 @@ The most important environment variables are:
 - `TERMYTE_LLM_MODEL` - observation and consolidation model
 - `TERMYTE_EMBED_MODEL_LOCAL` - local embedding model
 - `TERMYTE_AUTO_WORKER` - set to `0` to disable detached worker startup
+
+Synthesis has three modes:
+
+- `agent` - reuse authenticated Claude Code, Codex, or OpenCode CLI access
+- `api` - call an OpenAI-compatible endpoint
+- `capture-only` - store events without forming observations or memories
 
 ## Practical Rule
 
