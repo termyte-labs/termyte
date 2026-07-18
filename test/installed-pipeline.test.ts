@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync
 import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 const root = process.cwd();
 const npmCmd = process.platform === "win32" ? "C:\\nvm4w\\nodejs\\npm.cmd" : "npm";
@@ -75,6 +76,23 @@ describe("EVAL-002 packed installed pipeline", () => {
     expect(existsSync(workerCli)).toBe(true);
     expect(existsSync(hookCli)).toBe(true);
 
+    const previousHookPath = process.env.TERMYTE_HOOK_PATH;
+    process.env.TERMYTE_HOOK_PATH = hookCli;
+    try {
+      const claudeInstaller = await import(pathToFileURL(join(pkgRoot, "dist", "integrations", "installers", "claude-code.js")).href);
+      const codexInstaller = await import(pathToFileURL(join(pkgRoot, "dist", "integrations", "installers", "codex.js")).href);
+      expect(claudeInstaller.installClaudeCodeHooks({ target: "user", homeDir })).toBe(0);
+      expect(codexInstaller.installCodexHooks({ target: "user", homeDir })).toBe(0);
+      for (const [file, agent] of [[join(homeDir, ".claude", "settings.json"), "claude-code"], [join(homeDir, ".codex", "hooks.json"), "codex"]]) {
+        const hooks = JSON.parse(readFileSync(file, "utf8")).hooks as Record<string, Array<{ hooks: Array<{ command: string }> }>>;
+        expect(Object.keys(hooks).sort()).toEqual(["PostToolUse", "SessionStart", "Stop", "UserPromptSubmit"]);
+        expect(hooks.Stop?.[0]?.hooks[0]?.command).toContain(`${agent} summarize`);
+      }
+    } finally {
+      if (previousHookPath === undefined) delete process.env.TERMYTE_HOOK_PATH;
+      else process.env.TERMYTE_HOOK_PATH = previousHookPath;
+    }
+
     const failMarker = join(homeDir, "fake-llm-failed-once.marker");
     const baseEnv = {
       ...process.env,
@@ -87,6 +105,18 @@ describe("EVAL-002 packed installed pipeline", () => {
       TERMYTE_FAKE_LLM_FAIL_ONCE: "1",
       TERMYTE_FAKE_LLM_FAIL_MARKER: failMarker,
     };
+
+    for (const [handler, payload] of [
+      ["context", { session_id: "installed-session", cwd: projectDir, hook_event_name: "UserPromptSubmit", prompt: "fix auth" }],
+      ["observation", { session_id: "installed-session", cwd: projectDir, hook_event_name: "PostToolUse", tool_name: "Read", tool_input: { file_path: "src/app.ts" } }],
+      ["summarize", { session_id: "installed-session", cwd: projectDir, hook_event_name: "Stop", last_assistant_message: "Done" }],
+      ["summarize", { session_id: "installed-session", cwd: projectDir, hook_event_name: "SessionEnd" }],
+    ] as const) {
+      const builtHook = await run(process.execPath, [hookCli, "claude-code", handler], {
+        cwd: projectDir, env: baseEnv, input: JSON.stringify(payload) + "\n",
+      });
+      expect(builtHook.status, buildMessage(`built ${handler} hook`, builtHook)).toBe(0);
+    }
 
     const doctor = await run(process.execPath, [indexCli, "doctor", "--json"], { cwd: projectDir, env: baseEnv });
     expect(doctor.status, buildMessage("doctor", doctor)).toBe(0);

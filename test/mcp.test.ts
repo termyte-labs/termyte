@@ -59,6 +59,15 @@ describe("MCP server", () => {
     expect(typeof mod.runMcpServer).toBe("function");
   });
 
+  it("reports the package release version", async () => {
+    const store = new Store(dbCtx);
+    const { TermyteMcpServer } = await import("../src/mcp/server.js");
+    const server = new TermyteMcpServer({ store });
+    const response = await server.handle({ jsonrpc: "2.0", id: 1, method: "initialize" });
+    expect((response.result as any).serverInfo.version).toBe("1.0.3");
+    server.close();
+  });
+
   it("can construct the full tool dispatch by mocking stdio", async () => {
     // Smoke test: prove the public surface compiles and can be
     // imported. Deeper behavioral tests are left to manual / e2e

@@ -10,7 +10,9 @@ Termyte follows a simple runtime path:
 6. Observations are consolidated into reusable memories.
 7. Memories are embedded, indexed, and made searchable.
 8. Retrieval builds compact context cards, records what was injected, and exposes explicit detail lookup.
-9. Feedback is stored and can influence later ranking.
+9. A terminal event or task switch closes the episode with a deterministic outcome.
+10. Durable attribution classifies each delivered memory as `helped`, `hurt`, `unused`, or `unknown`.
+11. Explicit feedback and bounded inferred help can influence later lifecycle and ranking.
 
 ## Episodes and Experience
 
@@ -31,7 +33,11 @@ Important tables:
 - `summaries`
 - `memory_edges`
 - `memory_feedback`
+- `context_packets`
+- `context_candidates`
 - `context_injections`
+- `context_injection_items`
+- `context_effects`
 - `documents`
 - `document_embeddings`
 
@@ -45,7 +51,8 @@ Termyte uses more than one search path:
 - a fallback scan when the native vector extension is missing
 - reciprocal-rank fusion to combine scores
 
-## Important Limit
+## Attribution
 
-The system is durable and traceable, but it is not yet a closed self-correcting loop.
-It records exposure and feedback, but it does not yet prove downstream outcome and automatically repair memory behavior from that proof.
+Attribution is deterministic and conservative. Explicit harmful or corrected feedback produces `hurt`; explicit helpful or used feedback plus success produces `helped`; successful applicability overlap with executable evidence may infer lower-confidence help. Missing or ambiguous evidence remains `unknown`. Inferred `unused` does not penalize ranking, and inferred harm is not produced.
+
+This closes the software feedback loop, but it does not prove causality or measured agent improvement. Those claims require the paired Claude Code/Codex protocol in `docs/evals/context-v0.1-trial-protocol.md`.

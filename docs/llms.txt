@@ -26,5 +26,5 @@ Termyte is a local experience layer for coding agents. It captures execution, gr
 - Episodes preserve coherent coding attempts and observable evidence.
 - Context packets are compact by default; full memory and provenance are explicit drill-down paths.
 - Retrieval is real, but calibration is still incomplete.
-- The system is durable, but it is not self-correcting yet.
+- The closed loop uses conservative deterministic attribution; it is not causal proof of agent improvement.
 - Public docs should stay aligned with code, not marketing claims.
