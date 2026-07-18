@@ -31,14 +31,14 @@ export async function discoverAgentCapabilities(options: {
   const env = options.env ?? process.env;
   const home = options.homeDir ?? env.HOME ?? env.USERPROFILE ?? homedir();
   return Promise.all(((["claude-code", "codex", "opencode"] as SupportedAgent[])).map(async (agent) => {
-    const adapter = agent === "opencode" ? null : options.adapterFactory?.(agent) ?? createAdapter(agent);
-    const executable = adapter ? await adapter.isAvailable() : localEvidence(agent, home).length > 0;
+    const adapter = options.adapterFactory?.(agent) ?? createAdapter(agent);
+    const executable = await adapter.isAvailable();
     const evidence = localEvidence(agent, home);
     const capture: CaptureCapability = evidence.length > 0
       ? "ready"
       : executable ? "found_unverified" : "not_found";
 
-    if (!adapter || !executable) {
+    if (!executable) {
       return { agent, capture, synthesis: "unavailable", executable, evidence };
     }
     if (!options.verifySynthesis) {

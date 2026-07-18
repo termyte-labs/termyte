@@ -14,7 +14,7 @@ describe("agent capability discovery", () => {
     mkdirSync(join(home, ".codex"), { recursive: true });
     writeFileSync(join(home, ".codex", "auth.json"), "{}");
     const unavailable = (id: "claude-code" | "codex" | "opencode"): AgentAdapter => ({
-      id: id === "opencode" ? "codex" : id, displayName: id, isAvailable: async () => false,
+      id, displayName: id, isAvailable: async () => false,
       invoke: async () => { throw new Error("must not invoke"); },
     });
 
@@ -26,7 +26,7 @@ describe("agent capability discovery", () => {
   it("marks synthesis ready only after the exact probe succeeds", async () => {
     const home = mkdtempSync(join(tmpdir(), "termyte-cap-")); homes.push(home);
     const adapterFactory = (id: "claude-code" | "codex" | "opencode"): AgentAdapter => ({
-      id: id === "opencode" ? "codex" : id, displayName: id, isAvailable: async () => true,
+      id, displayName: id, isAvailable: async () => true,
       invoke: async () => ({ text: id === "codex" ? "TERMYTE_AUTH_OK" : "login required", json: null, durationMs: 1 }),
     });
     const capabilities = await discoverAgentCapabilities({ homeDir: home, verifySynthesis: true, adapterFactory });
@@ -34,11 +34,15 @@ describe("agent capability discovery", () => {
     expect(capabilities.find((c) => c.agent === "claude-code")?.synthesis).toBe("authentication_failed");
   });
 
-  it("discovers OpenCode capture independently from synthesis", async () => {
+  it("discovers OpenCode capture independently from synthesis verification", async () => {
     const home = mkdtempSync(join(tmpdir(), "termyte-cap-")); homes.push(home);
     mkdirSync(join(home, ".config", "opencode"), { recursive: true });
     writeFileSync(join(home, ".config", "opencode", "opencode.json"), "{}");
-    const capabilities = await discoverAgentCapabilities({ homeDir: home });
-    expect(capabilities.find((c) => c.agent === "opencode")).toMatchObject({ capture: "ready", synthesis: "unavailable", executable: true });
+    const available = (id: "claude-code" | "codex" | "opencode"): AgentAdapter => ({
+      id, displayName: id, isAvailable: async () => id === "opencode",
+      invoke: async () => { throw new Error("must not invoke"); },
+    });
+    const capabilities = await discoverAgentCapabilities({ homeDir: home, adapterFactory: available });
+    expect(capabilities.find((c) => c.agent === "opencode")).toMatchObject({ capture: "ready", synthesis: "unverified", executable: true });
   });
 });

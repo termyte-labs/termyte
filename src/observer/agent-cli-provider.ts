@@ -4,7 +4,7 @@ import type { AgentAdapterId } from "../synth/types.js";
 
 /** Uses an already-authenticated coding-agent CLI for background synthesis. */
 export class AgentCliLLMProvider implements LLMProvider {
-  constructor(private readonly provider: Extract<AgentAdapterId, "claude-code" | "codex">) {}
+  constructor(private readonly provider: Extract<AgentAdapterId, "claude-code" | "codex" | "opencode">) {}
 
   async chat(messages: ChatMessage[], options?: ChatOptions): Promise<ChatResponse> {
     const adapter = createAdapter(this.provider);

@@ -34,9 +34,10 @@ export async function initCommand(): Promise<number> {
     })),
   });
 
-  const providerChoices: Array<{ name: string; value: "claude-code" | "codex" | "api" | "capture-only" }> = [];
+  const providerChoices: Array<{ name: string; value: "claude-code" | "codex" | "opencode" | "api" | "capture-only" }> = [];
   if (capabilities.some((c) => c.agent === "codex" && c.synthesis === "ready")) providerChoices.push({ name: "Use verified Codex authentication (recommended)", value: "codex" });
   if (capabilities.some((c) => c.agent === "claude-code" && c.synthesis === "ready")) providerChoices.push({ name: "Use verified Claude Code authentication", value: "claude-code" });
+  if (capabilities.some((c) => c.agent === "opencode" && c.synthesis === "ready")) providerChoices.push({ name: "Use verified OpenCode authentication", value: "opencode" });
   providerChoices.push(
     { name: "Use an OpenAI-compatible API (TERMYTE_LLM_API_KEY)", value: "api" },
     { name: "Capture only for now", value: "capture-only" },

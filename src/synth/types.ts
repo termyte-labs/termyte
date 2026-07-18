@@ -18,6 +18,7 @@
 export type AgentAdapterId =
   | "claude-code"
   | "codex"
+  | "opencode"
   | "fake";
 
 export interface AgentInvokeOptions {

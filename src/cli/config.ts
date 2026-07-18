@@ -9,7 +9,7 @@ export interface UserConfig {
   version: 1;
   dbPath: string;
   agents: Array<"claude-code" | "codex" | "opencode">;
-  synthesis: { mode: SynthesisMode; provider?: "claude-code" | "codex" };
+  synthesis: { mode: SynthesisMode; provider?: "claude-code" | "codex" | "opencode" };
   llm?: { baseUrl?: string; model?: string };
 }
 
