@@ -64,7 +64,7 @@ describe("MCP server", () => {
     const { TermyteMcpServer } = await import("../src/mcp/server.js");
     const server = new TermyteMcpServer({ store });
     const response = await server.handle({ jsonrpc: "2.0", id: 1, method: "initialize" });
-    expect((response.result as any).serverInfo.version).toBe("1.0.3");
+    expect((response.result as any).serverInfo.version).toBe("1.0.4");
     server.close();
   });
 

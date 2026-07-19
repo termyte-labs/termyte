@@ -1,25 +1,22 @@
 # Termyte
 
-Termyte is a local execution and continuity layer for coding agents. It records agent execution, preserves evidence, maintains authoritative task state, and supplies relevant state and experience to later sessions.
+Termyte helps coding agents remember what happened in a repository.
 
-Termyte closes the local context loop: delivered memories are linked to task episodes, evidence, outcomes, item-level effects, and bounded feedback that can influence later admission and ranking.
+It runs locally, records agent sessions, keeps useful decisions and task progress, and makes that history available to later sessions. A local Viewer lets you inspect the captured work.
 
 ## Install
 
 ```bash
 npm install -g termyte
 termyte init
+termyte viewer
 ```
 
-`termyte init` lets you select Claude Code, Codex, and/or OpenCode and choose one synthesis source:
+`termyte init` connects Termyte to Claude Code, Codex, or OpenCode. You can use an agent's existing login, an OpenAI-compatible API, or capture events without creating memories.
 
-- existing Claude Code, Codex, or OpenCode authentication;
-- an OpenAI-compatible API key from `TERMYTE_LLM_API_KEY`;
-- capture-only mode.
+Termyte stores its configuration and SQLite database in `~/.termyte`.
 
-Termyte stores its configuration and SQLite database under `~/.termyte`. Hooks run silently during normal agent work. Open `termyte viewer` to inspect sessions, episodes, evidence, memories, context decisions, outcomes, feedback, and runtime failures.
-
-## Public commands
+## Common commands
 
 ```text
 termyte init
@@ -30,38 +27,29 @@ termyte uninstall
 termyte help
 ```
 
-## Runtime
+Use `termyte doctor` to check the database, hooks, background work, and recent traces. Use `termyte viewer` to inspect sessions, tasks, memories, context, and failures.
 
-```text
-agent event
-  -> redaction and idempotent trace persistence
-  -> deterministic prompts, tools, commands, and file-change projections
-  -> episode and evidence recording
-  -> durable background jobs
-  -> observations and memories with provenance
-  -> authoritative task state, then historical context
-  -> agent prompt context or explicit resume/handoff packet
-  -> episode outcome and item-level context effect
-  -> bounded feedback into lifecycle and ranking
+For task continuity:
+
+```bash
+termyte task create --repo <repo-id> --title "Fix login" --objective "Restore login"
+termyte task add-step --task <task-id> --title "Reproduce failure" --position 1 --version 1
+termyte task checkpoint --task <task-id> --workspace <repo-path> --platform codex
+termyte task resume --task <task-id> --workspace <repo-path>
 ```
 
-Task state covers requirements, ordered steps, decisions, failures, verification evidence, transitions, checkpoints, and immutable handoffs. Step verification requires passing evidence and explicit user authority; optimistic version checks reject stale writes. Historical retrieval remains repository-scoped, lifecycle-aware, budgeted, and allowed to abstain.
+## Configuration
 
-### Background synthesis
+The main environment variables are:
 
-In agent mode, `termyte-worker` reuses an authenticated coding-agent CLI as a one-shot, non-interactive synthesis provider. Claude Code runs with `claude -p`, Codex with `codex exec`, and OpenCode with `opencode run --format json`. Termyte sends redacted trace-derived prompts to the selected provider, validates its structured response, stores observations with trace provenance, and then consolidates those observations into memories.
-
-This happens outside the foreground capture hook. API mode uses an OpenAI-compatible endpoint instead; capture-only mode stores events without forming observations or memories.
-
-## Current boundaries
-
-- capture and non-interactive synthesis support Claude Code, Codex, and OpenCode; OpenCode automatic context injection is not supported;
-- OpenCode capture is installed through a generated local plugin and has not yet completed a published live cross-agent acceptance trial;
-- redaction is heuristic, not comprehensive;
-- ranking has deterministic bounds but is not calibrated on a public coding-agent corpus;
-- deterministic attribution is not causal proof that context produced an outcome;
-- inferred `unused` is effect-only, and inferred harm is never applied without explicit harmful/correction feedback;
-- component, migration, closed-loop, and packed-install tests pass; controlled paired agent trials are still required before claiming product-value improvements.
+| Variable | Purpose |
+| --- | --- |
+| `TERMYTE_DB` | SQLite database path |
+| `TERMYTE_LLM_BASE_URL` | OpenAI-compatible API address |
+| `TERMYTE_LLM_API_KEY` | API key |
+| `TERMYTE_LLM_MODEL` | Model used to process observations |
+| `TERMYTE_EMBED_MODEL_LOCAL` | Local model used for search |
+| `TERMYTE_AUTO_WORKER` | Set to `0` to disable the background worker |
 
 ## Development
 
@@ -72,3 +60,17 @@ npm test
 npm run build
 npm run verify
 ```
+
+See [`docs/getting-started.md`](docs/getting-started.md) for setup details and [`docs/how-it-works.md`](docs/how-it-works.md) for the processing flow.
+
+## Current limits
+
+- Redaction helps remove secrets but is heuristic; review captured data before sharing it.
+- OpenCode capture works, but automatic context injection is not supported.
+- Search ranking has not been calibrated against a public coding-agent dataset.
+- Retrieved history is context, not proof that it caused a later result.
+- Strong claims about productivity still need controlled paired-agent trials.
+
+## License
+
+MIT. See [`LICENSE`](LICENSE).
