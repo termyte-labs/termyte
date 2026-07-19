@@ -73,7 +73,7 @@ export class TermyteMcpServer {
           return { jsonrpc: "2.0", id, result: {
             protocolVersion: "2024-11-05",
             capabilities: { tools: {} },
-            serverInfo: { name: "termyte", version: "1.0.3" },
+            serverInfo: { name: "termyte", version: "1.0.4" },
           }};
         case "notifications/initialized":
           return { jsonrpc: "2.0", id, result: {} };
