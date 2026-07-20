@@ -13,7 +13,7 @@ import { execSync } from "node:child_process";
 let pipeline: any = null;
 async function getPipeline(): Promise<any> {
   if (!pipeline) {
-    const mod = await import("@xenova/transformers");
+    const mod = await import("@huggingface/transformers");
     pipeline = mod.pipeline;
   }
   return pipeline;
@@ -33,7 +33,7 @@ const MODEL_CONFIGS: Record<LocalModelId, { name: string; dimensions: number }> 
   },
   "bge-small": {
     // The upstream BAAI repository does not ship the ONNX file expected by
-    // Transformers.js v2. Xenova publishes the compatible converted weights.
+    // Transformers.js. Xenova publishes the compatible converted weights.
     name: "Xenova/bge-small-en-v1.5",
     dimensions: 384,
   },
@@ -59,7 +59,7 @@ export class LocalEmbeddingsProvider implements EmbeddingsProvider {
     try {
       const pipe = await getPipeline();
       this._extractor = await pipe("feature-extraction", this.modelName, {
-        quantized: true,
+        dtype: "q8",
       });
     } catch (err) {
       this._failed = true;

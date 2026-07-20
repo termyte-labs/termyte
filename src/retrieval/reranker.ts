@@ -2,7 +2,7 @@
  * Cross-encoder reranker using Xenova/ms-marco-MiniLM-L-6-v2.
  * Adapted from agentmemory's src/state/reranker.ts.
  *
- * Lazily loads the model via @xenova/transformers (already a Termyte dependency).
+ * Lazily loads the model via @huggingface/transformers (already a Termyte dependency).
  * Gated by TERMYTE_RERANKER_ENABLED=true env var (default off).
  */
 
@@ -27,8 +27,8 @@ export class CrossEncoderReranker {
 
   private async doInit(): Promise<void> {
     try {
-      const { pipeline } = await import("@xenova/transformers");
-      this.pipeline = await pipeline("text-classification", "Xenova/ms-marco-MiniLM-L-6-v2", { quantized: true });
+      const { pipeline } = await import("@huggingface/transformers");
+      this.pipeline = await pipeline("text-classification", "Xenova/ms-marco-MiniLM-L-6-v2", { dtype: "q8" });
     } catch {
       this.unavailable = true;
     }

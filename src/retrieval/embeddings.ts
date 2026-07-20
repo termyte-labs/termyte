@@ -1,6 +1,6 @@
 /**
  * Pluggable embedding provider. Termyte uses local embeddings only
- * (ONNX via @xenova/transformers) — no external API calls.
+ * (ONNX via @huggingface/transformers) — no external API calls.
  *
  * The vector store is in-process and holds vectors in memory; embeddings are
  * persisted to the `memories.embedding` BLOB column on insert, so the

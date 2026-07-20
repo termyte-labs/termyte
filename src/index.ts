@@ -74,7 +74,7 @@ export interface TermyteOptions {
   llm: OpenAIProviderConfig;
   /**
    * Local embedding model. Default: "nomic-embed" (Nomic Embed Text v1.5,
-   * 768 dims, runs locally via @xenova/transformers — no API calls).
+   * 768 dims, runs locally via @huggingface/transformers — no API calls).
    * Pass `model: null` to disable embeddings (FTS-only retrieval).
    */
   embeddings?: { model: LocalModelId | null };

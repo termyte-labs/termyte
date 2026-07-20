@@ -19,7 +19,7 @@ export interface TermyteConfig {
   /**
    * Which local embedding model to use. Default: "nomic-embed" (Nomic Embed
    * Text v1.5, 768 dims). Models are downloaded once and cached locally by
-   * @xenova/transformers — no API calls.
+   * @huggingface/transformers — no API calls.
    */
   embeddings: { model: LocalModelId };
   synthesis: UserConfig["synthesis"];
@@ -28,7 +28,7 @@ export interface TermyteConfig {
 /**
  * Load configuration from environment variables.
  *
- * Embeddings are always local (ONNX via @xenova/transformers). Only the LLM
+ * Embeddings are always local (ONNX via @huggingface/transformers). Only the LLM
  * API key is required at runtime, and only when the observer is invoked.
  */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): TermyteConfig {
