@@ -41,6 +41,9 @@ export {
 
 export { HookRunner, type HookRunnerConfig } from "./hooks/runner.js";
 export { ContextBuilder, renderContext, renderHybridResults, type ContextInput, type ContextOutput } from "./context/builder.js";
+export { TaskStateService, TaskVersionConflict } from "./task-state/service.js";
+export { TaskDetectionService, type TaskDetectionInput, type TaskDetectionResult } from "./task-state/detection.js";
+export { WorkThreadObservationStore, WorkThreadObservationSchema, type WorkThreadObservationInput } from "./task-state/observations.js";
 
 export { loadConfig, type TermyteConfig } from "./cli/config.js";
 export { runMcpServer } from "./mcp/server.js";
