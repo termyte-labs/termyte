@@ -10,7 +10,7 @@ import { readGitDiffState, readGitHead } from "./git-state.js";
 export class ExperienceRecorder {
   constructor(private readonly store: Store) {}
 
-  record(event: NormalizedEvent, trace: Trace, session: Session): string | null {
+  record(event: NormalizedEvent, trace: Trace, session: Session, taskId?: string | null): string | null {
     let episode = this.store.getActiveEpisode(event.session_id);
 
     if (event.event_type === "user_prompt" && (!episode || this.startsNewEpisode(episode.id, event.user_prompt))) {
@@ -24,6 +24,7 @@ export class ExperienceRecorder {
         repoId: session.repo_id ?? "unknown",
         workspaceRoot,
         task: cleanText(event.user_prompt) || "Untitled coding task",
+        taskId,
         baseCommit: readGitHead(workspaceRoot),
         nowMs: event.timestamp,
       });
@@ -34,12 +35,18 @@ export class ExperienceRecorder {
         repoId: session.repo_id ?? "unknown",
         workspaceRoot,
         task: cleanText(event.user_prompt) || "Agent session",
+        taskId,
         baseCommit: readGitHead(workspaceRoot),
         nowMs: event.timestamp,
       });
     }
 
     if (!episode) return null;
+    if (taskId && episode.task_id !== taskId) {
+      this.store.getDB().prepare(`UPDATE episodes SET task_id = ? WHERE id = ? AND task_id IS NULL`).run(taskId, episode.id);
+      this.store.getDB().prepare(`INSERT OR IGNORE INTO task_memberships (task_id, entity_type, entity_id, confidence, created_at) VALUES (?, 'episode', ?, 1, ?)`)
+        .run(taskId, episode.id, event.timestamp);
+    }
     this.store.linkTraceToEpisode(episode.id, trace.id);
     for (const evidence of evidenceFrom(event)) {
       this.store.insertEvidence({

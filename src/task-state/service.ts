@@ -9,15 +9,24 @@ export class TaskVersionConflict extends Error {
 export class TaskStateService {
   constructor(private readonly db: DB) {}
 
-  createTask(input: { repoId: string; title: string; objective: string; now?: number }): Task {
+  createTask(input: { repoId: string; title: string; objective: string; workspaceRoot?: string | null; sessionId?: string | null; files?: string[]; terms?: string[]; confidence?: number; now?: number }): Task {
     const now = input.now ?? Date.now();
-    const task: Task = { id: randomUUID(), repo_id: input.repoId, title: input.title, objective: input.objective, status: "active", current_phase: null, current_step_id: null, version: 1, created_at: now, updated_at: now };
-    this.db.prepare(`INSERT INTO tasks (id, repo_id, title, objective, status, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(task.id, task.repo_id, task.title, task.objective, task.status, task.version, now, now);
+    const task: Task = { id: randomUUID(), repo_id: input.repoId, title: input.title, objective: input.objective, status: "active", current_phase: null, current_step_id: null, version: 1, created_at: now, updated_at: now, workspace_root: input.workspaceRoot ?? null, last_session_id: input.sessionId ?? null, last_files: input.files ?? [], last_terms: input.terms ?? [], confidence: input.confidence ?? 1 };
+    this.db.prepare(`INSERT INTO tasks (id, repo_id, title, objective, status, version, workspace_root, last_session_id, last_files_json, last_terms_json, confidence, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(task.id, task.repo_id, task.title, task.objective, task.status, task.version, task.workspace_root, task.last_session_id, JSON.stringify(task.last_files), JSON.stringify(task.last_terms), task.confidence, now, now);
     return task;
   }
 
-  getTask(id: string): Task | null { return (this.db.prepare(`SELECT * FROM tasks WHERE id = ?`).get(id) as Task | undefined) ?? null; }
+  getTask(id: string): Task | null {
+    const row = this.db.prepare(`SELECT * FROM tasks WHERE id = ?`).get(id) as (Task & { last_files_json?: string; last_terms_json?: string }) | undefined;
+    return row ? mapTask(row) : null;
+  }
+
+  touchTask(input: { taskId: string; sessionId: string; workspaceRoot?: string | null; files?: string[]; terms?: string[]; confidence?: number; now?: number }): void {
+    const now = input.now ?? Date.now();
+    this.db.prepare(`UPDATE tasks SET last_session_id = ?, workspace_root = COALESCE(?, workspace_root), last_files_json = ?, last_terms_json = ?, confidence = COALESCE(?, confidence), updated_at = ? WHERE id = ?`)
+      .run(input.sessionId, input.workspaceRoot ?? null, JSON.stringify(input.files ?? []), JSON.stringify(input.terms ?? []), input.confidence ?? null, now, input.taskId);
+  }
 
   addRequirement(input: { taskId: string; text: string; expectedVersion: number; now?: number }): Record<string, unknown> {
     const now = input.now ?? Date.now(); return this.db.transaction(() => {
@@ -119,4 +128,16 @@ export class TaskStateService {
     this.db.prepare(`INSERT INTO task_transitions (id, task_id, entity_type, entity_id, from_status, to_status, actor_type, reason, task_version, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(randomUUID(), taskId, entityType, entityId, from, to, actor, reason, version, now);
   }
+}
+
+function mapTask(row: Task & { last_files_json?: string; last_terms_json?: string }): Task {
+  return {
+    ...row,
+    last_files: parseList(row.last_files_json),
+    last_terms: parseList(row.last_terms_json),
+  };
+}
+
+function parseList(value: string | undefined): string[] {
+  try { const parsed = JSON.parse(value ?? "[]"); return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : []; } catch { return []; }
 }

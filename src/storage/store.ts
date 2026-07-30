@@ -121,14 +121,16 @@ export class Store {
 
   // ---------- episodes and evidence ----------
 
-  startEpisode(input: { sessionId: string; repoId: string; workspaceRoot: string; task: string; baseCommit?: string | null; nowMs?: number }): Episode {
+  startEpisode(input: { sessionId: string; repoId: string; workspaceRoot: string; task: string; taskId?: string | null; baseCommit?: string | null; nowMs?: number }): Episode {
     const nowMs = input.nowMs ?? Date.now();
     this.closeActiveEpisode(input.sessionId, "unknown", nowMs);
     const id = `episode_${randomUUID()}`;
     this.ctx.db.prepare(`
-      INSERT INTO episodes (id, session_id, repo_id, workspace_root, task, status, base_commit, started_at)
-      VALUES (?, ?, ?, ?, ?, 'active', ?, ?)
-    `).run(id, input.sessionId, input.repoId, input.workspaceRoot, input.task, input.baseCommit ?? null, nowMs);
+      INSERT INTO episodes (id, session_id, repo_id, workspace_root, task, task_id, status, base_commit, started_at)
+      VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)
+    `).run(id, input.sessionId, input.repoId, input.workspaceRoot, input.task, input.taskId ?? null, input.baseCommit ?? null, nowMs);
+    if (input.taskId) this.ctx.db.prepare(`INSERT OR IGNORE INTO task_memberships (task_id, entity_type, entity_id, confidence, created_at) VALUES (?, 'episode', ?, 1, ?)`)
+      .run(input.taskId, id, nowMs);
     return this.getEpisode(id)!;
   }
 
@@ -1601,6 +1603,7 @@ function parseNumberArray(s: string | null | undefined): number[] {
 function mapEpisode(row: any): Episode {
   return {
     id: row.id, session_id: row.session_id, repo_id: row.repo_id,
+    task_id: row.task_id ?? null,
     workspace_root: row.workspace_root, task: row.task, status: row.status,
     base_commit: row.base_commit, final_commit: row.final_commit,
     started_at: row.started_at, ended_at: row.ended_at,

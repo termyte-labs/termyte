@@ -7,6 +7,24 @@ export interface Task {
   id: string; repo_id: string; title: string; objective: string; status: TaskStatus;
   current_phase: string | null; current_step_id: string | null; version: number;
   created_at: number; updated_at: number;
+  workspace_root?: string | null; last_session_id?: string | null;
+  last_files?: string[]; last_terms?: string[]; confidence?: number;
+}
+
+export type TaskDetectionDecision = "continue" | "new" | "uncertain";
+
+export interface TaskDetection {
+  id: string;
+  task_id: string | null;
+  session_id: string;
+  repo_id: string;
+  workspace_root: string | null;
+  decision: TaskDetectionDecision;
+  score: number;
+  evidence: string[];
+  signals: Record<string, number>;
+  prompt: string | null;
+  created_at: number;
 }
 
 export interface TaskStep {

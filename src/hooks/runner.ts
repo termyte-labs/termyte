@@ -7,6 +7,7 @@ import type { PlatformAdapter, NormalizedEvent, HookResult } from "../capture/ad
 import { AdapterRejectedInput } from "../capture/errors.js";
 import { detectRepoId, detectWorkspaceRoot } from "../retrieval/local-embeddings.js";
 import { ExperienceRecorder } from "../experience/recorder.js";
+import { TaskDetectionService } from "../task-state/detection.js";
 
 export interface HookRunnerConfig {
   store: Store;
@@ -18,6 +19,7 @@ export class HookRunner {
   private observer: Observer;
   private ingestor: Ingestor;
   private experience: ExperienceRecorder;
+  private taskDetection: TaskDetectionService;
   private adapters: Record<Platform, PlatformAdapter>;
 
   constructor(config: HookRunnerConfig) {
@@ -25,6 +27,7 @@ export class HookRunner {
     this.observer = config.observer;
     this.ingestor = new Ingestor(this.store);
     this.experience = new ExperienceRecorder(this.store);
+    this.taskDetection = new TaskDetectionService(this.store.getDB());
     this.adapters = {
       "claude-code": adapterFor("claude-code"),
       "codex": adapterFor("codex"),
@@ -57,12 +60,13 @@ export class HookRunner {
 
   async processEvent(event: NormalizedEvent): Promise<void> {
     const project = deriveProjectName(event.cwd);
-    const repo_id = detectRepoId(event.cwd);
-    const workspace_root = detectWorkspaceRoot(event.cwd);
+    const repo_id = detectRepoId(event.cwd) ?? "unknown";
+    const workspace_root = detectWorkspaceRoot(event.cwd) ?? event.cwd;
     const session = this.store.upsertSession(event.session_id, project, repo_id, workspace_root);
     const { trace, inserted } = this.ingestor.ingest(event);
     if (!inserted) return;
-    const episodeId = this.experience.record(event, trace, session);
+    const detection = this.taskDetection.detect({ event, traceId: trace.id, repoId: repo_id, workspaceRoot: workspace_root });
+    const episodeId = this.experience.record(event, trace, session, detection.taskId);
     if (episodeId && (shouldEnqueueObservation(event) || event.event_type === "session_end")) {
       this.observer.enqueueEpisode(episodeId, event.event_type === "session_end" ? Date.now() : Date.now() + 1_000);
     }

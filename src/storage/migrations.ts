@@ -636,6 +636,45 @@ export function runMigrations(db: DB): void {
   ensureFeedbackEventKinds(db);
   ensureContextInjectionColumns(db);
   ensureContextCandidateKinds(db);
+  ensureWorkThreadColumns(db);
+}
+
+function ensureWorkThreadColumns(db: DB): void {
+  addColumnIfMissing(db, "tasks", "workspace_root", "TEXT");
+  addColumnIfMissing(db, "tasks", "last_session_id", "TEXT");
+  addColumnIfMissing(db, "tasks", "last_files_json", "TEXT NOT NULL DEFAULT '[]'");
+  addColumnIfMissing(db, "tasks", "last_terms_json", "TEXT NOT NULL DEFAULT '[]'");
+  addColumnIfMissing(db, "tasks", "confidence", "REAL NOT NULL DEFAULT 1");
+  addColumnIfMissing(db, "episodes", "task_id", "TEXT REFERENCES tasks(id) ON DELETE SET NULL");
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_tasks_session ON tasks(last_session_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_episodes_task ON episodes(task_id, started_at DESC);
+    CREATE TABLE IF NOT EXISTS task_detections (
+      id TEXT PRIMARY KEY,
+      task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+      session_id TEXT NOT NULL,
+      repo_id TEXT NOT NULL,
+      workspace_root TEXT,
+      decision TEXT NOT NULL CHECK(decision IN ('continue', 'new', 'uncertain')),
+      score REAL NOT NULL,
+      evidence_json TEXT NOT NULL DEFAULT '[]',
+      signals_json TEXT NOT NULL DEFAULT '{}',
+      prompt TEXT,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_task_detections_session ON task_detections(session_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_task_detections_task ON task_detections(task_id, created_at DESC);
+    CREATE TABLE IF NOT EXISTS task_memberships (
+      task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      entity_type TEXT NOT NULL CHECK(entity_type IN ('trace', 'episode', 'observation', 'evidence', 'outcome')),
+      entity_id TEXT NOT NULL,
+      confidence REAL NOT NULL DEFAULT 1,
+      source_detection_id TEXT REFERENCES task_detections(id) ON DELETE SET NULL,
+      created_at INTEGER NOT NULL,
+      PRIMARY KEY(task_id, entity_type, entity_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_task_memberships_entity ON task_memberships(entity_type, entity_id);
+  `);
 }
 
 /**

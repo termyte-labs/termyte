@@ -202,6 +202,7 @@ export type OutcomeStatus = Exclude<EpisodeStatus, "active">;
 export interface Episode {
   id: string;
   session_id: string;
+  task_id?: string | null;
   repo_id: string;
   workspace_root: string;
   task: string;
