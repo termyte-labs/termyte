@@ -29,3 +29,6 @@
 
 - Commit `9976227`: exported the Work Thread state, detection, and typed observation APIs from the package entrypoint.
 - Full verification: `npm run typecheck` passes; `npm test` passes (60 files, 355 tests).
+
+- Built-package verification: `npm run build` passes.
+- `npm run test:package` was attempted but its temporary npm install exceeded the 5-minute command limit; the spawned installer was stopped. Existing source and focused package-related tests remain green.
