@@ -12,3 +12,8 @@
 - Hook processing now assigns each new trace to the detected local Work Thread before episode recording.
 - Added coverage for first-task creation and same-task continuation.
 - Verification: `npm run typecheck`; focused task, hook, and experience tests pass.
+
+- Commit `d74ffad`: added typed Work Thread observations with strict Zod validation and trace provenance.
+- Added lifecycle states (`active`, `stale`, `superseded`, `conflicted`, `deleted`, `quarantined`) and many-to-many observation/evidence links.
+- Invalid or unsupported evidence is rejected before storage; raw traces remain unchanged.
+- Verification: `npm run typecheck` and focused observation tests pass.
