@@ -37,7 +37,15 @@ export class TaskDetectionService {
     const evidence = best?.evidence ?? [];
     const signals = best?.signals ?? {};
 
-    if (best && score >= 0.6) {
+    const explicitNewTask = /^(?:new|another|separate|switch(?:ing)?|next)\s+(?:task|issue|problem)\b/i.test(prompt);
+    if (explicitNewTask) {
+      decision = "new";
+      score = 1;
+      signals.explicit_new_task = 1;
+      evidence.push("explicit_new_task");
+      const task = this.tasks.createTask({ repoId: input.repoId, workspaceRoot: input.workspaceRoot, sessionId: input.event.session_id, title: prompt.slice(0, 160), objective: prompt, files, terms, confidence: 1, now });
+      taskId = task.id;
+    } else if (best && score >= 0.6) {
       decision = "continue";
       taskId = best.task.id;
     } else if (best && score >= 0.35) {
@@ -86,8 +94,8 @@ function scoreTask(task: TaskRow, input: TaskDetectionInput, files: string[], te
   const signals: Record<string, number> = {};
   const evidence: string[] = [];
   let score = 0;
-  if (task.last_session_id === input.event.session_id) { signals.session = 0.35; score += 0.35; evidence.push("session_continuity"); }
-  if (task.workspace_root && task.workspace_root === input.workspaceRoot) { signals.workspace = 0.2; score += 0.2; evidence.push("workspace_match"); }
+  if (task.last_session_id === input.event.session_id) { signals.session = 0.2; score += 0.2; evidence.push("session_continuity"); }
+  if (task.workspace_root && task.workspace_root === input.workspaceRoot) { signals.workspace = 0.15; score += 0.15; evidence.push("workspace_match"); }
   const oldFiles = parseList(task.last_files_json);
   const overlap = files.length && oldFiles.length ? files.filter((file) => oldFiles.includes(file)).length / Math.max(files.length, oldFiles.length) : 0;
   if (overlap > 0) { signals.file_overlap = Math.min(0.3, overlap * 0.3); score += signals.file_overlap; evidence.push("file_overlap"); }
