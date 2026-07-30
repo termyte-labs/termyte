@@ -273,6 +273,11 @@ export class Store {
         INSERT INTO episode_outcomes (id, episode_id, status, source, notes, context_injection_id, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?)
       `).run(id, input.episodeId, input.status, input.source, input.notes ?? null, contextInjectionId, nowMs);
+      const episode = this.getEpisode(input.episodeId);
+      if (episode?.task_id) {
+        this.ctx.db.prepare(`INSERT OR IGNORE INTO task_memberships (task_id, entity_type, entity_id, confidence, created_at) VALUES (?, 'outcome', ?, ?, ?)`)
+          .run(episode.task_id, id, input.source === "human" ? 1 : 0.7, nowMs);
+      }
       const preferred = this.getCurrentEpisodeOutcome(input.episodeId);
       this.ctx.db.prepare(`UPDATE episodes SET status = ?, ended_at = COALESCE(ended_at, ?) WHERE id = ?`)
         .run(preferred?.status ?? input.status, nowMs, input.episodeId);
