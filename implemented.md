@@ -26,3 +26,6 @@
 - Commit `36853fe`: explicit `new`, `another`, `separate`, `switch`, and `next` task prompts now force a new Work Thread.
 - Reduced continuity weights so shared repository/session context without file or prompt evidence remains `uncertain` instead of silently merging.
 - Verification: typecheck and focused detection/hook tests pass.
+
+- Commit `9976227`: exported the Work Thread state, detection, and typed observation APIs from the package entrypoint.
+- Full verification: `npm run typecheck` passes; `npm test` passes (60 files, 355 tests).
