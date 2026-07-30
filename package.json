@@ -26,6 +26,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run --exclude test/installed-pipeline.test.ts",
     "test:package": "vitest run test/installed-pipeline.test.ts",
+    "benchmark:context": "npm run build && node dist/benchmark/task-context-cli.js test/fixtures/task-context/cases.json",
     "verify": "npm run typecheck && npm run build && npm test && npm run test:package",
     "test:watch": "vitest"
   },
