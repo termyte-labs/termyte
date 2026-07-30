@@ -32,3 +32,7 @@
 
 - Built-package verification: `npm run build` passes.
 - `npm run test:package` was attempted but its temporary npm install exceeded the 5-minute command limit; the spawned installer was stopped. Existing source and focused package-related tests remain green.
+
+- Commit `ac36270`: episode outcomes now create confidence-weighted outcome memberships on their linked Work Thread.
+- Inferred outcomes remain lower-confidence than human outcomes and do not silently complete tasks.
+- Verification: typecheck and focused experience/context-attribution tests pass.
