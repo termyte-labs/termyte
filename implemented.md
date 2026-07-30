@@ -7,3 +7,8 @@
 - Confirmed raw trace persistence is synchronous and idempotent before observer work is queued.
 - Baseline verification: `npm run typecheck` passes.
 
+- Commit `35590f2`: added deterministic Work Thread detection with `continue`, `new`, and `uncertain` decisions.
+- Added persisted task detections, task memberships, task activity metadata, and episode-to-task links.
+- Hook processing now assigns each new trace to the detected local Work Thread before episode recording.
+- Added coverage for first-task creation and same-task continuation.
+- Verification: `npm run typecheck`; focused task, hook, and experience tests pass.
