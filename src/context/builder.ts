@@ -6,6 +6,7 @@ import { isMemoryEligible } from "../retrieval/eligibility.js";
 import { scoreMemoryCandidate } from "../retrieval/ranking.js";
 import { ContextCompiler } from "./compiler.js";
 import { ResumeCompiler } from "../task-state/resume.js";
+import { WorkThreadObservationStore } from "../task-state/observations.js";
 
 export interface ContextInput {
   repo_id?: string;
@@ -42,6 +43,7 @@ export class ContextBuilder {
     const repoId = input.repo_id ?? "unknown";
     const taskText = this.renderActiveTask(repoId);
     const taskTokens = Math.ceil(taskText.length / 4);
+    const tokenBudget = input.tokenBudget ?? 1_500;
     let consideredMemories: HybridSearchResult[];
 
     if (input.query) {
@@ -64,7 +66,7 @@ export class ContextBuilder {
       repoId,
       query: input.query,
       currentFiles: input.currentFiles,
-      tokenBudget: input.tokenBudget ? Math.max(0, input.tokenBudget - taskTokens) : 0,
+      tokenBudget: Math.max(0, tokenBudget - taskTokens),
       maxMemories: limit,
       rankedMemories: consideredMemories,
     });
@@ -92,7 +94,7 @@ export class ContextBuilder {
       repoId,
       agent: input.agent ?? input.surface ?? "unknown",
       task: input.query ?? "Repository context",
-      tokenBudget: input.tokenBudget ?? 0,
+      tokenBudget,
       estimatedTokens: compiled.estimatedTokens + taskTokens,
       retrievalMode: consideredMemories.some((result) => result.vector_rank) ? "hybrid" : "fts",
       latencyMs: Date.now() - startedAt,
@@ -160,8 +162,14 @@ export class ContextBuilder {
   private renderActiveTask(repoId: string): string {
     const rows = this.store.getDB().prepare(`SELECT id FROM tasks WHERE repo_id = ? AND status = 'active' ORDER BY updated_at DESC LIMIT 2`).all(repoId) as Array<{ id: string }>;
     if (rows.length !== 1) return "";
-    const packet = new ResumeCompiler(this.store.getDB()).compile(rows[0]!.id);
-    return `# Authoritative Termyte Task State\nThis state is primary; historical memory below is supplemental.\n\n${JSON.stringify(packet, null, 2)}\n\n`;
+    const taskId = rows[0]!.id;
+    const packet = new ResumeCompiler(this.store.getDB()).compile(taskId);
+    const observations = new WorkThreadObservationStore(this.store.getDB()).list(taskId, 20);
+    const observationText = observations.length > 0
+      ? `\n## Current Work Thread observations\n${observations.map((observation) => `- [${observation.kind}] ${observation.claim} (evidence: ${observation.source_event_ids.join(", ")})`).join("\n")}\n`
+      : "";
+    const text = `# Authoritative Termyte Task State\nThis state is primary; historical memory below is supplemental.\n\n${JSON.stringify(packet, null, 2)}\n${observationText}\n`;
+    return text.length > 6_000 ? `${text.slice(0, 5_960)}...\n` : text;
   }
 }
 
