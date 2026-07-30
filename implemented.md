@@ -17,3 +17,8 @@
 - Added lifecycle states (`active`, `stale`, `superseded`, `conflicted`, `deleted`, `quarantined`) and many-to-many observation/evidence links.
 - Invalid or unsupported evidence is rejected before storage; raw traces remain unchanged.
 - Verification: `npm run typecheck` and focused observation tests pass.
+
+- Commit `f61362c`: Context Briefings now include active, provenance-linked Work Thread observations.
+- Added a 1,500-token default briefing budget when callers do not set one; explicit caller budgets remain unchanged.
+- Stale, superseded, conflicted, deleted, and quarantined Work Thread observations are excluded by the observation store.
+- Verification: typecheck and focused context/compiler/runtime-gate tests pass.
