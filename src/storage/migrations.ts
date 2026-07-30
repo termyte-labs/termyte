@@ -674,6 +674,26 @@ function ensureWorkThreadColumns(db: DB): void {
       PRIMARY KEY(task_id, entity_type, entity_id)
     );
     CREATE INDEX IF NOT EXISTS idx_task_memberships_entity ON task_memberships(entity_type, entity_id);
+    CREATE TABLE IF NOT EXISTS task_observations (
+      id TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL CHECK(kind IN ('requirement', 'decision', 'discovery', 'attempt', 'failure', 'warning', 'verification')),
+      claim TEXT NOT NULL,
+      reason TEXT,
+      confidence REAL NOT NULL DEFAULT 0.5,
+      lifecycle_state TEXT NOT NULL DEFAULT 'active' CHECK(lifecycle_state IN ('active', 'stale', 'superseded', 'conflicted', 'deleted', 'quarantined')),
+      files_json TEXT NOT NULL DEFAULT '[]',
+      source_event_ids_json TEXT NOT NULL DEFAULT '[]',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_task_observations_task ON task_observations(task_id, lifecycle_state, created_at DESC);
+    CREATE TABLE IF NOT EXISTS task_observation_evidence (
+      observation_id TEXT NOT NULL REFERENCES task_observations(id) ON DELETE CASCADE,
+      trace_id INTEGER NOT NULL REFERENCES traces(id) ON DELETE CASCADE,
+      PRIMARY KEY(observation_id, trace_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_task_observation_evidence_trace ON task_observation_evidence(trace_id);
   `);
 }
 

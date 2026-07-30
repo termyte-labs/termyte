@@ -12,6 +12,14 @@ export interface Task {
 }
 
 export type TaskDetectionDecision = "continue" | "new" | "uncertain";
+export type WorkThreadObservationKind = "requirement" | "decision" | "discovery" | "attempt" | "failure" | "warning" | "verification";
+export type WorkThreadObservationState = "active" | "stale" | "superseded" | "conflicted" | "deleted" | "quarantined";
+
+export interface WorkThreadObservation {
+  id: string; task_id: string; kind: WorkThreadObservationKind; claim: string; reason: string | null;
+  confidence: number; lifecycle_state: WorkThreadObservationState; files: string[];
+  source_event_ids: number[]; created_at: number; updated_at: number;
+}
 
 export interface TaskDetection {
   id: string;
