@@ -22,3 +22,7 @@
 - Added a 1,500-token default briefing budget when callers do not set one; explicit caller budgets remain unchanged.
 - Stale, superseded, conflicted, deleted, and quarantined Work Thread observations are excluded by the observation store.
 - Verification: typecheck and focused context/compiler/runtime-gate tests pass.
+
+- Commit `36853fe`: explicit `new`, `another`, `separate`, `switch`, and `next` task prompts now force a new Work Thread.
+- Reduced continuity weights so shared repository/session context without file or prompt evidence remains `uncertain` instead of silently merging.
+- Verification: typecheck and focused detection/hook tests pass.
