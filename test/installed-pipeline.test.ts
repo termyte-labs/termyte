@@ -79,8 +79,8 @@ describe("EVAL-002 packed installed pipeline", () => {
     const previousHookPath = process.env.TERMYTE_HOOK_PATH;
     process.env.TERMYTE_HOOK_PATH = hookCli;
     try {
-      const claudeInstaller = await import(pathToFileURL(join(pkgRoot, "dist", "integrations", "installers", "claude-code.js")).href);
-      const codexInstaller = await import(pathToFileURL(join(pkgRoot, "dist", "integrations", "installers", "codex.js")).href);
+      const claudeInstaller = await import(pathToFileURL(join(pkgRoot, "dist", "agents", "installers", "claude-code.js")).href);
+      const codexInstaller = await import(pathToFileURL(join(pkgRoot, "dist", "agents", "installers", "codex.js")).href);
       expect(claudeInstaller.installClaudeCodeHooks({ target: "user", homeDir })).toBe(0);
       expect(codexInstaller.installCodexHooks({ target: "user", homeDir })).toBe(0);
       for (const [file, agent] of [[join(homeDir, ".claude", "settings.json"), "claude-code"], [join(homeDir, ".codex", "hooks.json"), "codex"]]) {
