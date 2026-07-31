@@ -41,6 +41,7 @@ export {
 
 export { HookRunner, type HookRunnerConfig } from "./hooks/runner.js";
 export { ContextBuilder, renderContext, renderHybridResults, type ContextInput, type ContextOutput } from "./context/builder.js";
+export { checkFreshness, type FreshnessResult, type FreshnessState } from "./context/freshness.js";
 export { TaskStateService, TaskVersionConflict } from "./task-state/service.js";
 export { TaskDetectionService, type TaskDetectionInput, type TaskDetectionResult } from "./task-state/detection.js";
 export { WorkThreadObservationStore, WorkThreadObservationSchema, type WorkThreadObservationInput } from "./task-state/observations.js";
@@ -102,7 +103,9 @@ export function createTermyte(options: TermyteOptions): TermyteInstance {
   const fts = new FTSSearch(store);
   const vector = new VectorSearch(store);
   const search = new HybridSearch({ fts, vector, embeddings, feedbackStore: store });
-  const context = new ContextBuilder(store, search);
+  const context = new ContextBuilder(store, search, llm);
+  // Library callers may still use explicit trace/episode processing. The
+  // installed CLI enables session consolidation at the runtime boundary.
   const runner = new HookRunner({ store, observer });
   return { store, observer, runner, search, context, close: () => store.close() };
 }

@@ -9,6 +9,7 @@ import {
   buildConsolidationSystemPrompt,
   buildObservationBatchPrompt,
   buildObservationPrompt,
+  buildSessionConsolidationPrompt,
   buildSummaryPrompt,
   buildSummarySystemPrompt,
   buildSystemPrompt,
@@ -158,6 +159,9 @@ export class MemoryPipeline {
 
     try {
       switch (job.kind) {
+        case "consolidate_session":
+          await this.consolidateSession(job.subjectId);
+          break;
         case "synthesize_episode":
           await this.synthesizeEpisode(job);
           break;
@@ -245,7 +249,7 @@ export class MemoryPipeline {
   private async synthesizeEpisode(job: Job): Promise<void> {
     const episode = this.store.getEpisode(job.subjectId);
     if (!episode) throw new PermanentJobError(`Episode not found: ${job.subjectId}`);
-    const captured = this.store.getCapturedTracesForEpisode(episode.id, 50);
+    const captured = this.store.getCapturedTracesForEpisode(episode.id);
     const traces = captured.filter(isObservationEligibleTrace);
     const ineligible = captured.filter((trace) => !isObservationEligibleTrace(trace));
     if (ineligible.length > 0) this.store.markTracesProcessed(ineligible.map((trace) => trace.id));
@@ -294,6 +298,59 @@ export class MemoryPipeline {
         this.store.insertTraceObservationLinks(observation.id, traceIds);
         this.queue.enqueueJob({ kind: "embed_observation", subjectType: "observation", subjectId: observation.id });
       }
+    });
+  }
+
+  async consolidateSession(sessionId: string): Promise<void> {
+    const session = this.store.getSession(sessionId);
+    if (!session) throw new PermanentJobError(`Session not found: ${sessionId}`);
+    const traces = this.store.getAllTracesForSession(sessionId);
+    if (traces.length === 0) return;
+    const repoId = session.repo_id ?? "unknown";
+    const taskRows = this.store.getDB().prepare(`SELECT * FROM tasks WHERE repo_id = ? ORDER BY updated_at DESC`).all(repoId) as Record<string, unknown>[];
+    const response = await chatWithRetry(
+      this.llm,
+      [
+        { role: "system", content: buildSystemPrompt() },
+        { role: "user", content: buildSessionConsolidationPrompt({ sessionId, repoId, task: taskRows, traces }) },
+      ],
+      this.chatOptions,
+      (content) => {
+        const parsed = parseAgentXml(content);
+        return parsed.valid && parsed.observations.length <= 1 && parsed.observations.every((observation) => validateObservation(observation));
+      },
+    );
+    const parsed = parseAgentXml(response.content);
+    if (!parsed.valid) throw new PermanentJobError(`Invalid session observation XML for ${sessionId}`);
+    const eligible = traces.filter(isObservationEligibleTrace);
+    if (parsed.observations.length === 0) {
+      this.store.markTracesProcessed(eligible.map((trace) => trace.id));
+      return;
+    }
+    const traceIds = eligible.map((trace) => trace.id);
+    const commands = unique(eligible.flatMap(commandFromTrace));
+    this.store.transaction(() => {
+      const parsedObservation = parsed.observations[0];
+      if (parsedObservation) {
+        const observation = this.store.insertObservation({
+          session_id: sessionId,
+          repo_id: repoId,
+          workspace_root: session.workspace_root ?? "",
+          type: parsedObservation.type as ObservationType,
+          title: parsedObservation.title,
+          description: parsedObservation.description,
+          files_read: parsedObservation.files_read,
+          files_modified: parsedObservation.files_modified,
+          commands_executed: commands,
+          source_trace_ids: traceIds,
+          created_at: Date.now(),
+          processed_at: null,
+        });
+        this.store.updateObservationLifecycleState(observation.id, "awaiting_embedding");
+        this.store.insertTraceObservationLinks(observation.id, traceIds);
+        this.queue.enqueueJob({ kind: "embed_observation", subjectType: "observation", subjectId: observation.id });
+      }
+      for (const traceId of traceIds) this.store.updateTracePipelineState(traceId, "observation_pending");
     });
   }
 
@@ -635,7 +692,7 @@ export class MemoryPipeline {
     const session = this.store.getSession(sessionId);
     if (!session) throw new PermanentJobError(`Session not found: ${sessionId}`);
 
-    const traces = this.store.getTracesForSession(sessionId, 500);
+    const traces = this.store.getAllTracesForSession(sessionId);
     if (traces.length === 0) return;
 
     const files = new Set<string>();

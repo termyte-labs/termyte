@@ -108,6 +108,40 @@ describe("event handlers", () => {
     store.close();
   });
 
+  it("session-init handler returns the active task briefing", async () => {
+    const store = new Store(dbCtx);
+    const observer = new Observer({ store, llm: new MockLLM() });
+    const deps = makeDeps(store, observer);
+    seedSession(store, "s1");
+    store.getDB().prepare(`INSERT INTO tasks (id, repo_id, title, objective, status, version, workspace_root, last_session_id, last_files_json, last_terms_json, confidence, created_at, updated_at) VALUES (?, ?, ?, ?, 'active', 1, ?, ?, '[]', '[]', 1, ?, ?)`)
+      .run("task-1", "github.com/test/repo", "Fix login", "Restore login", "/work", "s0", Date.now(), Date.now());
+    const adapter = adapterFor("claude-code");
+    const event = adapter.normalize({ session_id: "s1", cwd: "/work", hook_event_name: "SessionStart" })!;
+    const out = await getHandler("session-init", deps)({ event, raw: {} });
+    expect(out.handled).toBe(true);
+    expect(out.result.hookSpecificOutput?.hookEventName).toBe("SessionStart");
+    expect(out.result.hookSpecificOutput?.additionalContext).toContain("Restore login");
+    expect(store.getContextPackets({ sessionId: "s1", limit: 1 })[0]?.task).toBe("Restore login");
+    store.close();
+  });
+
+  it("session-init uses the five-call accuracy-first handoff when an LLM is available", async () => {
+    const store = new Store(dbCtx);
+    const llm = new MockLLM();
+    llm.setResponses(["task judge", "evidence", "freshness", "draft", "final handoff"]);
+    const observer = new Observer({ store, llm });
+    const deps = makeDeps(store, observer);
+    deps.builder = new ContextBuilder(store, deps.search, llm);
+    seedSession(store, "s-ai");
+    store.getDB().prepare(`INSERT INTO tasks (id, repo_id, title, objective, status, version, workspace_root, last_session_id, last_files_json, last_terms_json, confidence, created_at, updated_at) VALUES (?, ?, ?, ?, 'active', 1, ?, ?, '[]', '[]', 1, ?, ?)`)
+      .run("task-ai", "github.com/test/repo", "Fix login", "Restore login", "/work", "s0", Date.now(), Date.now());
+    const event = adapterFor("claude-code").normalize({ session_id: "s-ai", cwd: "/work", hook_event_name: "SessionStart" })!;
+    const out = await getHandler("session-init", deps)({ event, raw: {} });
+    expect(out.result.hookSpecificOutput?.additionalContext).toContain("final handoff");
+    expect(llm.calls).toHaveLength(5);
+    store.close();
+  });
+
   it("file-context handler injects memories on Read", async () => {
     const store = new Store(dbCtx);
     const llm = new MockLLM();

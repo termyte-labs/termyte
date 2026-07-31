@@ -21,6 +21,7 @@ export interface HandlerDeps {
   search: HybridSearch;
   builder: ContextBuilder;
   observer: Observer;
+  sessionConsolidation?: boolean;
 }
 
 export function buildHandlers(deps: HandlerDeps): Record<EventHandlerName, EventHandler> {
@@ -28,7 +29,7 @@ export function buildHandlers(deps: HandlerDeps): Record<EventHandlerName, Event
     "context":      makeContextHandler(deps),
     "session-init": makeSessionInitHandler(deps),
     "observation":  makeObservationHandler(deps),
-    "summarize":    makeSummarizeHandler(deps),
+    "summarize":    makeSummarizeHandler({ observer: deps.observer, disabled: deps.sessionConsolidation === true }),
     "file-edit":    makeFileEditHandler(deps),
     "file-context": makeFileContextHandler(deps),
   };

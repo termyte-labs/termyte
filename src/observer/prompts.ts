@@ -143,6 +143,27 @@ export interface SessionForPrompt {
   files_modified: string[];
 }
 
+export function buildSessionConsolidationPrompt(input: {
+  sessionId: string;
+  repoId: string;
+  task: unknown;
+  traces: unknown[];
+}): string {
+  return [
+    "--- COMPLETE SESSION CONSOLIDATION ---",
+    "Turn the complete coding-agent session into durable, evidence-linked observations.",
+    "Every trace below is available. Do not omit important failures, decisions, attempts, file changes, commands, tests, or remaining work.",
+    "The task record is authoritative for task identity. Preserve the trace IDs in your reasoning; the system will attach every source trace to the stored observation.",
+    "Return exactly one <observation> block, or <skip_summary /> only when the session contains no durable work.",
+    `Session ID: ${input.sessionId}`,
+    `Repository: ${input.repoId}`,
+    "TASK RECORD:",
+    JSON.stringify(input.task, null, 2),
+    "ALL SESSION TRACES:",
+    JSON.stringify(input.traces, null, 2),
+  ].join("\n\n");
+}
+
 export function buildSummaryPrompt(input: SessionForPrompt): string {
   return [
     "--- SESSION SUMMARY ---",
@@ -171,10 +192,9 @@ export function buildSummaryPrompt(input: SessionForPrompt): string {
 function serialize(v: unknown): string {
   if (v === null || v === undefined) return "";
   try {
-    const s = JSON.stringify(v, null, 2);
-    return s.length > 8000 ? s.slice(0, 8000) + "\n...(truncated)" : s;
+    return JSON.stringify(v, null, 2);
   } catch {
-    return String(v).slice(0, 8000);
+    return String(v);
   }
 }
 

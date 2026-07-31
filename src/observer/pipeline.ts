@@ -33,6 +33,15 @@ export class Observer {
     this.pipeline.ingestEpisode(episodeId, nextRunAt);
   }
 
+  enqueueSession(sessionId: string, nextRunAt?: number): void {
+    this.queue.coalesceJob({
+      kind: "consolidate_session",
+      subjectType: "session",
+      subjectId: sessionId,
+      nextRunAt,
+    });
+  }
+
   enqueueMany(traces: Trace[]): void {
     this.store.transaction(() => {
       for (const trace of traces) this.pipeline.ingestTrace(trace.id);

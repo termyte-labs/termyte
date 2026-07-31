@@ -366,11 +366,18 @@ export class Store {
     return mapTrace(row);
   }
 
-  getTracesForSession(session_id: string, limit = 100): Trace[] {
-    const rows = this.ctx.db.prepare(
-      `SELECT * FROM traces WHERE session_id = ? ORDER BY timestamp ASC LIMIT ?`
-    ).all(session_id, limit) as any[];
+  getTracesForSession(session_id: string, limit?: number): Trace[] {
+    const sql = limit === undefined
+      ? `SELECT * FROM traces WHERE session_id = ? ORDER BY timestamp ASC`
+      : `SELECT * FROM traces WHERE session_id = ? ORDER BY timestamp ASC LIMIT ?`;
+    const rows = (limit === undefined
+      ? this.ctx.db.prepare(sql).all(session_id)
+      : this.ctx.db.prepare(sql).all(session_id, limit)) as any[];
     return rows.map(mapTrace);
+  }
+
+  getAllTracesForSession(session_id: string): Trace[] {
+    return this.getTracesForSession(session_id);
   }
 
   getAllTraces(limit = 200): Trace[] {

@@ -69,6 +69,27 @@ describe("HookRunner", () => {
     store.close();
   });
 
+  it("production session mode consolidates the complete session once at session end", async () => {
+    const store = new Store(ctx);
+    const llm = new MockLLM();
+    llm.setResponse(`<observation><type>fact</type><title>Complete session</title><description>All session evidence.</description></observation>`);
+    const observer = new Observer({ store, llm });
+    const runner = new HookRunner({ store, observer, sessionConsolidation: true });
+
+    await runner.processRaw("claude-code", { session_id: "session-mode", cwd: "/work", tool_name: "Read", tool_input: { file_path: "src/a.ts" } });
+    await runner.processRaw("claude-code", { session_id: "session-mode", cwd: "/work", tool_name: "Bash", tool_input: { command: "npm test" }, tool_output: { status: "ok" } });
+    await runner.processRaw("claude-code", { session_id: "session-mode", cwd: "/work", hook_event_name: "SessionEnd" });
+
+    const job = store.getDB().prepare(`SELECT kind FROM jobs WHERE kind = 'consolidate_session' AND subject_id = 'session-mode'`).get() as { kind: string } | undefined;
+    expect(job?.kind).toBe("consolidate_session");
+    expect(store.getRecentObservations(10)).toHaveLength(0);
+    await observer.flush();
+    const observations = store.getObservationsForSession("session-mode");
+    expect(observations.length).toBeGreaterThan(0);
+    expect(observations[0]!.source_trace_ids.length).toBe(2);
+    store.close();
+  });
+
   it("returns false on an empty / unparseable raw payload", async () => {
     const store = new Store(ctx);
     const llm = new MockLLM();

@@ -250,7 +250,8 @@ export type ContextRejectionReason =
   | "ineligible_lifecycle"
   | "wrong_repository"
   | "broken_provenance"
-  | "missing_file";
+  | "missing_file"
+  | "freshness_changed";
 
 export interface CompiledContextCandidate {
   candidate_id: string;

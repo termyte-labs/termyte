@@ -52,11 +52,11 @@ async function main(supervisorOverride?: WorkerSupervisor): Promise<void> {
   // declines the vector query; the background worker owns embedding work.
   const embeddings = new NoOpEmbeddingsProvider();
   const observer = new Observer({ store, llm, embeddings });
-  const runner = new HookRunner({ store, observer });
+  const runner = new HookRunner({ store, observer, sessionConsolidation: true });
   const fts = new FTSSearch(store);
   const vector = new VectorSearch(store);
   const search = new HybridSearch({ fts, vector, embeddings, feedbackStore: store });
-  const builder = new ContextBuilder(store, search);
+  const builder = new ContextBuilder(store, search, llm);
   const supervisor = supervisorOverride ?? createHookSupervisor(
     config.dbPath,
     config.synthesis.mode === "capture-only"
@@ -71,7 +71,7 @@ async function main(supervisorOverride?: WorkerSupervisor): Promise<void> {
       return;
     }
     const parsed = JSON.parse(raw);
-    await processHookInput(platform, eventName, parsed, { runner, store, search, builder, observer, supervisor });
+    await processHookInput(platform, eventName, parsed, { runner, store, search, builder, observer, supervisor, sessionConsolidation: true });
   } catch (err) {
     process.stderr.write(`termyte-hook: ${err instanceof Error ? err.message : String(err)}\n`);
     process.exitCode = 1;
@@ -87,6 +87,7 @@ export interface HookDeps {
   builder: ContextBuilder;
   observer: Observer;
   supervisor: WorkerSupervisor;
+  sessionConsolidation?: boolean;
 }
 
 /**
@@ -125,7 +126,7 @@ export async function processHookInput(
   }
   if (!event) return;
 
-  const handler = getHandler(eventName, { store: deps.store, search: deps.search, builder: deps.builder, observer: deps.observer });
+  const handler = getHandler(eventName, { store: deps.store, search: deps.search, builder: deps.builder, observer: deps.observer, sessionConsolidation: deps.sessionConsolidation });
   const input: HandlerInput = { event, raw };
   const out = await handler(input);
   const formatted = adapter.formatOutput(out.result);

@@ -12,6 +12,8 @@ import { TaskDetectionService } from "../task-state/detection.js";
 export interface HookRunnerConfig {
   store: Store;
   observer: Observer;
+  /** Production uses one session consolidation at session end. */
+  sessionConsolidation?: boolean;
 }
 
 export class HookRunner {
@@ -21,10 +23,12 @@ export class HookRunner {
   private experience: ExperienceRecorder;
   private taskDetection: TaskDetectionService;
   private adapters: Record<Platform, PlatformAdapter>;
+  private readonly sessionConsolidation: boolean;
 
   constructor(config: HookRunnerConfig) {
     this.store = config.store;
     this.observer = config.observer;
+    this.sessionConsolidation = config.sessionConsolidation ?? false;
     this.ingestor = new Ingestor(this.store);
     this.experience = new ExperienceRecorder(this.store);
     this.taskDetection = new TaskDetectionService(this.store.getDB());
@@ -67,7 +71,9 @@ export class HookRunner {
     if (!inserted) return;
     const detection = this.taskDetection.detect({ event, traceId: trace.id, repoId: repo_id, workspaceRoot: workspace_root });
     const episodeId = this.experience.record(event, trace, session, detection.taskId);
-    if (episodeId && (shouldEnqueueObservation(event) || event.event_type === "session_end")) {
+    if (this.sessionConsolidation && event.event_type === "session_end") {
+      this.observer.enqueueSession(event.session_id, Date.now());
+    } else if (!this.sessionConsolidation && episodeId && (shouldEnqueueObservation(event) || event.event_type === "session_end")) {
       this.observer.enqueueEpisode(episodeId, event.event_type === "session_end" ? Date.now() : Date.now() + 1_000);
     }
   }

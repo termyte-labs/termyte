@@ -12,6 +12,7 @@ import { isMemoryEligible } from "../retrieval/eligibility.js";
 import type { Store } from "../storage/store.js";
 import { existsSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
+import { checkFreshness } from "./freshness.js";
 
 const MIN_SCORE = 0.008;
 
@@ -140,7 +141,7 @@ export class ContextCompiler {
           ? "ineligible_lifecycle"
           : broken.has(memory.id) && declaresProvenance
             ? "broken_provenance"
-            : hasMissingFile(memory) ? "missing_file" : null;
+            : hasMissingFile(memory) ? "missing_file" : freshnessRejection(memory.workspace_root, [...memory.files_read, ...memory.files_modified]);
       candidates.push(this.candidate({
         kind: memory.type === "procedure" ? "procedure" : "memory",
         sourceId: String(memory.id),
@@ -177,13 +178,6 @@ export class ContextCompiler {
       }));
     }
 
-    for (const episode of this.store.getEpisodes({ repoId: input.repoId, limit: 10 })) {
-      candidates.push(this.candidate({
-        kind: "episode", sourceId: episode.id,
-        text: `## Episode ${episode.id}\n[${episode.status}] ${episode.task}`,
-        score: scoreText(`${episode.task} ${episode.status}`, input, 0, 0.003),
-      }));
-    }
     return candidates;
   }
 
@@ -295,6 +289,10 @@ function hasMissingFile(memory: Memory): boolean {
     if (!local || local === ".." || local.startsWith("../") || local.startsWith("..\\") || isAbsolute(local)) return true;
     return !existsSync(target);
   });
+}
+function freshnessRejection(workspaceRoot: string, files: string[]): "missing_file" | "freshness_changed" | null {
+  const state = checkFreshness(workspaceRoot, files).state;
+  return state === "stale" ? "missing_file" : state === "changed" ? "freshness_changed" : null;
 }
 function truncateCandidate(text: string, budget: number): string | null {
   const [provenance, ...rest] = text.split("\n");

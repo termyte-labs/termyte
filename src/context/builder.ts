@@ -7,6 +7,8 @@ import { scoreMemoryCandidate } from "../retrieval/ranking.js";
 import { ContextCompiler } from "./compiler.js";
 import { ResumeCompiler } from "../task-state/resume.js";
 import { WorkThreadObservationStore } from "../task-state/observations.js";
+import type { LLMProvider } from "../observer/provider.js";
+import { readRepositoryState } from "../experience/git-state.js";
 
 export interface ContextInput {
   repo_id?: string;
@@ -33,7 +35,7 @@ export interface ContextOutput {
 export class ContextBuilder {
   private readonly compiler: ContextCompiler;
 
-  constructor(private readonly store: Store, private readonly search: HybridSearch) {
+  constructor(private readonly store: Store, private readonly search: HybridSearch, private readonly llm?: LLMProvider) {
     this.compiler = new ContextCompiler(store);
   }
 
@@ -87,7 +89,7 @@ export class ContextBuilder {
     const candidateSummary = this.store.getMostRecentSummaryForRepo(repoId);
     const summary = candidateSummary && selected.has(`summary:${candidateSummary.id}`) ? candidateSummary : null;
 
-    const renderedText = taskText + compiled.text;
+    const renderedText = await this.synthesizeBriefing(taskText + compiled.text, input);
     const packet = this.store.recordContextPacket({
       sessionId: input.sessionId,
       episodeId: input.episodeId,
@@ -170,6 +172,62 @@ export class ContextBuilder {
       : "";
     const text = `# Authoritative Termyte Task State\nThis state is primary; historical memory below is supplemental.\n\n${JSON.stringify(packet, null, 2)}\n${observationText}\n`;
     return text.length > 6_000 ? `${text.slice(0, 5_960)}...\n` : text;
+  }
+
+  private async synthesizeBriefing(text: string, input: ContextInput): Promise<string> {
+    if (!text || !this.llm || input.surface !== "session-init") return text;
+    try {
+      const raw = this.rawBriefingData(input);
+      const taskJudge = await this.briefingCall(
+        "You are the task judge. Decide whether this new session continues one existing task or starts a new one. Use all supplied records. Return the selected task ID, decision, confidence, and evidence. Do not invent IDs.",
+        raw,
+      );
+      const investigator = await this.briefingCall(
+        "You are the evidence investigator. Given the raw project records and the task judge result, reconstruct everything that could change the agent's next action: what happened, why, failed attempts, decisions, remaining work, contradictions, tests, and source IDs. Do not summarize away important evidence.",
+        `${raw}\n\nTASK JUDGE:\n${taskJudge}`,
+      );
+      const freshness = await this.briefingCall(
+        "You are the freshness judge. Compare every investigator claim with the current Git state, current files, timestamps, and later evidence. Label each claim current, changed, stale, conflicted, or unverifiable. Explain the evidence and never assume an old claim is true.",
+        `${raw}\n\nEVIDENCE INVESTIGATOR:\n${investigator}`,
+      );
+      const draft = await this.briefingCall(
+        "You are the handoff writer. Create a complete, source-linked coding-agent handoff from the evidence investigator and freshness judge. Include Task, What happened, Why, What remains, Verify next, and source IDs. Exclude stale or conflicted claims unless clearly labeled.",
+        `EVIDENCE INVESTIGATOR:\n${investigator}\n\nFRESHNESS JUDGE:\n${freshness}`,
+      );
+      const final = await this.briefingCall(
+        "You are the handoff critic and final editor. Check the proposed handoff against the raw records, investigator output, and freshness decisions. Remove unsupported claims, restore missing decisive facts, correct task mistakes, and return the corrected final handoff only.",
+        `${raw}\n\nINVESTIGATOR:\n${investigator}\n\nFRESHNESS:\n${freshness}\n\nPROPOSED HANDOFF:\n${draft}`,
+      );
+      return final.trim() || draft.trim() || text;
+    } catch {
+      return text;
+    }
+  }
+
+  private async briefingCall(system: string, user: string): Promise<string> {
+    const response = await this.llm!.chat([
+      { role: "system", content: system },
+      { role: "user", content: user },
+    ], { temperature: 0.1, maxTokens: 10_000 });
+    return response.content.trim();
+  }
+
+  private rawBriefingData(input: ContextInput): string {
+    const session = input.sessionId ? this.store.getSession(input.sessionId) : null;
+    const repoId = input.repo_id ?? session?.repo_id ?? "unknown";
+    const tasks = this.store.getDB().prepare(`SELECT * FROM tasks WHERE repo_id = ? ORDER BY updated_at DESC`).all(repoId) as Array<Record<string, unknown>>;
+    const taskPackets = tasks.map((task) => {
+      try { return new ResumeCompiler(this.store.getDB()).compile(String(task.id), session?.workspace_root ?? undefined); }
+      catch { return task; }
+    });
+    const memories = this.store.getRecentMemories(1_000_000, repoId).map((memory) => ({ ...memory, embedding: undefined }));
+    const sessions = this.store.getRecentSessions(1_000_000).filter((item) => item.repo_id === repoId);
+    const traces = input.sessionId ? this.store.getAllTracesForSession(input.sessionId) : [];
+    const episodes = this.store.getEpisodes({ repoId, limit: 1_000_000 });
+    const observations = this.store.getRecentObservations(1_000_000, repoId);
+    const evidence = this.store.getRecentEvidenceForRepo(repoId, 1_000_000);
+    const git = session?.workspace_root ? readRepositoryState(session.workspace_root) : null;
+    return JSON.stringify({ repoId, session, tasks: taskPackets, sessions, traces, episodes, observations, memories, evidence, git }, null, 2);
   }
 }
 

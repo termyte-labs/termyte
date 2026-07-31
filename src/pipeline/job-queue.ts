@@ -8,6 +8,7 @@ import {
 export type JobState = "pending" | "leased" | "succeeded" | "failed" | "dead";
 
 export type JobKind =
+  | "consolidate_session"
   | "synthesize_episode"
   | "consolidate_episode"
   | "extract_observation"
@@ -20,7 +21,7 @@ export type JobKind =
   | "verify_memory"
   | "attribute_context";
 
-export type JobSubjectType = "trace" | "observation" | "memory" | "summary" | "episode";
+export type JobSubjectType = "trace" | "observation" | "memory" | "summary" | "episode" | "session";
 
 export interface Job {
   id: string;
