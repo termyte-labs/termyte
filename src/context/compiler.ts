@@ -6,9 +6,9 @@ import type {
   Memory,
   Observation,
   Summary,
-} from "../core/types.js";
-import type { HybridSearchResult } from "../retrieval/hybrid.js";
-import { isMemoryEligible } from "../retrieval/eligibility.js";
+} from "../shared/types.js";
+import type { HybridSearchResult } from "./retrieval/hybrid.js";
+import { isMemoryEligible } from "./retrieval/eligibility.js";
 import type { Store } from "../storage/store.js";
 import { existsSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";

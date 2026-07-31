@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildBatchPrompt } from "../src/synth/prompts.js";
+import { buildBatchPrompt } from "../src/agents/synthesis/prompts.js";
 
 describe("synth prompts", () => {
   it("buildBatchPrompt wraps every trace in a <trace> block", () => {
@@ -18,7 +18,7 @@ describe("synth prompts", () => {
 
 describe("Adapter resolution", () => {
   it("createAdapter returns a FakeAdapter for the fake id", async () => {
-    const { createAdapter } = await import("../src/synth/index.js");
+    const { createAdapter } = await import("../src/agents/synthesis/index.js");
     const adapter = createAdapter("fake");
     expect(adapter.id).toBe("fake");
     expect(await adapter.isAvailable()).toBe(true);

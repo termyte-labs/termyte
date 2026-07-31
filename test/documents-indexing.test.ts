@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { openDatabase, type DatabaseContext } from "../src/storage/connection.js";
 import { Store } from "../src/storage/store.js";
 import { DocumentStore } from "../src/storage/documents.js";
-import { SqliteVecIndex } from "../src/indexing/sqlite-vec-index.js";
-import { reciprocalRankFusion, rrf } from "../src/retrieval/rrf.js";
+import { SqliteVecIndex } from "../src/context/retrieval/indexing/sqlite-vec-index.js";
+import { reciprocalRankFusion, rrf } from "../src/context/retrieval/rrf.js";
 
 let ctx: DatabaseContext;
 let store: Store;

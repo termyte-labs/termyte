@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { ClaudeCodeAdapter } from "../src/capture/claude-code.js";
-import { CodexAdapter } from "../src/capture/codex.js";
-import { RawAdapter } from "../src/capture/raw.js";
-import { OpenCodeAdapter } from "../src/capture/opencode.js";
-import { extractCodexFilePaths } from "../src/capture/codex-file-context.js";
+import { ClaudeCodeAdapter } from "../src/agents/adapters/claude-code.js";
+import { CodexAdapter } from "../src/agents/adapters/codex.js";
+import { RawAdapter } from "../src/agents/adapters/raw.js";
+import { OpenCodeAdapter } from "../src/agents/adapters/opencode.js";
+import { extractCodexFilePaths } from "../src/agents/adapters/codex-file-context.js";
 import { existsSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

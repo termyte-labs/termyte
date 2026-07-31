@@ -5,7 +5,7 @@
  */
 import type { EventHandler } from "../handler-types.js";
 import type { Store } from "../../storage/store.js";
-import type { HybridSearch } from "../../retrieval/hybrid.js";
+import type { HybridSearch } from "../../context/retrieval/hybrid.js";
 import type { ContextBuilder } from "../../context/builder.js";
 
 export function makeContextHandler(deps: { store: Store; search: HybridSearch; builder: ContextBuilder }): EventHandler {

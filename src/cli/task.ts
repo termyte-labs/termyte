@@ -1,9 +1,9 @@
 import { loadConfig } from "./config.js";
 import { Store } from "../storage/store.js";
-import { TaskStateService } from "../task-state/service.js";
-import { CheckpointService } from "../task-state/checkpoints.js";
-import { ResumeCompiler } from "../task-state/resume.js";
-import type { Platform } from "../core/types.js";
+import { TaskStateService } from "../tasks/service.js";
+import { CheckpointService } from "../tasks/checkpoints.js";
+import { ResumeCompiler } from "../tasks/resume.js";
+import type { Platform } from "../shared/types.js";
 
 type Options = Record<string, string | boolean>;
 

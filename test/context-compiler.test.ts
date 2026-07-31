@@ -3,9 +3,9 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ContextCompiler, estimateTokens } from "../src/context/compiler.js";
-import type { Memory } from "../src/core/types.js";
-import type { HybridSearchResult } from "../src/retrieval/hybrid.js";
-import { scoreMemoryCandidate } from "../src/retrieval/ranking.js";
+import type { Memory } from "../src/shared/types.js";
+import type { HybridSearchResult } from "../src/context/retrieval/hybrid.js";
+import { scoreMemoryCandidate } from "../src/context/retrieval/ranking.js";
 import { openDatabase } from "../src/storage/connection.js";
 import { Store } from "../src/storage/store.js";
 

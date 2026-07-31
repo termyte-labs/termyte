@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AgentInvocationError } from "../src/synth/types.js";
+import { AgentInvocationError } from "../src/agents/synthesis/types.js";
 
 let fakeOpenCodePath: string;
 let originalOpenCodePath: string | undefined;
@@ -32,7 +32,7 @@ afterEach(() => {
 
 describe("OpenCodeAdapter", () => {
   it("runs OpenCode non-interactively and parses text events", async () => {
-    const { OpenCodeAdapter } = await import("../src/synth/opencode.js");
+    const { OpenCodeAdapter } = await import("../src/agents/synthesis/opencode.js");
     const adapter = new OpenCodeAdapter();
     expect(await adapter.isAvailable()).toBe(true);
     await expect(adapter.invoke("synthesize", { timeoutMs: 10_000 })).resolves.toMatchObject({ text: "<skip_summary />" });
@@ -45,7 +45,7 @@ describe("OpenCodeAdapter", () => {
       writeFileSync(fakeOpenCodePath, `#!/bin/sh\nprintf '%s\\n' '${event}'\n`, "utf-8");
       chmodSync(fakeOpenCodePath, 0o755);
     }
-    const { OpenCodeAdapter } = await import("../src/synth/opencode.js");
+    const { OpenCodeAdapter } = await import("../src/agents/synthesis/opencode.js");
     await expect(new OpenCodeAdapter().invoke("x", { timeoutMs: 10_000 })).rejects.toBeInstanceOf(AgentInvocationError);
   });
 });

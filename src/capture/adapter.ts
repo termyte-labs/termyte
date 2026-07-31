@@ -9,7 +9,7 @@
  * pipeline can stay platform-agnostic.
  */
 
-import type { EventType, Platform } from "../core/types.js";
+import type { EventType, Platform } from "../shared/types.js";
 
 /** Common trace shape, written to the `traces` table. */
 export interface NormalizedEvent {

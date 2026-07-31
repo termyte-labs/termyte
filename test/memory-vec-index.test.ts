@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { MemoryVecIndex } from "../src/indexing/memory-vec-index.js";
+import { MemoryVecIndex } from "../src/context/retrieval/indexing/memory-vec-index.js";
 import { Store } from "../src/storage/store.js";
-import { VectorSearch } from "../src/retrieval/vector.js";
+import { VectorSearch } from "../src/context/retrieval/vector.js";
 
 describe("active sqlite-vec memory retrieval", () => {
   it("indexes memory embeddings and returns nearest cosine matches", () => {

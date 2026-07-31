@@ -2,7 +2,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { existsSync, readFileSync } from "node:fs";
 import { extname, join, normalize } from "node:path";
 import type { Store } from "../storage/store.js";
-import { buildMemoryExplain } from "../explain/memory-explain.js";
+import { buildMemoryExplain } from "../context/explain/memory-explain.js";
 
 export interface ViewerRouteContext {
   store: Store;

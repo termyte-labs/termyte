@@ -1,14 +1,14 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { openDatabase, type DatabaseContext } from "../src/storage/connection.js";
 import { Store } from "../src/storage/store.js";
-import { Observer } from "../src/observer/pipeline.js";
+import { Observer } from "../src/context/observations/pipeline.js";
 import { MockLLM } from "./mock-llm.js";
-import { FTSSearch } from "../src/retrieval/fts.js";
-import { VectorSearch } from "../src/retrieval/vector.js";
-import { HybridSearch } from "../src/retrieval/hybrid.js";
-import { type EmbeddingsProvider } from "../src/retrieval/embeddings.js";
+import { FTSSearch } from "../src/context/retrieval/fts.js";
+import { VectorSearch } from "../src/context/retrieval/vector.js";
+import { HybridSearch } from "../src/context/retrieval/hybrid.js";
+import { type EmbeddingsProvider } from "../src/context/retrieval/embeddings.js";
 import { ContextBuilder } from "../src/context/builder.js";
-import { HookRunner } from "../src/hooks/runner.js";
+import { HookRunner } from "../src/agents/hooks/runner.js";
 
 let ctx: DatabaseContext;
 

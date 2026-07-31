@@ -1,29 +1,29 @@
 # Termyte
 
-Termyte is a local experience layer for coding agents. It captures execution, groups work into episodes, derives reusable memories, and supplies compact context cards with provenance.
+Termyte gives coding agents the project context they need, so developers do not have to repeatedly explain what happened, why, and what remains. It captures execution, records task and session evidence, derives reusable memories, and supplies compact context cards with provenance.
 
 ## Read This First
 
 - `README.md` - concise product overview
 - `docs/README.md` - public docs landing page
 - `docs/getting-started.md` - install, verify, and use
-- `docs/how-it-works.md` - capture, episode, evidence, and retrieval flow
+- `docs/how-it-works.md` - capture, session, evidence, and retrieval flow
 - `docs/comparisons.md` - mem0, agentmemory, claude-mem
 - `docs/limitations.md` - current gaps and honest boundaries
 
 ## Code Truth
 
 - `src/cli/index.ts` - user-facing CLI surface
-- `src/pipeline/memory-pipeline.ts` - durable job flow
+- `src/context/pipeline/memory-pipeline.ts` - durable job flow
 - `src/storage/store.ts` - SQLite persistence and state transitions
 - `src/context/builder.ts` - context injection and feedback recording
-- `src/retrieval/hybrid.ts` - keyword + vector retrieval and ranking
-- `src/mcp/server.ts` - MCP tools and retrieval exposure
+- `src/context/retrieval/hybrid.ts` - keyword + vector retrieval and ranking
+- `src/server/mcp/server.ts` - MCP tools and retrieval exposure
 
 ## What To Assume
 
 - Termyte captures traces, derives observations, and consolidates memories.
-- Episodes preserve coherent coding attempts and observable evidence.
+- Sessions preserve complete captured runs and task evidence.
 - Context packets are compact by default; full memory and provenance are explicit drill-down paths.
 - Retrieval is real, but calibration is still incomplete.
 - The closed loop uses conservative deterministic attribution; it is not causal proof of agent improvement.

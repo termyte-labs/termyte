@@ -1,9 +1,9 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import { openDatabase, type DatabaseContext } from "../src/storage/connection.js";
 import { Store } from "../src/storage/store.js";
-import { buildObservationPrompt, buildSummaryPrompt } from "../src/observer/prompts.js";
-import { buildBatchPrompt } from "../src/synth/prompts.js";
-import { redactTracePayload } from "../src/security/redaction.js";
+import { buildObservationPrompt, buildSummaryPrompt } from "../src/context/observations/prompts.js";
+import { buildBatchPrompt } from "../src/agents/synthesis/prompts.js";
+import { redactTracePayload } from "../src/shared/redaction.js";
 
 let ctx: DatabaseContext;
 

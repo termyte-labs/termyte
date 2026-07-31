@@ -1,40 +1,33 @@
 # Termyte Overview
 
-Termyte is a local execution, task-state, and memory layer for coding agents.
-It captures agent execution as an idempotent event ledger, maintains evidence-backed task state, derives reusable memories, and exposes continuity through CLI, MCP, context injection, handoffs, and a local diagnostics viewer.
+Termyte gives coding agents the project context they need, so developers do not have to repeatedly explain what happened, why, and what remains.
+It captures agent work as an idempotent local event ledger, keeps task state and evidence, derives reusable observations, and supplies context through hooks, MCP, the CLI, and a local diagnostics viewer.
 
 This repository is real software, not a pitch deck. The durable pipeline, provenance, feedback, lifecycle, and ranking pieces exist. The closed loop that proves a memory helped or harmed a task and then repairs future retrieval is still incomplete.
 
 ## Repository Shape
 
-- `src/capture`: platform adapters, event normalization, and file-path extraction
+- `src/agents`: agent adapters, hooks, installers, and synthesis callers
+- `src/capture`: generic event normalization, file-path extraction, and session recording
 - `src/cli`: command-line entry points and per-command handlers
-- `src/context`: ranked context packing and injection tracking
+- `src/context`: observations, retrieval, indexing, lifecycle, durable jobs, and context packing
 - `src/eval` and `src/benchmark`: evaluation harnesses and retrieval benchmarks
-- `src/explain`: provenance and lifecycle explanation rendering
-- `src/hooks`: hook runner
-- `src/integrations`: installers for Claude Code and Codex
-- `src/lifecycle`: decay, deduplication, and feedback state transitions
-- `src/mcp`: stdio MCP server, tool schema, and validation
-- `src/observer`: prompts, XML parsing, and the LLM-backed observation pipeline
-- `src/pipeline`: durable jobs, worker execution, and worker supervision
-- `src/retrieval`: FTS, vector, hybrid search, ranking, and eligibility policy
-- `src/security`: deterministic redaction before persistence and LLM calls
+- `src/server`: MCP server boundary
+- `src/shared`: shared types and deterministic redaction
 - `src/storage`: SQLite schema, migrations, document corpus, and repository state access
-- `src/synth`: Claude Code/Codex synthesis adapters and shared prompts
-- `src/task-state`: authoritative tasks, evidence gates, checkpoints, resume packets, and handoffs
+- `src/tasks`: authoritative tasks, evidence gates, checkpoints, resume packets, and handoffs
 - `src/viewer`: local HTTP diagnostics viewer
 
 ## System Flow
 
 ```mermaid
 flowchart LR
-  A[Agent event] --> B[PlatformAdapter.normalize()]
-  B --> C[HookRunner]
+  A[Agent event] --> B[HookRunner]
+  B --> C[Capture + normalization]
   C --> D[Redaction + idempotent event ledger]
   D --> E[Execution projections + durable jobs]
   E --> F[Detached termyte-worker]
-  F --> G[Observation pipeline]
+  F --> G[Context processing]
   G --> H[Memories + summaries]
   H --> I[FTS5 + sqlite-vec + scan fallback]
   I --> J[Authoritative task state + historical context]

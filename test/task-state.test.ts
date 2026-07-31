@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { openDatabase, closeDatabase, type DatabaseContext } from "../src/storage/connection.js";
-import { TaskStateService, TaskVersionConflict } from "../src/task-state/service.js";
+import { TaskStateService, TaskVersionConflict } from "../src/tasks/service.js";
 import { Store } from "../src/storage/store.js";
 
 let ctx: DatabaseContext;

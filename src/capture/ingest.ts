@@ -1,5 +1,5 @@
 import type { Store } from "../storage/store.js";
-import type { Trace } from "../core/types.js";
+import type { Trace } from "../shared/types.js";
 import type { NormalizedEvent } from "./adapter.js";
 import { extractFilesFromEvent } from "./files.js";
 

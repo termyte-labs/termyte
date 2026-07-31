@@ -1,16 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { Store } from "../src/storage/store.js";
 import { openDatabase } from "../src/storage/connection.js";
-import { Observer } from "../src/observer/pipeline.js";
-import { FakeLLMProvider } from "../src/observer/fake-provider.js";
-import type { ChatMessage, ChatOptions, ChatResponse, LLMProvider } from "../src/observer/provider.js";
-import { NoOpEmbeddingsProvider } from "../src/retrieval/embeddings.js";
-import { HookRunner } from "../src/hooks/runner.js";
-import { MemoryPipeline } from "../src/pipeline/memory-pipeline.js";
-import { JobQueue } from "../src/pipeline/job-queue.js";
-import { FTSSearch } from "../src/retrieval/fts.js";
-import { VectorSearch } from "../src/retrieval/vector.js";
-import { HybridSearch } from "../src/retrieval/hybrid.js";
+import { Observer } from "../src/context/observations/pipeline.js";
+import { FakeLLMProvider } from "../src/context/observations/fake-provider.js";
+import type { ChatMessage, ChatOptions, ChatResponse, LLMProvider } from "../src/context/observations/provider.js";
+import { NoOpEmbeddingsProvider } from "../src/context/retrieval/embeddings.js";
+import { HookRunner } from "../src/agents/hooks/runner.js";
+import { MemoryPipeline } from "../src/context/pipeline/memory-pipeline.js";
+import { JobQueue } from "../src/context/pipeline/job-queue.js";
+import { FTSSearch } from "../src/context/retrieval/fts.js";
+import { VectorSearch } from "../src/context/retrieval/vector.js";
+import { HybridSearch } from "../src/context/retrieval/hybrid.js";
 import { ContextBuilder } from "../src/context/builder.js";
 
 class GateLLM implements LLMProvider {

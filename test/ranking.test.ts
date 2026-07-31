@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { Memory } from "../src/core/types.js";
-import { scoreMemoryCandidate } from "../src/retrieval/ranking.js";
+import type { Memory } from "../src/shared/types.js";
+import { scoreMemoryCandidate } from "../src/context/retrieval/ranking.js";
 
 function memory(overrides: Partial<Memory> = {}): Memory {
   return {

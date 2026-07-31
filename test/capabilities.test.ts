@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discoverAgentCapabilities } from "../src/runtime/capabilities.js";
-import type { AgentAdapter } from "../src/synth/types.js";
+import type { AgentAdapter } from "../src/agents/synthesis/types.js";
 
 const homes: string[] = [];
 afterEach(() => { for (const home of homes.splice(0)) rmSync(home, { recursive: true, force: true }); });

@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { attributeEpisodeContext } from "../src/experience/context-attribution.js";
+import { attributeEpisodeContext } from "../src/context/attribution.js";
 import { openDatabase } from "../src/storage/connection.js";
 import { Store } from "../src/storage/store.js";
-import { MemoryPipeline } from "../src/pipeline/memory-pipeline.js";
+import { MemoryPipeline } from "../src/context/pipeline/memory-pipeline.js";
 import { MockLLM } from "./mock-llm.js";
 
 describe("context attribution", () => {

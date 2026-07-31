@@ -1,8 +1,8 @@
 # Termyte
 
-Termyte helps coding agents remember what happened in a repository.
+Termyte gives coding agents the project context they need, so developers do not have to repeatedly explain what happened, why, and what remains.
 
-It runs locally, records agent sessions, keeps useful decisions and task progress, and makes that history available to later sessions. A local Viewer lets you inspect the captured work.
+It runs locally, records agent work, checks current project state, and supplies relevant task context to later sessions. A local Viewer lets you inspect the captured work.
 
 ## Install
 
@@ -50,6 +50,16 @@ The main environment variables are:
 | `TERMYTE_LLM_MODEL` | Model used to process observations |
 | `TERMYTE_EMBED_MODEL_LOCAL` | Local model used for search |
 | `TERMYTE_AUTO_WORKER` | Set to `0` to disable the background worker |
+
+## How it works
+
+```text
+agent events -> capture and normalization -> local SQLite storage
+  -> context extraction -> indexing and retrieval
+  -> task-specific context supplied to the agent
+```
+
+Hooks capture events first. Background work turns completed sessions into observations and memories. At session start, Termyte combines task state, stored evidence, and current Git state into the handoff supplied to the agent.
 
 ## Development
 

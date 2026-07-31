@@ -1,17 +1,17 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { openDatabase, type DatabaseContext } from "../src/storage/connection.js";
 import { Store } from "../src/storage/store.js";
-import { FTSSearch } from "../src/retrieval/fts.js";
-import { VectorSearch } from "../src/retrieval/vector.js";
-import { HybridSearch } from "../src/retrieval/hybrid.js";
+import { FTSSearch } from "../src/context/retrieval/fts.js";
+import { VectorSearch } from "../src/context/retrieval/vector.js";
+import { HybridSearch } from "../src/context/retrieval/hybrid.js";
 import { ContextBuilder } from "../src/context/builder.js";
 import {
   isMemoryEligible,
   memoryEligibilitySql,
   DEFAULT_ELIGIBLE_MEMORY_STATES,
   ALL_MEMORY_STATES,
-} from "../src/retrieval/eligibility.js";
-import type { EmbeddingsProvider } from "../src/retrieval/embeddings.js";
+} from "../src/context/retrieval/eligibility.js";
+import type { EmbeddingsProvider } from "../src/context/retrieval/embeddings.js";
 
 class FixedEmbeddings implements EmbeddingsProvider {
   readonly dimensions = 4;

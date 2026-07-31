@@ -22,7 +22,7 @@ Termyte works, but it is not finished.
 Use Termyte for:
 
 - local trace capture
-- task episode and evidence inspection
+- task, session, and evidence inspection
 - durable processing
 - searchable coding experience
 - compact context cards with explicit drill-down

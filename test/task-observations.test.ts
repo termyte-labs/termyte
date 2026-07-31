@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { openDatabase } from "../src/storage/connection.js";
 import { Store } from "../src/storage/store.js";
-import { WorkThreadObservationStore } from "../src/task-state/observations.js";
+import { WorkThreadObservationStore } from "../src/tasks/observations.js";
 
 describe("WorkThreadObservationStore", () => {
   it("rejects observations with missing source traces", () => {

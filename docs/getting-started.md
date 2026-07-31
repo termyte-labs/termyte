@@ -1,5 +1,7 @@
 # Getting Started
 
+Termyte gives coding agents the project context they need, so developers do not have to repeatedly explain what happened, why, and what remains.
+
 ## Install
 
 Install Termyte and connect Claude Code, Codex, or OpenCode:
@@ -25,7 +27,7 @@ termyte viewer
 
 ## Use
 
-The Viewer exposes sessions, episodes, context packets, memories, provenance, outcomes, and diagnostics.
+The Viewer exposes sessions, task state, context packets, memories, provenance, outcomes, and diagnostics.
 
 For durable task continuity:
 

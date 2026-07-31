@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { Store } from "../src/storage/store.js";
 import { openDatabase, type DatabaseContext } from "../src/storage/connection.js";
-import { FTSSearch } from "../src/retrieval/fts.js";
+import { FTSSearch } from "../src/context/retrieval/fts.js";
 
 let ctx: DatabaseContext;
 

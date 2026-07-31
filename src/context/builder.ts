@@ -1,14 +1,14 @@
 import { randomUUID } from "node:crypto";
-import type { Memory, Observation, Summary } from "../core/types.js";
+import type { Memory, Observation, Summary } from "../shared/types.js";
 import type { Store } from "../storage/store.js";
-import type { HybridSearch, HybridSearchResult } from "../retrieval/hybrid.js";
-import { isMemoryEligible } from "../retrieval/eligibility.js";
-import { scoreMemoryCandidate } from "../retrieval/ranking.js";
+import type { HybridSearch, HybridSearchResult } from "./retrieval/hybrid.js";
+import { isMemoryEligible } from "./retrieval/eligibility.js";
+import { scoreMemoryCandidate } from "./retrieval/ranking.js";
 import { ContextCompiler } from "./compiler.js";
-import { ResumeCompiler } from "../task-state/resume.js";
-import { WorkThreadObservationStore } from "../task-state/observations.js";
-import type { LLMProvider } from "../observer/provider.js";
-import { readRepositoryState } from "../experience/git-state.js";
+import { ResumeCompiler } from "../tasks/resume.js";
+import { WorkThreadObservationStore } from "../tasks/observations.js";
+import type { LLMProvider } from "./observations/provider.js";
+import { readRepositoryState } from "../capture/git-state.js";
 
 export interface ContextInput {
   repo_id?: string;

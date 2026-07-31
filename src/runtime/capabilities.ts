@@ -1,8 +1,8 @@
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { createAdapter } from "../synth/index.js";
-import type { AgentAdapter } from "../synth/types.js";
+import { createAdapter } from "../agents/synthesis/index.js";
+import type { AgentAdapter } from "../agents/synthesis/types.js";
 
 export type SupportedAgent = "claude-code" | "codex" | "opencode";
 export const VERIFIED_AGENT_BASELINES: Readonly<Record<SupportedAgent, string>> = {

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { stem } from "../src/retrieval/stemmer.js";
-import { getSynonyms } from "../src/retrieval/synonyms.js";
-import { preprocessQuery } from "../src/retrieval/query-preprocessor.js";
+import { stem } from "../src/context/retrieval/stemmer.js";
+import { getSynonyms } from "../src/context/retrieval/synonyms.js";
+import { preprocessQuery } from "../src/context/retrieval/query-preprocessor.js";
 
 describe("stemmer", () => {
   it("reduces inflected words to stems", () => {

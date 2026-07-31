@@ -20,6 +20,20 @@ npm run verify
 
 `npm run verify` checks the TypeScript, builds the project, and runs the tests, including the installed-package test.
 
+## Source layout
+
+- `src/agents` - agent adapters, hooks, installers, and synthesis callers
+- `src/capture` - event normalization, file extraction, and session recording
+- `src/context` - observations, retrieval, indexing, lifecycle, and durable jobs
+- `src/tasks` - task state, checkpoints, resume packets, and handoffs
+- `src/storage` - SQLite connection, migrations, and persistence
+- `src/server` - MCP server boundary
+- `src/cli` - terminal commands and hook entrypoints
+- `src/viewer` - local diagnostics server and UI
+- `src/shared` - cross-cutting types and redaction
+
+Older internal import paths remain as compatibility re-exports. New code should use the ownership paths above.
+
 ## Pull requests
 
 - Keep each pull request focused.

@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { Store } from "../src/storage/store.js";
 import { openDatabase, type DatabaseContext } from "../src/storage/connection.js";
-import { LocalEmbeddingsProvider, type LocalModelId } from "../src/retrieval/local-embeddings.js";
-import { NoOpEmbeddingsProvider, type EmbeddingsProvider } from "../src/retrieval/embeddings.js";
-import { FTSSearch } from "../src/retrieval/fts.js";
-import { VectorSearch } from "../src/retrieval/vector.js";
-import { HybridSearch } from "../src/retrieval/hybrid.js";
+import { LocalEmbeddingsProvider, type LocalModelId } from "../src/context/retrieval/local-embeddings.js";
+import { NoOpEmbeddingsProvider, type EmbeddingsProvider } from "../src/context/retrieval/embeddings.js";
+import { FTSSearch } from "../src/context/retrieval/fts.js";
+import { VectorSearch } from "../src/context/retrieval/vector.js";
+import { HybridSearch } from "../src/context/retrieval/hybrid.js";
 import { DocumentStore } from "../src/storage/documents.js";
 
 let dbCtx: DatabaseContext;
@@ -30,7 +30,7 @@ async function makeServer({ store, embeddings }: FakeServerOptions) {
   // We import the server module dynamically to avoid pulling the
   // LocalEmbeddingsProvider into the test graph (it tries to download
   // a model on construction).
-  const mod = await import("../src/mcp/server.js");
+  const mod = await import("../src/server/mcp/server.js");
   // The exported TermyteMcpServer class is private; the only public
   // entry is runMcpServer. To unit-test, we re-create a minimal
   // request handler that mirrors the same tool dispatch by re-using
@@ -55,13 +55,13 @@ class FakeStdio {
 
 describe("MCP server", () => {
   it("exports runMcpServer", async () => {
-    const mod = await import("../src/mcp/server.js");
+    const mod = await import("../src/server/mcp/server.js");
     expect(typeof mod.runMcpServer).toBe("function");
   });
 
   it("reports the package release version", async () => {
     const store = new Store(dbCtx);
-    const { TermyteMcpServer } = await import("../src/mcp/server.js");
+    const { TermyteMcpServer } = await import("../src/server/mcp/server.js");
     const server = new TermyteMcpServer({ store });
     const response = await server.handle({ jsonrpc: "2.0", id: 1, method: "initialize" });
     expect((response.result as any).serverInfo.version).toBe("1.0.5");
@@ -138,7 +138,7 @@ describe("MCP server", () => {
       files_read: ["src/auth.ts"], files_modified: [], source_observation_ids: [], source_trace_ids: [],
       created_at: Date.now(), embedding: null,
     });
-    const { TermyteMcpServer } = await import("../src/mcp/server.js");
+    const { TermyteMcpServer } = await import("../src/server/mcp/server.js");
     const server = new TermyteMcpServer({ store });
     const response = await server.handle({
       jsonrpc: "2.0", id: 1, method: "tools/call",
@@ -163,7 +163,7 @@ describe("MCP server", () => {
       description: null, files_read: [], files_modified: [], source_observation_ids: [], source_trace_ids: [],
       created_at: Date.now(), embedding: null,
     });
-    const { TermyteMcpServer } = await import("../src/mcp/server.js");
+    const { TermyteMcpServer } = await import("../src/server/mcp/server.js");
     const server = new TermyteMcpServer({ store });
     const contextResponse = await server.handle({
       jsonrpc: "2.0", id: 1, method: "tools/call",

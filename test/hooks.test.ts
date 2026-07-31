@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { Store } from "../src/storage/store.js";
-import { Observer } from "../src/observer/pipeline.js";
-import { HookRunner, shouldEnqueueObservation } from "../src/hooks/runner.js";
+import { Observer } from "../src/context/observations/pipeline.js";
+import { HookRunner, shouldEnqueueObservation } from "../src/agents/hooks/runner.js";
 import { openDatabase, type DatabaseContext } from "../src/storage/connection.js";
 import { MockLLM } from "./mock-llm.js";
-import { FakeLLMProvider } from "../src/observer/fake-provider.js";
+import { FakeLLMProvider } from "../src/context/observations/fake-provider.js";
 
 let ctx: DatabaseContext;
 

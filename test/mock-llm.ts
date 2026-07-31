@@ -1,4 +1,4 @@
-import type { ChatMessage, ChatOptions, ChatResponse } from "../src/observer/provider.js";
+import type { ChatMessage, ChatOptions, ChatResponse } from "../src/context/observations/provider.js";
 
 /**
  * A controllable mock LLM for tests. Use `setResponse` to feed the next

@@ -1,11 +1,11 @@
-import type { OpenAIProviderConfig } from "../observer/openai-provider.js";
-import { OpenAICompatibleProvider } from "../observer/openai-provider.js";
-import { FakeLLMProvider } from "../observer/fake-provider.js";
-import type { LLMProvider } from "../observer/provider.js";
-import type { EmbeddingsProvider } from "../retrieval/embeddings.js";
-import { NoOpEmbeddingsProvider } from "../retrieval/embeddings.js";
-import { LocalEmbeddingsProvider, type LocalModelId } from "../retrieval/local-embeddings.js";
-import { AgentCliLLMProvider, CaptureOnlyLLMProvider } from "../observer/agent-cli-provider.js";
+import type { OpenAIProviderConfig } from "../context/observations/openai-provider.js";
+import { OpenAICompatibleProvider } from "../context/observations/openai-provider.js";
+import { FakeLLMProvider } from "../context/observations/fake-provider.js";
+import type { LLMProvider } from "../context/observations/provider.js";
+import type { EmbeddingsProvider } from "../context/retrieval/embeddings.js";
+import { NoOpEmbeddingsProvider } from "../context/retrieval/embeddings.js";
+import { LocalEmbeddingsProvider, type LocalModelId } from "../context/retrieval/local-embeddings.js";
+import { AgentCliLLMProvider, CaptureOnlyLLMProvider } from "../context/observations/agent-cli-provider.js";
 import type { UserConfig } from "../cli/config.js";
 
 export type RuntimeLlmProviderMode = "openai" | "fake";

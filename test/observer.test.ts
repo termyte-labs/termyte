@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { Store } from "../src/storage/store.js";
-import { Observer } from "../src/observer/pipeline.js";
+import { Observer } from "../src/context/observations/pipeline.js";
 import { openDatabase, type DatabaseContext } from "../src/storage/connection.js";
-import type { EmbeddingsProvider } from "../src/retrieval/embeddings.js";
+import type { EmbeddingsProvider } from "../src/context/retrieval/embeddings.js";
 import { MockLLM } from "./mock-llm.js";
 
 let ctx: DatabaseContext;

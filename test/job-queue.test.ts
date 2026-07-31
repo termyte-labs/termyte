@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { openDatabase, type DatabaseContext } from "../src/storage/connection.js";
 import { runMigrations } from "../src/storage/migrations.js";
-import { PermanentJobError, RetryableJobError } from "../src/pipeline/errors.js";
-import { JobQueue } from "../src/pipeline/job-queue.js";
+import { PermanentJobError, RetryableJobError } from "../src/context/pipeline/errors.js";
+import { JobQueue } from "../src/context/pipeline/job-queue.js";
 
 let ctx: DatabaseContext;
 let queue: JobQueue;

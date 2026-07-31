@@ -1,20 +1,20 @@
 export type { PlatformAdapter, NormalizedEvent, HookResult } from "./adapter.js";
-export type { Platform } from "../core/types.js";
+export type { Platform } from "../shared/types.js";
 export { AdapterRejectedInput, isValidCwd } from "./errors.js";
-export { ClaudeCodeAdapter } from "./claude-code.js";
-export { CodexAdapter } from "./codex.js";
-export { OpenCodeAdapter } from "./opencode.js";
-export { RawAdapter } from "./raw.js";
+export { ClaudeCodeAdapter } from "../agents/adapters/claude-code.js";
+export { CodexAdapter } from "../agents/adapters/codex.js";
+export { OpenCodeAdapter } from "../agents/adapters/opencode.js";
+export { RawAdapter } from "../agents/adapters/raw.js";
 export { Ingestor } from "./ingest.js";
 export { extractFilesFromEvent, type ExtractedFiles } from "./files.js";
-export { extractCodexFilePaths } from "./codex-file-context.js";
+export { extractCodexFilePaths } from "../agents/adapters/codex-file-context.js";
 
-import type { Platform } from "../core/types.js";
+import type { Platform } from "../shared/types.js";
 import type { PlatformAdapter } from "./adapter.js";
-import { ClaudeCodeAdapter } from "./claude-code.js";
-import { CodexAdapter } from "./codex.js";
-import { OpenCodeAdapter } from "./opencode.js";
-import { RawAdapter } from "./raw.js";
+import { ClaudeCodeAdapter } from "../agents/adapters/claude-code.js";
+import { CodexAdapter } from "../agents/adapters/codex.js";
+import { OpenCodeAdapter } from "../agents/adapters/opencode.js";
+import { RawAdapter } from "../agents/adapters/raw.js";
 
 /** Build the adapter for a given platform name. Unknown platforms fall
  *  through to the RawAdapter so a misconfigured hook still produces a

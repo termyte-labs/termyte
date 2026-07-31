@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
-import { readRepositoryState } from "../experience/git-state.js";
+import { readRepositoryState } from "../capture/git-state.js";
 
 export type FreshnessState = "current" | "changed" | "stale" | "unverifiable";
 export interface FreshnessResult { state: FreshnessState; reasons: string[]; }

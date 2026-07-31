@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { installFor, listSupportedPlatforms } from "../src/integrations/installers/index.js";
+import { installFor, listSupportedPlatforms } from "../src/agents/installers/index.js";
 
 let homeDir: string;
 let originalCwd: string;

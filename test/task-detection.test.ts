@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { openDatabase } from "../src/storage/connection.js";
 import { Store } from "../src/storage/store.js";
-import { TaskDetectionService } from "../src/task-state/detection.js";
+import { TaskDetectionService } from "../src/tasks/detection.js";
 import type { NormalizedEvent } from "../src/capture/adapter.js";
 
 function event(overrides: Partial<NormalizedEvent> = {}): NormalizedEvent {

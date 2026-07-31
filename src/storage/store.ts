@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { openDatabase, closeDatabase, defaultDbPath, type DB, type DatabaseContext } from "./connection.js";
 import { runMigrations } from "./migrations.js";
-import { applyFeedback } from "../lifecycle/feedback.js";
-import { MemoryVecIndex, type MemoryVectorHit } from "../indexing/memory-vec-index.js";
-import type { RetrievalScoreBreakdown } from "../retrieval/ranking.js";
-import { redactTracePayload } from "../security/redaction.js";
+import { applyFeedback } from "../context/lifecycle/feedback.js";
+import { MemoryVecIndex, type MemoryVectorHit } from "../context/retrieval/indexing/memory-vec-index.js";
+import type { RetrievalScoreBreakdown } from "../context/retrieval/ranking.js";
+import { redactTracePayload } from "../shared/redaction.js";
 import { createHash } from "node:crypto";
 import type {
   CodeApplicabilityEvidence,
@@ -30,7 +30,7 @@ import type {
   Summary,
   Trace,
   TracePipelineState,
-} from "../core/types.js";
+} from "../shared/types.js";
 
 export class Store {
   private readonly memoryVecIndexes = new Map<number, MemoryVecIndex>();

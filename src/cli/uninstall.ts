@@ -3,8 +3,8 @@ import { existsSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { loadUserConfig, termyteHome } from "./config.js";
-import { removeTermyteHookEntries } from "../integrations/installers/managed-hooks.js";
-import { uninstallOpenCode } from "../integrations/installers/opencode.js";
+import { removeTermyteHookEntries } from "../agents/installers/managed-hooks.js";
+import { uninstallOpenCode } from "../agents/installers/opencode.js";
 
 type Removal = "claude-code" | "codex" | "opencode" | "data";
 

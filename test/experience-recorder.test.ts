@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { Store } from "../src/storage/store.js";
 import { openDatabase } from "../src/storage/connection.js";
-import { ExperienceRecorder } from "../src/experience/recorder.js";
+import { ExperienceRecorder } from "../src/capture/session-recorder.js";
 import type { NormalizedEvent } from "../src/capture/adapter.js";
 
 describe("ExperienceRecorder", () => {

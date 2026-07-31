@@ -1,5 +1,5 @@
 import { Store } from "../../storage/store.js";
-import { FTSSearch } from "../../retrieval/fts.js";
+import { FTSSearch } from "../../context/retrieval/fts.js";
 import type { BenchmarkDocument, BenchmarkSearchResult, MemoryBenchmarkAdapter } from "../types.js";
 
 export class TermyteFtsBenchmarkAdapter implements MemoryBenchmarkAdapter {

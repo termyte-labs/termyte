@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { MemoryType, Trace } from "../core/types.js";
+import type { MemoryType, Trace } from "../shared/types.js";
 
 export interface EvalMemoryFixture {
   id: string;
@@ -95,7 +95,7 @@ export const BUILT_IN_REGRESSION_CORPUS: EvalCorpusCase[] = [
         type: "convention",
         title: "Use sqlite-vec for dense retrieval",
         description: "Termyte vector search must use sqlite-vec native tables instead of scanning embedding BLOBs.",
-        filesModified: ["src/indexing/sqlite-vec-index.ts", "src/retrieval/hybrid-engine.ts"],
+        filesModified: ["src/retrieval/indexing/sqlite-vec-index.ts", "src/retrieval/hybrid-engine.ts"],
         keywords: ["sqlite-vec", "vector", "dense"],
       },
     ],

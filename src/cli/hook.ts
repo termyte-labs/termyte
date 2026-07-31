@@ -15,19 +15,19 @@
  */
 import { loadConfig } from "./config.js";
 import { Store } from "../storage/store.js";
-import { Observer } from "../observer/pipeline.js";
-import { HookRunner } from "../hooks/runner.js";
-import { FTSSearch } from "../retrieval/fts.js";
-import { VectorSearch } from "../retrieval/vector.js";
-import { HybridSearch } from "../retrieval/hybrid.js";
+import { Observer } from "../context/observations/pipeline.js";
+import { HookRunner } from "../agents/hooks/runner.js";
+import { FTSSearch } from "../context/retrieval/fts.js";
+import { VectorSearch } from "../context/retrieval/vector.js";
+import { HybridSearch } from "../context/retrieval/hybrid.js";
 import { ContextBuilder } from "../context/builder.js";
 import { adapterFor } from "../capture/index.js";
-import type { Platform } from "../core/types.js";
+import type { Platform } from "../shared/types.js";
 import { getHandler, type HandlerInput } from "./handlers/index.js";
 import { pathToFileURL } from "node:url";
-import { createHookSupervisor, type WorkerSupervisor } from "../pipeline/worker-supervisor.js";
+import { createHookSupervisor, type WorkerSupervisor } from "../context/pipeline/worker-supervisor.js";
 import { createLLMProvider } from "../runtime/providers.js";
-import { NoOpEmbeddingsProvider } from "../retrieval/embeddings.js";
+import { NoOpEmbeddingsProvider } from "../context/retrieval/embeddings.js";
 
 const KNOWN_PLATFORMS: Platform[] = ["claude-code", "codex", "opencode", "raw"];
 

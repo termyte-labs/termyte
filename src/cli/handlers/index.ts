@@ -10,9 +10,9 @@ import { makeSummarizeHandler } from "./summarize.js";
 import { makeFileEditHandler } from "./file-edit.js";
 import { makeFileContextHandler } from "./file-context.js";
 import type { Store } from "../../storage/store.js";
-import type { HybridSearch } from "../../retrieval/hybrid.js";
+import type { HybridSearch } from "../../context/retrieval/hybrid.js";
 import type { ContextBuilder } from "../../context/builder.js";
-import type { Observer } from "../../observer/pipeline.js";
+import type { Observer } from "../../context/observations/pipeline.js";
 
 export type { EventHandler, EventHandlerName, HandlerInput, HandlerOutput } from "../handler-types.js";
 

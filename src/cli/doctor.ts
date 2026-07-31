@@ -8,9 +8,9 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { loadConfig } from "./config.js";
-import { isTermyteHookCommand } from "../integrations/installers/managed-hooks.js";
+import { isTermyteHookCommand } from "../agents/installers/managed-hooks.js";
 import { Store } from "../storage/store.js";
-import { getTermyteHookPath } from "../integrations/install-paths.js";
+import { getTermyteHookPath } from "../agents/installers/install-paths.js";
 
 type IntegrationStatus = {
   name: string;

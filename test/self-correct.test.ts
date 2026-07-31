@@ -1,11 +1,11 @@
 import { describe, it, expect, vi } from "vitest";
-import type { ChatMessage, ChatResponse } from "../src/observer/provider.js";
+import type { ChatMessage, ChatResponse } from "../src/context/observations/provider.js";
 
 const STRICTER_MARKER = "Your previous response was invalid";
 
 describe("chatWithRetry", () => {
   it("returns the first response when valid", async () => {
-    const { chatWithRetry } = await import("../src/observer/self-correct.js");
+    const { chatWithRetry } = await import("../src/context/observations/self-correct.js");
 
     const mockProvider = {
       async chat(): Promise<ChatResponse> {
@@ -29,7 +29,7 @@ describe("chatWithRetry", () => {
   });
 
   it("retries with a stricter prompt when first response is invalid", async () => {
-    const { chatWithRetry } = await import("../src/observer/self-correct.js");
+    const { chatWithRetry } = await import("../src/context/observations/self-correct.js");
 
     let callCount = 0;
     const mockProvider = {
@@ -71,7 +71,7 @@ describe("chatWithRetry", () => {
   });
 
   it("returns the first (invalid) response when retry LLM call throws", async () => {
-    const { chatWithRetry } = await import("../src/observer/self-correct.js");
+    const { chatWithRetry } = await import("../src/context/observations/self-correct.js");
 
     let callCount = 0;
     const mockProvider = {
@@ -103,7 +103,7 @@ describe("chatWithRetry", () => {
 
 describe("schemas", () => {
   it("validates a valid observation", async () => {
-    const { validateObservation } = await import("../src/observer/schemas.js");
+    const { validateObservation } = await import("../src/context/observations/schemas.js");
     expect(validateObservation({
       type: "bugfix",
       title: "Fixed login bug",
@@ -112,7 +112,7 @@ describe("schemas", () => {
   });
 
   it("rejects an observation with invalid type", async () => {
-    const { validateObservation } = await import("../src/observer/schemas.js");
+    const { validateObservation } = await import("../src/context/observations/schemas.js");
     expect(validateObservation({
       type: "knowledge",
       title: "Some title",
@@ -121,7 +121,7 @@ describe("schemas", () => {
   });
 
   it("rejects an observation with empty title", async () => {
-    const { validateObservation } = await import("../src/observer/schemas.js");
+    const { validateObservation } = await import("../src/context/observations/schemas.js");
     expect(validateObservation({
       type: "fact",
       title: "",
@@ -130,7 +130,7 @@ describe("schemas", () => {
   });
 
   it("validates a valid summary", async () => {
-    const { validateSummary } = await import("../src/observer/schemas.js");
+    const { validateSummary } = await import("../src/context/observations/schemas.js");
     expect(validateSummary({
       summary_text: "Session went well",
       key_changes: ["fixed bug"],
@@ -139,7 +139,7 @@ describe("schemas", () => {
   });
 
   it("rejects a summary with empty text", async () => {
-    const { validateSummary } = await import("../src/observer/schemas.js");
+    const { validateSummary } = await import("../src/context/observations/schemas.js");
     expect(validateSummary({
       summary_text: "",
     })).toBe(false);

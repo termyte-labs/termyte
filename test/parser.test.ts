@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseAgentXml } from "../src/observer/parser.js";
+import { parseAgentXml } from "../src/context/observations/parser.js";
 
 describe("parseAgentXml", () => {
   it("parses a single observation", () => {

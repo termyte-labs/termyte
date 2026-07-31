@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { openDatabase, type DatabaseContext } from "../src/storage/connection.js";
 import { Store } from "../src/storage/store.js";
-import { JobQueue } from "../src/pipeline/job-queue.js";
+import { JobQueue } from "../src/context/pipeline/job-queue.js";
 
 describe("OPS-002 queue concurrency", () => {
   it("leases each queued job exactly once across multiple workers", () => {

@@ -1,5 +1,5 @@
-import type { OpenAIProviderConfig } from "../observer/openai-provider.js";
-import type { LocalModelId } from "../retrieval/local-embeddings.js";
+import type { OpenAIProviderConfig } from "../context/observations/openai-provider.js";
+import type { LocalModelId } from "../context/retrieval/local-embeddings.js";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";

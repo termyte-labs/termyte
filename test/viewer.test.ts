@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { Store } from "../src/storage/store.js";
 import { openDatabase } from "../src/storage/connection.js";
-import { JobQueue } from "../src/pipeline/job-queue.js";
-import { RetryableJobError } from "../src/pipeline/errors.js";
+import { JobQueue } from "../src/context/pipeline/job-queue.js";
+import { RetryableJobError } from "../src/context/pipeline/errors.js";
 import { startViewerServer, type RunningViewerServer } from "../src/viewer/server.js";
 
 let running: RunningViewerServer | null = null;

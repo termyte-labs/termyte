@@ -1,7 +1,7 @@
-import { FTSSearch } from "../../retrieval/fts.js";
-import { HybridSearch } from "../../retrieval/hybrid.js";
-import { LocalEmbeddingsProvider, type LocalModelId } from "../../retrieval/local-embeddings.js";
-import { VectorSearch } from "../../retrieval/vector.js";
+import { FTSSearch } from "../../context/retrieval/fts.js";
+import { HybridSearch } from "../../context/retrieval/hybrid.js";
+import { LocalEmbeddingsProvider, type LocalModelId } from "../../context/retrieval/local-embeddings.js";
+import { VectorSearch } from "../../context/retrieval/vector.js";
 import { Store } from "../../storage/store.js";
 import type { BenchmarkDocument, BenchmarkSearchResult, MemoryBenchmarkAdapter } from "../types.js";
 

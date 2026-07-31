@@ -1,6 +1,6 @@
 /** `summarize` handler — enqueue summary work without running an LLM in the hook. */
 import type { EventHandler } from "../handler-types.js";
-import type { Observer } from "../../observer/pipeline.js";
+import type { Observer } from "../../context/observations/pipeline.js";
 
 export function makeSummarizeHandler(deps: { observer: Observer; disabled?: boolean }): EventHandler {
   return async ({ event }) => {

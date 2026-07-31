@@ -5,19 +5,19 @@ import {
   memoryDecayScore,
   nextMemoryStateAfterDecay,
   type MemoryLifecycleRow,
-} from "../src/lifecycle/decay.js";
+} from "../src/context/lifecycle/decay.js";
 import {
   applyFeedback,
   defaultFeedbackWeight,
   feedbackDelta,
   type FeedbackState,
-} from "../src/lifecycle/feedback.js";
+} from "../src/context/lifecycle/feedback.js";
 import {
   canonicalMemoryKey,
   cosineSimilarity,
   fileOverlapScore,
   shouldDeduplicate,
-} from "../src/lifecycle/dedupe.js";
+} from "../src/context/lifecycle/dedupe.js";
 
 const dayMs = 86_400_000;
 

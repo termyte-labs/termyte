@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { openDatabase, type DatabaseContext } from "../src/storage/connection.js";
 import { Store } from "../src/storage/store.js";
-import { MemoryPipeline } from "../src/pipeline/memory-pipeline.js";
-import { memoryDecayScore, nextMemoryStateAfterDecay } from "../src/lifecycle/decay.js";
-import { FTSSearch } from "../src/retrieval/fts.js";
-import { ALL_MEMORY_STATES } from "../src/retrieval/eligibility.js";
+import { MemoryPipeline } from "../src/context/pipeline/memory-pipeline.js";
+import { memoryDecayScore, nextMemoryStateAfterDecay } from "../src/context/lifecycle/decay.js";
+import { FTSSearch } from "../src/context/retrieval/fts.js";
+import { ALL_MEMORY_STATES } from "../src/context/retrieval/eligibility.js";
 import { MockLLM } from "./mock-llm.js";
 
-class MockEmbeddings implements import("../src/retrieval/embeddings.js").EmbeddingsProvider {
+class MockEmbeddings implements import("../src/context/retrieval/embeddings.js").EmbeddingsProvider {
   readonly dimensions = 4;
   async embed(text: string): Promise<Float32Array> {
     const v = new Float32Array(this.dimensions);

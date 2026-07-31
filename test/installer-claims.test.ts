@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtempSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { installFor } from "../src/integrations/installers/index.js";
+import { installFor } from "../src/agents/installers/index.js";
 
 // DOC-001: installer output must not claim automatic synthesis or memory
 // availability that the installed commands do not perform. These phrases are

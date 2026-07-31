@@ -4,28 +4,28 @@
  * Programmatic users import types and high-level classes.
  * The rest of Termyte is internal.
  */
-export * from "./core/types.js";
+export * from "./shared/types.js";
 export { Store } from "./storage/store.js";
 export { openDatabase, closeDatabase, defaultDbPath, type DatabaseContext } from "./storage/connection.js";
 
-export { parseAgentXml, type ParsedObservation, type ParsedSummary, type ParseResult } from "./observer/parser.js";
-export { Observer, type ObserverConfig } from "./observer/pipeline.js";
-export type { LLMProvider, ChatMessage, ChatOptions, ChatResponse } from "./observer/provider.js";
-export { OpenAICompatibleProvider, type OpenAIProviderConfig } from "./observer/openai-provider.js";
-export { buildSystemPrompt, buildObservationPrompt, buildConsolidationPrompt, buildSummaryPrompt } from "./observer/prompts.js";
+export { parseAgentXml, type ParsedObservation, type ParsedSummary, type ParseResult } from "./context/observations/parser.js";
+export { Observer, type ObserverConfig } from "./context/observations/pipeline.js";
+export type { LLMProvider, ChatMessage, ChatOptions, ChatResponse } from "./context/observations/provider.js";
+export { OpenAICompatibleProvider, type OpenAIProviderConfig } from "./context/observations/openai-provider.js";
+export { buildSystemPrompt, buildObservationPrompt, buildConsolidationPrompt, buildSummaryPrompt } from "./context/observations/prompts.js";
 
 export {
   type EmbeddingsProvider,
   NoOpEmbeddingsProvider,
-} from "./retrieval/embeddings.js";
-export { LocalEmbeddingsProvider, detectRepoId, detectWorkspaceRoot, type LocalEmbeddingsConfig, type LocalModelId } from "./retrieval/local-embeddings.js";
-export { FTSSearch, type FTSSearchOptions } from "./retrieval/fts.js";
-export { VectorSearch, type VectorSearchOptions, type VectorSearchResult } from "./retrieval/vector.js";
+} from "./context/retrieval/embeddings.js";
+export { LocalEmbeddingsProvider, detectRepoId, detectWorkspaceRoot, type LocalEmbeddingsConfig, type LocalModelId } from "./context/retrieval/local-embeddings.js";
+export { FTSSearch, type FTSSearchOptions } from "./context/retrieval/fts.js";
+export { VectorSearch, type VectorSearchOptions, type VectorSearchResult } from "./context/retrieval/vector.js";
 export {
   HybridSearch,
   type HybridSearchOptions,
   type HybridSearchResult,
-} from "./retrieval/hybrid.js";
+} from "./context/retrieval/hybrid.js";
 
 export {
   type Platform,
@@ -39,15 +39,15 @@ export {
   type ExtractedFiles,
 } from "./capture/index.js";
 
-export { HookRunner, type HookRunnerConfig } from "./hooks/runner.js";
+export { HookRunner, type HookRunnerConfig } from "./agents/hooks/runner.js";
 export { ContextBuilder, renderContext, renderHybridResults, type ContextInput, type ContextOutput } from "./context/builder.js";
 export { checkFreshness, type FreshnessResult, type FreshnessState } from "./context/freshness.js";
-export { TaskStateService, TaskVersionConflict } from "./task-state/service.js";
-export { TaskDetectionService, type TaskDetectionInput, type TaskDetectionResult } from "./task-state/detection.js";
-export { WorkThreadObservationStore, WorkThreadObservationSchema, type WorkThreadObservationInput } from "./task-state/observations.js";
+export { TaskStateService, TaskVersionConflict } from "./tasks/service.js";
+export { TaskDetectionService, type TaskDetectionInput, type TaskDetectionResult } from "./tasks/detection.js";
+export { WorkThreadObservationStore, WorkThreadObservationSchema, type WorkThreadObservationInput } from "./tasks/observations.js";
 
 export { loadConfig, type TermyteConfig } from "./cli/config.js";
-export { runMcpServer } from "./mcp/server.js";
+export { runMcpServer } from "./server/mcp/server.js";
 export {
   type AgentAdapter,
   type AgentAdapterId,
@@ -59,18 +59,18 @@ export {
   FakeAdapter,
   createAdapter,
   discoverAdapter,
-} from "./synth/index.js";
+} from "./agents/synthesis/index.js";
 
 import { Store } from "./storage/store.js";
-import { Observer } from "./observer/pipeline.js";
-import { type OpenAIProviderConfig } from "./observer/openai-provider.js";
-import { type LocalModelId } from "./retrieval/local-embeddings.js";
-import { NoOpEmbeddingsProvider } from "./retrieval/embeddings.js";
-import { FTSSearch } from "./retrieval/fts.js";
-import { VectorSearch } from "./retrieval/vector.js";
-import { HybridSearch } from "./retrieval/hybrid.js";
+import { Observer } from "./context/observations/pipeline.js";
+import { type OpenAIProviderConfig } from "./context/observations/openai-provider.js";
+import { type LocalModelId } from "./context/retrieval/local-embeddings.js";
+import { NoOpEmbeddingsProvider } from "./context/retrieval/embeddings.js";
+import { FTSSearch } from "./context/retrieval/fts.js";
+import { VectorSearch } from "./context/retrieval/vector.js";
+import { HybridSearch } from "./context/retrieval/hybrid.js";
 import { ContextBuilder } from "./context/builder.js";
-import { HookRunner } from "./hooks/runner.js";
+import { HookRunner } from "./agents/hooks/runner.js";
 import { createEmbeddingsProvider, createLLMProvider } from "./runtime/providers.js";
 
 export interface TermyteOptions {

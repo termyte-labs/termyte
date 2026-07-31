@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { MCP_TOOL_DEFS } from "../src/mcp/tools.js";
+import { MCP_TOOL_DEFS } from "../src/server/mcp/tools.js";
 import {
   parseRetrievalType,
   validateContextInput,
   validateFeedbackInput,
   validateNumericIdInput,
   validateSearchInput,
-} from "../src/mcp/schemas.js";
+} from "../src/server/mcp/schemas.js";
 
 describe("MCP schema helpers", () => {
   it("maps typed retrieval names to document type filters", () => {

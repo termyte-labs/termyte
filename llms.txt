@@ -1,6 +1,6 @@
 # Termyte
 
-Termyte is a local execution, task-state, and memory layer for Claude Code, Codex, and OpenCode.
+Termyte gives coding agents the project context they need, so developers do not have to repeatedly explain what happened, why, and what remains.
 
 ## Index
 
@@ -14,14 +14,14 @@ Termyte is a local execution, task-state, and memory layer for Claude Code, Code
 ## Code Truth
 
 - `src/cli/index.ts`
-- `src/pipeline/memory-pipeline.ts`
+- `src/context/pipeline/memory-pipeline.ts`
 - `src/storage/store.ts`
 - `src/context/builder.ts`
-- `src/task-state/service.ts`
-- `src/task-state/checkpoints.ts`
-- `src/task-state/resume.ts`
-- `src/retrieval/hybrid.ts`
-- `src/mcp/server.ts`
+- `src/tasks/service.ts`
+- `src/tasks/checkpoints.ts`
+- `src/tasks/resume.ts`
+- `src/context/retrieval/hybrid.ts`
+- `src/server/mcp/server.ts`
 
 ## Rules
 

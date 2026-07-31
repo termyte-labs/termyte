@@ -10,8 +10,8 @@
  */
 import { loadConfig } from "./config.js";
 import { Store } from "../storage/store.js";
-import { MemoryPipeline } from "../pipeline/memory-pipeline.js";
-import { acquireWorkerLock, releaseWorkerLock } from "../pipeline/worker-supervisor.js";
+import { MemoryPipeline } from "../context/pipeline/memory-pipeline.js";
+import { acquireWorkerLock, releaseWorkerLock } from "../context/pipeline/worker-supervisor.js";
 import { createEmbeddingsProvider, createLLMProvider } from "../runtime/providers.js";
 
 async function main(): Promise<void> {

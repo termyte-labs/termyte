@@ -1,6 +1,6 @@
-import { FTSSearch } from "../../retrieval/fts.js";
-import { FakeLLMProvider } from "../../observer/fake-provider.js";
-import { MemoryPipeline } from "../../pipeline/memory-pipeline.js";
+import { FTSSearch } from "../../context/retrieval/fts.js";
+import { FakeLLMProvider } from "../../context/observations/fake-provider.js";
+import { MemoryPipeline } from "../../context/pipeline/memory-pipeline.js";
 import { Store } from "../../storage/store.js";
 import type { BenchmarkDocument, BenchmarkSearchResult, MemoryBenchmarkAdapter } from "../types.js";
 

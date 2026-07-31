@@ -8,7 +8,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AgentInvocationError } from "../src/synth/types.js";
+import { AgentInvocationError } from "../src/agents/synthesis/types.js";
 
 let fakeClaudePath: string;
 let originalClaudePath: string | undefined;
@@ -57,13 +57,13 @@ afterEach(() => {
 
 describe("ClaudeCodeAdapter", () => {
   it("isAvailable resolves to true when CLAUDE_PATH points to a file", async () => {
-    const { ClaudeCodeAdapter } = await import("../src/synth/claude-code.js");
+    const { ClaudeCodeAdapter } = await import("../src/agents/synthesis/claude-code.js");
     const a = new ClaudeCodeAdapter();
     expect(await a.isAvailable()).toBe(true);
   });
 
   it("invoke parses the JSON envelope and returns the result text", async () => {
-    const { ClaudeCodeAdapter } = await import("../src/synth/claude-code.js");
+    const { ClaudeCodeAdapter } = await import("../src/agents/synthesis/claude-code.js");
     const a = new ClaudeCodeAdapter();
     const result = await a.invoke("synthesize these traces", { timeoutMs: 10_000 });
     expect(result.text).toBe("<skip_summary />");
@@ -86,7 +86,7 @@ describe("ClaudeCodeAdapter", () => {
         "utf-8");
       try { require("node:fs").chmodSync(fakeClaudePath, 0o755); } catch { /* ignore */ }
     }
-    const { ClaudeCodeAdapter } = await import("../src/synth/claude-code.js");
+    const { ClaudeCodeAdapter } = await import("../src/agents/synthesis/claude-code.js");
     const a = new ClaudeCodeAdapter();
     await expect(a.invoke("x", { timeoutMs: 10_000 })).rejects.toBeInstanceOf(AgentInvocationError);
     void dir;
@@ -95,7 +95,7 @@ describe("ClaudeCodeAdapter", () => {
   it("invoke honors --max-budget-usd flag", async () => {
     // We can't easily verify the flag was passed without spying on
     // process.spawn; just confirm invoke doesn't crash when set.
-    const { ClaudeCodeAdapter } = await import("../src/synth/claude-code.js");
+    const { ClaudeCodeAdapter } = await import("../src/agents/synthesis/claude-code.js");
     const a = new ClaudeCodeAdapter();
     const result = await a.invoke("x", { maxBudgetUsd: 0.01, timeoutMs: 10_000 });
     expect(result.text).toBe("<skip_summary />");
@@ -105,7 +105,7 @@ describe("ClaudeCodeAdapter", () => {
     // The ClaudeCodeAdapter has a process-wide cache; we can't
     // easily clear it. Skip this case if the cache is already
     // populated from a prior test in the same run.
-    const { ClaudeCodeAdapter } = await import("../src/synth/claude-code.js");
+    const { ClaudeCodeAdapter } = await import("../src/agents/synthesis/claude-code.js");
     const a = new ClaudeCodeAdapter();
     // First call works because CLAUDE_PATH is still set.
     if (await a.isAvailable()) {

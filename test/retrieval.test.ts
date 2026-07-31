@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { Store } from "../src/storage/store.js";
-import { FTSSearch } from "../src/retrieval/fts.js";
-import { VectorSearch } from "../src/retrieval/vector.js";
-import { HybridSearch, type HybridSearchResult } from "../src/retrieval/hybrid.js";
-import { NoOpEmbeddingsProvider, type EmbeddingsProvider } from "../src/retrieval/embeddings.js";
+import { FTSSearch } from "../src/context/retrieval/fts.js";
+import { VectorSearch } from "../src/context/retrieval/vector.js";
+import { HybridSearch, type HybridSearchResult } from "../src/context/retrieval/hybrid.js";
+import { NoOpEmbeddingsProvider, type EmbeddingsProvider } from "../src/context/retrieval/embeddings.js";
 import { openDatabase, type DatabaseContext } from "../src/storage/connection.js";
 
 let ctx: DatabaseContext;

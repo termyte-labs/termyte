@@ -8,7 +8,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AgentInvocationError } from "../src/synth/types.js";
+import { AgentInvocationError } from "../src/agents/synthesis/types.js";
 
 let fakeCodexPath: string;
 let originalCodexPath: string | undefined;
@@ -56,13 +56,13 @@ afterEach(() => {
 
 describe("CodexAdapter", () => {
   it("isAvailable resolves to true when CODEX_PATH points to a file", async () => {
-    const { CodexAdapter } = await import("../src/synth/codex.js");
+    const { CodexAdapter } = await import("../src/agents/synthesis/codex.js");
     const a = new CodexAdapter();
     expect(await a.isAvailable()).toBe(true);
   });
 
   it("invoke parses the JSONL stream and returns the agent_message", async () => {
-    const { CodexAdapter } = await import("../src/synth/codex.js");
+    const { CodexAdapter } = await import("../src/agents/synthesis/codex.js");
     const a = new CodexAdapter();
     const result = await a.invoke("synthesize these", { timeoutMs: 10_000 });
     expect(result.text).toContain("<observation>");
@@ -84,7 +84,7 @@ describe("CodexAdapter", () => {
         "utf-8");
       try { require("node:fs").chmodSync(fakeCodexPath, 0o755); } catch { /* ignore */ }
     }
-    const { CodexAdapter } = await import("../src/synth/codex.js");
+    const { CodexAdapter } = await import("../src/agents/synthesis/codex.js");
     const a = new CodexAdapter();
     await expect(a.invoke("x", { timeoutMs: 10_000 })).rejects.toBeInstanceOf(AgentInvocationError);
     void dir;
@@ -98,7 +98,7 @@ describe("CodexAdapter", () => {
       writeFileSync(fakeCodexPath, "#!/bin/sh\nexit 7\n", "utf-8");
       try { require("node:fs").chmodSync(fakeCodexPath, 0o755); } catch { /* ignore */ }
     }
-    const { CodexAdapter } = await import("../src/synth/codex.js");
+    const { CodexAdapter } = await import("../src/agents/synthesis/codex.js");
     const a = new CodexAdapter();
     await expect(a.invoke("x", { timeoutMs: 10_000 }))
       .rejects.toThrow(/exited 7/);
@@ -113,7 +113,7 @@ describe("CodexAdapter", () => {
       writeFileSync(fakeCodexPath, "#!/bin/sh\necho 'rate limit reached' 1>&2\nexit 1\n", "utf-8");
       try { require("node:fs").chmodSync(fakeCodexPath, 0o755); } catch { /* ignore */ }
     }
-    const { CodexAdapter } = await import("../src/synth/codex.js");
+    const { CodexAdapter } = await import("../src/agents/synthesis/codex.js");
     const a = new CodexAdapter();
     try {
       await a.invoke("x", { timeoutMs: 10_000 });

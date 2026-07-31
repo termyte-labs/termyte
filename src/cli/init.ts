@@ -3,10 +3,10 @@ import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { Store } from "../storage/store.js";
-import { installFor } from "../integrations/installers/index.js";
+import { installFor } from "../agents/installers/index.js";
 import { discoverAgentCapabilities, capabilityLabel, type SupportedAgent } from "../runtime/capabilities.js";
-import { removeTermyteHookEntries } from "../integrations/installers/managed-hooks.js";
-import { openCodeConfigDir, uninstallOpenCode } from "../integrations/installers/opencode.js";
+import { removeTermyteHookEntries } from "../agents/installers/managed-hooks.js";
+import { openCodeConfigDir, uninstallOpenCode } from "../agents/installers/opencode.js";
 import {
   defaultUserConfig,
   saveUserConfig,

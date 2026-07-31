@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { splitEmbeddingBatch } from "../src/retrieval/local-embeddings.js";
+import { splitEmbeddingBatch } from "../src/context/retrieval/local-embeddings.js";
 
 describe("local embeddings batch handling", () => {
   it("splits flattened batch tensors into one vector per input text", () => {

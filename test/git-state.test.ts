@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { readGitDiffState, readGitHead } from "../src/experience/git-state.js";
+import { readGitDiffState, readGitHead } from "../src/capture/git-state.js";
 
 const roots: string[] = [];
 
