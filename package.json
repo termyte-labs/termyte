@@ -1,6 +1,6 @@
 {
   "name": "termyte",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "Local-first context engine for coding agents",
   "repository": "https://github.com/termyte-labs/termyte",
   "type": "module",
