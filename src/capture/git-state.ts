@@ -58,6 +58,20 @@ export function readRepositoryState(workspaceRoot: string, options: GitStateOpti
   };
 }
 
+export function detectWorkspaceRoot(cwd: string): string {
+  return compact(runGit(cwd, ["rev-parse", "--show-toplevel"], 1_000)) ?? cwd;
+}
+
+export function detectRepoId(cwd: string): string | undefined {
+  const root = detectWorkspaceRoot(cwd);
+  const origin = compact(runGit(root, ["config", "--get", "remote.origin.url"], 1_000));
+  if (origin) {
+    return origin.replace(/^https?:\/\//, "").replace(/^git@([^:]+):/, "$1/").replace(/\.git$/, "").replace(/\/$/, "").toLowerCase();
+  }
+  const directory = root.split(/[\\/]/).filter(Boolean).at(-1);
+  return directory?.toLowerCase();
+}
+
 function readPaths(workspaceRoot: string, args: string[], options: GitStateOptions): string[] | null {
   const output = runGit(workspaceRoot, args, options.timeoutMs);
   if (output === null) return null;

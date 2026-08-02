@@ -12,7 +12,6 @@
 import type { PlatformAdapter, NormalizedEvent, HookResult } from "../../capture/adapter.js";
 import type { EventType } from "../../shared/types.js";
 import { isObject, pickString } from "../../capture/util.js";
-import { extractCodexFilePaths } from "./codex-file-context.js";
 import { AdapterRejectedInput, isValidCwd } from "../../capture/errors.js";
 
 export class CodexAdapter implements PlatformAdapter {
@@ -35,18 +34,8 @@ export class CodexAdapter implements PlatformAdapter {
     }
 
     const tool_name = pickString(r, ["tool_name", "toolName"]);
-    let tool_input = (r["tool_input"] ?? r["toolInput"]) ?? null;
+    const tool_input = (r["tool_input"] ?? r["toolInput"]) ?? null;
     const tool_output = r["tool_response"] ?? r["tool_output"] ?? r["toolOutput"] ?? null;
-
-    // Codex PreToolUse on Bash: try to extract real file paths from the
-    // shell command via shell-quote. Only paths that exist on disk are
-    // returned; the original tool_input is left untouched for the agent.
-    if (pickString(r, ["hook_event_name"]) === "PreToolUse" && tool_name === "Bash") {
-      const paths = extractCodexFilePaths(tool_name, tool_input, cwd);
-      if (paths.length > 0 && isObject(tool_input)) {
-        tool_input = { ...(tool_input as Record<string, unknown>), filePaths: paths };
-      }
-    }
 
     let event_type: EventType;
     let user_prompt: string | null = null;

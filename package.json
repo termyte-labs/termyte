@@ -12,46 +12,29 @@
   "types": "dist/index.d.ts",
   "bin": {
     "termyte": "dist/cli/index.js",
-    "termyte-hook": "dist/cli/hook.js",
-    "termyte-worker": "dist/cli/worker.js"
+    "termyte-hook": "dist/cli/hook.js"
   },
   "files": [
     "dist",
-    "test/fixtures/regression-corpus/cases.json",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
-    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json && vite build",
+    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run --exclude test/installed-pipeline.test.ts",
     "test:package": "vitest run test/installed-pipeline.test.ts",
-    "benchmark:context": "npm run build && node dist/benchmark/task-context-cli.js test/fixtures/task-context/cases.json",
     "verify": "npm run typecheck && npm run build && npm test && npm run test:package",
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@huggingface/transformers": "^3.8.1",
     "@inquirer/prompts": "^7.10.1",
-    "better-sqlite3": "^11.9.1",
-    "react": "^19.2.7",
-    "react-dom": "^19.2.7",
-    "sqlite-vec": "^0.1.9",
-    "zod": "^4.4.3"
+    "better-sqlite3": "^11.9.1"
   },
   "devDependencies": {
-    "@testing-library/react": "^16.3.2",
     "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^22.15.21",
-    "@types/react": "^19.2.17",
-    "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^5.2.0",
-    "jsdom": "^28.1.0",
     "typescript": "^5.8.3",
-    "vite": "^7.3.6",
     "vitest": "^3.2.4"
-  },
-  "optionalDependencies": {
-    "sqlite-vec-windows-x64": "^0.1.9"
   }
 }

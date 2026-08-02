@@ -52,7 +52,6 @@ export class Ingestor {
         user_prompt: event.user_prompt,
         final_response: event.final_response,
       });
-      if (result.inserted) this.store.projectTrace(result.trace, event.cwd);
       return result;
     })();
 

@@ -30,10 +30,10 @@ interface ClaudeSettings {
 }
 
 const HOOK_EVENTS: Array<{ event: string; command: string; timeout: number }> = [
-  { event: "SessionStart",      command: "session-init",  timeout: 60 },
-  { event: "UserPromptSubmit",  command: "context",       timeout: 30 },
-  { event: "PostToolUse",       command: "observation",   timeout: 60 },
-  { event: "Stop",              command: "summarize",     timeout: 60 },
+  { event: "SessionStart",      command: "session-init",  timeout: 10 },
+  { event: "UserPromptSubmit",  command: "recall",        timeout: 10 },
+  { event: "PostToolUse",       command: "capture",       timeout: 10 },
+  { event: "Stop",              command: "capture",       timeout: 10 },
 ];
 
 export interface ClaudeInstallOptions {
@@ -62,8 +62,9 @@ export function installClaudeCodeHooks(opts: ClaudeInstallOptions): number {
   if (!existing.hooks) existing.hooks = {};
 
   const escaped = shellEscapePath(hookPath);
+  const node = shellEscapePath(process.execPath);
   for (const e of HOOK_EVENTS) {
-    const cmd = `node "${escaped}" claude-code ${e.command}`;
+    const cmd = `"${node}" "${escaped}" claude-code ${e.command}`;
     const group: ClaudeHooksGroup = {
       matcher: "*",
       hooks: [{ type: "command", command: cmd, timeout: e.timeout * 1000 }],
@@ -75,8 +76,6 @@ export function installClaudeCodeHooks(opts: ClaudeInstallOptions): number {
 
   mkdirSync(dirname(settingsPath), { recursive: true });
   writeFileSync(settingsPath, JSON.stringify(existing, null, 2) + "\n", "utf-8");
-  process.stdout.write(`termyte: wrote Claude Code hooks to ${settingsPath}\n`);
-  process.stdout.write("termyte: capture and context run silently; inspect activity with 'termyte viewer'.\n");
   return 0;
 }
 

@@ -1,15 +1,12 @@
 /**
- * Resolve the absolute path to the `termyte-hook` and `termyte-mcp` entry
- * scripts. These are baked into per-IDE config files (Cursor, Windsurf,
- * Gemini) because those hosts do no `${ENV}` substitution on the
- * `command` / `args` fields.
+ * Resolve the absolute path to the `termyte-hook` entry script.
  *
  * Probes in order: TERMYTE_HOOK_PATH env, the directory above this file
  * (the `dist/cli/` folder when running from a build), then a few
  * common repo layouts.
  */
 import { existsSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -45,46 +42,7 @@ export function getTermyteHookPath(): string | null {
   ]);
 }
 
-/** Absolute path to `termyte-mcp` (the stdio MCP server). */
-export function getTermyteMcpPath(): string | null {
-  return resolveWithEnv(process.env.TERMYTE_MCP_PATH, [
-    join(here, "mcp", "server.js"),
-    join(here, "mcp", "server.ts"),
-    join(here, "..", "..", "server", "mcp", "server.js"),
-    join(here, "..", "..", "server", "mcp", "server.ts"),
-    join(here, "..", "..", "..", "mcp", "server.js"),
-    join(here, "..", "..", "..", "mcp", "server.ts"),
-    join(process.cwd(), "dist", "mcp", "server.js"),
-    join(process.cwd(), "src", "mcp", "server.ts"),
-  ]);
-}
-
-/** Path to the currently running Node executable for generated commands. */
-export function getNodeAbsolutePath(): string {
-  return process.execPath;
-}
-
-/** Replace any path separator backslashes in `p` with their escaped
- *  form, so a baked path is safe to embed inside a JSON string. */
-export function jsonEscapePath(p: string): string {
-  return p.replace(/\\/g, "\\\\");
-}
-
 /** Replace a path's separators so it survives an OS shell. */
 export function shellEscapePath(p: string): string {
-  return p.replace(/\\/g, "\\\\");
-}
-
-/** Walk up from `start` looking for the termyte project root (which
- *  contains `package.json` with `"name": "termyte"`). */
-export function findTermyteProjectRoot(start: string = process.cwd()): string | null {
-  let current = resolve(start);
-  for (let i = 0; i < 6; i++) {
-    const pkg = join(current, "package.json");
-    if (existsSync(pkg)) return current;
-    const parent = dirname(current);
-    if (parent === current) return null;
-    current = parent;
-  }
-  return null;
+  return p;
 }
