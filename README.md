@@ -2,6 +2,8 @@
 
 Termyte gives coding agents the project context they need, so developers do not have to repeatedly explain what happened, why, and what remains.
 
+It is a local-first session handoff tool for Claude Code and Codex. It captures work in one session and gives the next session a handoff before the agent's first response.
+
 ## Setup
 
 From the repository you want Termyte to watch:
@@ -17,9 +19,18 @@ Termyte connects to an existing Claude Code or Codex installation. It uses that 
 
 During a session, hooks silently store redacted prompts, tool calls, outputs, file activity, and the final response in local SQLite.
 
-At the next session start, Termyte gives the selected agent one bounded prompt containing the previous session's evidence and current Git state. The resulting handoff tells the agent what happened, why, what remains, and the immediate next step. The handoff is injected before the agent's first response.
+At the next session start, Termyte builds a deterministic handoff from the latest previous session and current Git state. It includes the previous request, final response, recent tool actions, changed files, branch, and commit when available. No extra model call is made.
 
-Explicit questions such as “why did we choose this?” can retrieve prior handoffs through local SQLite full-text search.
+Questions such as "why did we choose this?" can retrieve prior handoffs through SQLite FTS5 full-text search. Search is limited to the current repository and returns up to three handoffs.
+
+## Current limits
+
+- Search uses basic keyword matching and SQLite BM25 ranking. It is not semantic or vector search.
+- Recall searches saved handoffs, not every raw event.
+- An empty or failed session may become the most recent session selected for a handoff.
+- Previous prompts and final responses do not yet have a total handoff-size limit.
+- Redaction is heuristic and may not catch every secret format.
+- There is no cloud sync, dashboard, background worker, or cross-device history.
 
 ## Commands
 
@@ -37,4 +48,4 @@ npm run build
 npm run test:package
 ```
 
-Redaction is heuristic. Termyte stores data locally, but the selected coding agent receives redacted session evidence when it creates the next-session handoff.
+Termyte stores captured data in local SQLite. The selected coding agent receives the redacted handoff through its session hook.

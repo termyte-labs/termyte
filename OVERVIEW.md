@@ -2,7 +2,7 @@
 
 Termyte gives a coding agent the context from the previous session in the same repository. It runs through agent hooks, stores a small local history, and injects a handoff before the next session's first response.
 
-The current runtime supports Claude Code and Codex. It is local-first and uses SQLite. It has no background worker, external model call, embedding index, MCP server, cloud sync, or viewer.
+The current runtime supports Claude Code and Codex. It is local-first and uses SQLite with FTS5 for keyword retrieval. It has no background worker, external model call, embedding index, MCP server, cloud sync, or viewer.
 
 ## The End-to-End Flow
 
@@ -157,7 +157,9 @@ Termyte also supports questions such as:
 
 The recall path runs only when the new prompt contains a prior-work phrase such as `why`, `previous`, `last time`, `what happened`, `tried`, or `decision`.
 
-Termyte extracts search terms from the prompt, searches the saved handoffs with SQLite FTS5, limits results to the current repository, and injects up to three matches. Recall searches handoffs, not every raw trace.
+Termyte extracts up to 12 terms of at least three characters from the prompt. It joins them with an FTS5 `OR` query, limits results to the current repository, orders them with FTS5 `bm25()`, and injects up to three matches. Recall searches handoffs, not every raw trace.
+
+This is basic keyword retrieval. It does not remove stop words, build phrase-aware queries, use semantic embeddings, apply freshness weighting, or require a minimum relevance score. A match on one broad term can therefore return a weak result.
 
 ## Data Model
 
@@ -235,6 +237,11 @@ The current implementation intentionally does not include:
 - cloud storage or cross-device sync
 - OpenCode or other agent adapters
 
+The current handoff also has two known reliability limits:
+
+- A session with only a start trace can be selected as the latest previous session, ahead of older meaningful work.
+- Tool actions are shortened, but the previous prompt, final response, and complete handoff do not yet have a total size limit.
+
 Termyte's present scope is one local continuity loop: capture Session 1, build a handoff when Session 2 starts, and give that handoff to the same supported agent in the same repository.
 
 ## Verification Surface
@@ -252,7 +259,9 @@ Use the full verification command after runtime changes:
 npm run verify
 ```
 
-These checks prove the source, package, and hook capture path. A real interrupted Session 1 to Session 2 run is a separate end-to-end product proof.
+These checks prove the source, package, and hook capture path. They do not automatically test the complete Session 1 to Session 2 injection path.
+
+The current Codex workspace has produced a real handoff that was injected into a later session and used without asking the developer to repeat the prior task. This is useful product evidence for this environment, but it is not a repeatable automated acceptance test or proof for every supported setup.
 
 ## Related Docs
 

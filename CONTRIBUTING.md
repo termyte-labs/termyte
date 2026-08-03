@@ -22,22 +22,20 @@ npm run verify
 
 ## Source layout
 
-- `src/agents` - agent adapters, hooks, installers, and synthesis callers
+- `src/agents` - Claude Code and Codex adapters, hooks, and installers
 - `src/capture` - event normalization, file extraction, and session recording
-- `src/context` - observations, retrieval, indexing, lifecycle, and durable jobs
-- `src/tasks` - task state, checkpoints, resume packets, and handoffs
-- `src/storage` - SQLite connection, migrations, and persistence
-- `src/server` - MCP server boundary
+- `src/context` - deterministic handoff building and recall
+- `src/storage` - SQLite connection, migrations, traces, handoffs, and FTS5 search
 - `src/cli` - terminal commands and hook entrypoints
-- `src/viewer` - local diagnostics server and UI
 - `src/shared` - cross-cutting types and redaction
 
-Older internal import paths remain as compatibility re-exports. New code should use the ownership paths above.
+The current MVP has no worker, task system, MCP server, viewer, embeddings, or cloud sync.
 
 ## Pull requests
 
 - Keep each pull request focused.
 - Add or update tests when behavior changes.
+- Add an end-to-end test when changing Session 1 to Session 2 handoff behavior.
 - Update the README or docs when user-facing behavior changes.
 - Explain any migration, compatibility, or security impact.
 - Do not include database files, logs, credentials, or generated `dist` changes unless the change specifically requires them.
