@@ -62,9 +62,8 @@ export function installClaudeCodeHooks(opts: ClaudeInstallOptions): number {
   if (!existing.hooks) existing.hooks = {};
 
   const escaped = shellEscapePath(hookPath);
-  const node = shellEscapePath(process.execPath);
   for (const e of HOOK_EVENTS) {
-    const cmd = `"${node}" "${escaped}" claude-code ${e.command}`;
+    const cmd = `node "${escaped}" claude-code ${e.command}`;
     const group: ClaudeHooksGroup = {
       matcher: "*",
       hooks: [{ type: "command", command: cmd, timeout: e.timeout * 1000 }],

@@ -36,13 +36,12 @@ export function installCodexHooks(opts: CodexInstallOptions): number {
     : join(process.cwd(), ".codex", "hooks.json");
 
   const escaped = shellEscapePath(hookPath);
-  const node = shellEscapePath(process.execPath);
   const existing: CodexHooksConfig = existsSync(hooksPath)
     ? safeReadJson(hooksPath) : {};
   if (!existing.hooks) existing.hooks = {};
 
   for (const e of HOOK_EVENTS) {
-    const cmd = `"${node}" "${escaped}" codex ${e.command}`;
+    const cmd = `node "${escaped}" codex ${e.command}`;
     const group: CodexHookGroup = {
       matcher: "*",
       hooks: [{ type: "command", command: cmd, timeout: e.timeout * 1000 }],
