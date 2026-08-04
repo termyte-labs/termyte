@@ -1,5 +1,5 @@
 export function tokenBudgetToChars(tokens: number): number {
-  return Math.max(256, Math.floor(tokens) * 4);
+  return Math.max(1, Math.floor(tokens) * 4);
 }
 
 export function fitText(value: string, tokenLimit: number): string {

@@ -40,8 +40,8 @@ export async function initializeTermyte(input: { agent: Platform; agents?: Platf
     dbPath: env.TERMYTE_DB ?? join(termyteHome(env), "termyte.db"),
     agent: input.agent,
     agents,
-    briefingTokenLimit: 3_000,
-    promptTokenLimit: 1_500,
+    briefingTokenLimit: 800,
+    promptTokenLimit: 300,
     catalogueTokenLimit: 4_000,
     selectionTimeoutMs: 5_000,
   };

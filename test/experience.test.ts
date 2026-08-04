@@ -77,19 +77,52 @@ describe("experience loop", () => {
     store.upsertSession("current", "proof", "proof/repo", workspace);
     store.saveExperience({ id: "exp_login", repository_id: "proof/repo", source_session_id: "old-1", content: "Lesson: Login timeout tests require resetting the fake clock.", evidence: "{\"trace_ids\":[1]}" });
     store.saveExperience({ id: "exp_cache", repository_id: "proof/repo", source_session_id: "old-2", content: "Lesson: Cache writes must use an atomic rename.", evidence: "{\"trace_ids\":[2]}" });
-    const selector = new FakeAgent('{"experience_ids":["exp_login"]}');
+    const selector = new FakeAgent('{"useful":true,"experience_ids":["exp_login"],"context":"Use the fake clock for login timeout tests."}');
     const builder = new ContextBuilder(store, selector);
 
     const briefing = builder.buildProjectBriefing({ repoId: "proof/repo", sessionId: "current", workspaceRoot: workspace });
     expect(briefing).toContain("exp_login");
     expect(briefing).toContain("exp_cache");
     expect(briefing).toContain("Known commands: npm run test");
+    expect(briefing).not.toContain("\"trace_ids\"");
+    expect(briefing.length).toBeLessThanOrEqual(3_200);
     const context = await builder.buildPromptContext({ repoId: "proof/repo", sessionId: "current", workspaceRoot: workspace, prompt: "Fix the login timeout test", projectBriefing: briefing });
     expect(selector.prompts[0]).toContain("exp_login");
     expect(selector.prompts[0]).toContain("exp_cache");
-    expect(context).toContain("exp_login");
-    expect(context).toContain("Supporting session evidence");
+    expect(selector.prompts[0]).toContain("Fix the login timeout test");
+    expect(context).toContain("Evidence: session old-1, traces 1");
+    expect(context).not.toContain("Supporting session evidence");
+    expect(context).not.toContain("\"trace_ids\"");
+    expect(context.length).toBeLessThanOrEqual(1_200);
     expect(context).not.toContain("exp_cache");
+    store.close();
+  });
+
+  it("injects nothing for casual prompts or when the editor says history is not useful", async () => {
+    const workspace = project();
+    const store = new Store(openDatabase(":memory:"));
+    store.upsertSession("source", "proof", "proof/repo", workspace);
+    store.upsertSession("current", "proof", "proof/repo", workspace);
+    store.saveExperience({ id: "exp_login", repository_id: "proof/repo", source_session_id: "source", content: "Lesson: Login timeout tests require a fake clock.", evidence: "{\"trace_ids\":[1]}" });
+    const builder = new ContextBuilder(store, new FakeAgent('{"useful":false,"experience_ids":[],"context":""}'));
+    expect(await builder.buildPromptContext({ repoId: "proof/repo", sessionId: "current", workspaceRoot: workspace, prompt: "Thanks, how are you doing?" })).toBeNull();
+    store.close();
+  });
+
+  it("honors the configured prompt limit and the 250-word hard cap", async () => {
+    const workspace = project();
+    const store = new Store(openDatabase(":memory:"));
+    store.upsertSession("source", "proof", "proof/repo", workspace);
+    store.upsertSession("current", "proof", "proof/repo", workspace);
+    store.saveExperience({ id: "exp_login", repository_id: "proof/repo", source_session_id: "source", content: "Lesson: Login timeout tests require a fake clock.", evidence: "{\"trace_ids\":[1]}" });
+    const longContext = Array.from({ length: 300 }, (_, index) => `lesson${index}`).join(" ");
+    const builder = new ContextBuilder(store, new FakeAgent(`{"useful":true,"experience_ids":["exp_login"],"context":"${longContext}"}`), {
+      briefingTokens: 800, promptTokens: 20, catalogueTokens: 4000, selectionTimeoutMs: 5000,
+    });
+    const context = await builder.buildPromptContext({ repoId: "proof/repo", sessionId: "current", workspaceRoot: workspace, prompt: "Fix login timeout tests" });
+    expect(context).not.toBeNull();
+    expect(context!.length).toBeLessThanOrEqual(80);
+    expect((context!.match(/\S+/g) ?? []).length).toBeLessThanOrEqual(250);
     store.close();
   });
 
@@ -101,7 +134,8 @@ describe("experience loop", () => {
     store.saveExperience({ id: "exp_atomic", repository_id: "proof/repo", source_session_id: "source", content: "Lesson: Use atomic rename for cache writes.", evidence: null });
     const builder = new ContextBuilder(store, new ThrowingAgent());
     const context = await builder.buildPromptContext({ repoId: "proof/repo", sessionId: "current", workspaceRoot: workspace, prompt: "Make cache writes atomic" });
-    expect(context).toContain("exp_atomic");
+    expect(context).toContain("atomic rename");
+    expect(context).toContain("Evidence: session source");
     store.close();
   });
 });

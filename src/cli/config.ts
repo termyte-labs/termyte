@@ -28,8 +28,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): UserConfig {
     dbPath: env.TERMYTE_DB ?? join(termyteHome(env), "termyte.db"),
     agent: "codex",
     agents: ["codex"],
-    briefingTokenLimit: 3_000,
-    promptTokenLimit: 1_500,
+    briefingTokenLimit: 800,
+    promptTokenLimit: 300,
     catalogueTokenLimit: 4_000,
     selectionTimeoutMs: 5_000,
   };

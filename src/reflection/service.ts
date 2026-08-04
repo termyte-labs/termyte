@@ -63,7 +63,9 @@ function reflectionPrompt(evidence: Record<string, unknown>): string {
 
 Rules:
 - Use only the supplied evidence. Do not claim success unless a command result or final response supports it.
-- Separate what worked, failed, was corrected, remains unfinished, and is a reusable project pattern.
+- Put implementation details and lessons under worked, failed, or patterns.
+- Put an item under corrections only when the developer explicitly rejected, changed, or constrained the approach in a user prompt. Never infer a developer preference from an apply_patch, tool call, retry, or implementation choice.
+- Describe unfinished work as state only; do not recommend committing, pushing, merging, deleting, or other future actions.
 - Empty arrays are valid. Keep every item concrete and short.
 - Return JSON only with exactly these fields: lesson (string), worked (string[]), failed (string[]), corrections (string[]), patterns (string[]), unfinished (string[]).
 
@@ -89,7 +91,7 @@ function renderExperience(value: ReflectionOutput): string {
   const sections: Array<[string, string[]]> = [
     ["Worked", value.worked],
     ["Failed", value.failed],
-    ["Developer corrections", value.corrections],
+    ["Explicit developer corrections", value.corrections],
     ["Project patterns", value.patterns],
     ["Unfinished or uncertain", value.unfinished],
   ];

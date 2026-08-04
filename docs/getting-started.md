@@ -21,8 +21,8 @@ The generated config contains:
   "dbPath": ".../.termyte/termyte.db",
   "agent": "codex",
   "agents": ["codex", "claude-code"],
-  "briefingTokenLimit": 3000,
-  "promptTokenLimit": 1500,
+  "briefingTokenLimit": 800,
+  "promptTokenLimit": 300,
   "catalogueTokenLimit": 4000,
   "selectionTimeoutMs": 5000
 }

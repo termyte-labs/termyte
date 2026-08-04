@@ -41,7 +41,7 @@ describe("packed MVP", () => {
       ...process.env, HOME: home, USERPROFILE: home, TERMYTE_DB: db,
     }, JSON.stringify({ session_id: "next-session", cwd: project, hook_event_name: "SessionStart" }));
     expect(started.code, started.stderr).toBe(0);
-    expect(started.stdout).toContain("Termyte project briefing");
+    expect(started.stdout).toContain("Termyte project context");
   }, 180_000);
 });
 
