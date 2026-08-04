@@ -86,7 +86,7 @@ export class ContextBuilder {
     if (editorResponded && !edit?.useful) return null;
     if (edit?.useful) {
       const selected = this.store.getExperiencesByIds(input.repoId, edit.experience_ids);
-      if (selected.length > 0) return renderEditedContext(edit.context, selected, this.limits.promptTokens);
+      if (selected.length > 0) return renderEditedContext(edit.context, this.limits.promptTokens);
     }
     return renderLocalContext(localSelect(experiences, input.prompt), experiences, this.limits.promptTokens);
   }
@@ -112,7 +112,7 @@ Rules for context:
 - Return only information that could change how the agent handles the current request.
   - Keep the context concise and below 250 words.
 - Remove raw prompts, tool payloads, patches, duplicated statements, and historical details that do not affect the task.
-- Never include supporting evidence JSON. Termyte adds compact evidence references separately.
+- Never include supporting evidence JSON. Evidence and provenance remain stored separately.
 - Never convert an implementation action into a developer preference or correction.
 - Describe unverified information as unverified.
 - Do not suggest committing, pushing, merging, deleting, or other repository actions merely because an old session mentioned them.
@@ -140,18 +140,17 @@ function parseContextEdit(value: string, allowed: Set<string>): ContextEdit {
   return { useful: useful && ids.length > 0 && context.length > 0, experience_ids: ids, context };
 }
 
-function renderEditedContext(context: string, selected: Experience[], tokenLimit: number): string | null {
+function renderEditedContext(context: string, tokenLimit: number): string | null {
   const clean = sanitizeEditedContext(context);
   if (!clean) return null;
-  const refs = selected.map(evidenceReference).filter(Boolean);
-  return fitPromptContext(["## Termyte project context", clean, refs.length ? refs.join("\n") : null].filter(Boolean).join("\n\n"), tokenLimit);
+  return fitPromptContext(clean, tokenLimit);
 }
 
 function renderLocalContext(ids: string[], experiences: Experience[], tokenLimit: number): string | null {
   const selected = ids.flatMap((id) => experiences.find((experience) => experience.id === id) ?? []);
   if (selected.length === 0) return null;
-  const summaries = selected.map((experience) => `${summarizeExperience(experience)}\n${evidenceReference(experience)}`).join("\n\n");
-  return fitPromptContext(`## Termyte project context\n${summaries}`, tokenLimit);
+  const summaries = selected.map(summarizeExperience).join("\n\n");
+  return fitPromptContext(summaries, tokenLimit);
 }
 
 function fitPromptContext(value: string, tokenLimit: number): string {
@@ -182,31 +181,6 @@ function summarizeExperience(experience: Experience): string {
     return !/^(?:Developer corrections|Explicit developer corrections|Unfinished or uncertain):/i.test(heading);
   });
   return shorten(useful.join(" ").replace(/\s+/g, " ").trim(), 650);
-}
-
-function evidenceReference(experience: Experience): string {
-  const ids = traceIds(experience.evidence);
-  return ids.length ? `Evidence: session ${experience.source_session_id}, traces ${ids.join(", ")}` : `Evidence: session ${experience.source_session_id}`;
-}
-
-function traceIds(value: string | null): number[] {
-  if (!value) return [];
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    const ids = new Set<number>();
-    collectTraceIds(parsed, ids);
-    return [...ids].sort((a, b) => a - b).slice(0, 12);
-  } catch { return []; }
-}
-
-function collectTraceIds(value: unknown, ids: Set<number>): void {
-  if (Array.isArray(value)) { for (const item of value) collectTraceIds(item, ids); return; }
-  if (!value || typeof value !== "object") return;
-  for (const [key, item] of Object.entries(value)) {
-    if (key === "trace_id" && typeof item === "number") ids.add(item);
-    else if (key === "trace_ids" && Array.isArray(item)) item.filter((id): id is number => typeof id === "number").forEach((id) => ids.add(id));
-    else collectTraceIds(item, ids);
-  }
 }
 
 function sanitizeEditedContext(value: string): string {

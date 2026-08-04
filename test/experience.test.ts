@@ -29,6 +29,7 @@ describe("experience loop", () => {
       corrections: [], patterns: ["Login tests use a fake clock."], unfinished: [],
     }));
     expect(await new ReflectionWorker(store, agent).runOne()).toBe(true);
+    expect(agent.prompts[0]).toContain("Never infer a developer preference from an apply_patch, tool call, retry, or implementation choice.");
 
     const experience = store.getExperienceForSession("s1");
     expect(experience?.content).toContain("Reset the fake clock");
@@ -90,7 +91,6 @@ describe("experience loop", () => {
     expect(selector.prompts[0]).toContain("exp_login");
     expect(selector.prompts[0]).toContain("exp_cache");
     expect(selector.prompts[0]).toContain("Fix the login timeout test");
-    expect(context).toContain("Evidence: session old-1, traces 1");
     expect(context).not.toContain("Supporting session evidence");
     expect(context).not.toContain("\"trace_ids\"");
     expect(context.length).toBeLessThanOrEqual(1_200);
@@ -135,7 +135,6 @@ describe("experience loop", () => {
     const builder = new ContextBuilder(store, new ThrowingAgent());
     const context = await builder.buildPromptContext({ repoId: "proof/repo", sessionId: "current", workspaceRoot: workspace, prompt: "Make cache writes atomic" });
     expect(context).toContain("atomic rename");
-    expect(context).toContain("Evidence: session source");
     store.close();
   });
 });

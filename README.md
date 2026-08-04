@@ -19,7 +19,7 @@ Termyte detects installed supported agents and installs project hooks for each o
 2. A meaningful completed session enqueues an idempotent reflection job.
 3. A detached worker asks the selected coding agent to create one concise experience grounded in the saved trace evidence.
 4. Every new session receives a project briefing built from repository files, Git state, recent tasks, and experience from earlier sessions.
-5. Every prompt considers the repository's compact experience catalogue. A context editor injects only a short relevant lesson and compact evidence references.
+5. Every prompt considers the repository's compact experience catalogue. A context editor injects only its short relevant `context` field.
 
 If reflection or context generation fails, the coding agent continues normally. Prompt selection falls back to local keyword relevance when the selected agent is unavailable.
 
@@ -29,7 +29,7 @@ If reflection or context generation fails, the coding agent continues normally. 
 - Common secret formats are redacted before persistence, but redaction cannot guarantee detection of every secret.
 - Termyte uses existing agent logins; those agent providers may receive redacted session evidence during reflection and compact context during selection.
 - Context limits are configurable in `~/.termyte/config.json` through `briefingTokenLimit` (default 800), `promptTokenLimit` (default 300), `catalogueTokenLimit`, and `selectionTimeoutMs`.
-- Injected context contains edited lessons and compact evidence references only; raw prompts, tool payloads, and patches stay local.
+- Injected context contains only the editor's bounded lesson; raw prompts, tool payloads, patches, and evidence stay local.
 - Termyte does not train model weights and has no cloud sync, embeddings, vector database, dashboard, or team workspace.
 
 ## Development

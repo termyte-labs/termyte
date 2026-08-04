@@ -22,7 +22,7 @@ flowchart LR
 | Capture | Session, prompt, tool, and stop hooks | Sanitized local trace linked to repository and session. |
 | Reflection | Meaningful session completion | One leased, retryable job and at most one experience per source session. |
 | Session briefing | `SessionStart` | Repository profile, Git state, recent tasks, and earlier experience. |
-| Prompt application | `UserPromptSubmit` | A 150–350 token edited lesson with compact evidence references, or no context. |
+| Prompt application | `UserPromptSubmit` | The editor's bounded lesson, or no context. |
 
 ## Durable records
 

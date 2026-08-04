@@ -9,7 +9,7 @@ Codex or Claude Code hooks
   -> enqueue reflection after a meaningful session
   -> detached worker creates one evidence-linked experience
   -> new sessions receive a broad project briefing
-  -> each prompt receives only edited relevant lessons and evidence references
+  -> each prompt receives only the edited context field
 ```
 
 ## Capture
@@ -37,7 +37,7 @@ The briefing uses observed repository data. It does not claim symbol, AST, or se
 
 ## Prompt application
 
-Every `UserPromptSubmit` sends the exact current request, project briefing, and compact all-session experience catalogue to the configured coding agent. The agent acts as a context editor and returns `{useful, context, experience_ids}`. Termyte injects only the edited context, capped at 250 words, plus compact references such as `Evidence: session abc, traces 12, 14`; raw supporting evidence is never injected.
+Every `UserPromptSubmit` sends the exact current request, project briefing, and compact all-session experience catalogue to the configured coding agent. The agent acts as a context editor and returns `{useful, context, experience_ids}`. Termyte injects only the `context` field, capped at 250 words; raw supporting evidence and provenance remain stored locally and are never injected.
 
 Editing has a short timeout. If the agent fails, Termyte uses a local lesson-only fallback. If nothing is materially relevant, it injects nothing. Context failure never blocks the coding agent.
 
