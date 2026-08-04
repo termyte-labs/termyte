@@ -16,7 +16,7 @@ interface CodexHooksConfig { hooks?: Record<string, CodexHookGroup[]>; [k: strin
 
 const HOOK_EVENTS: Array<{ event: string; command: string; timeout: number }> = [
   { event: "SessionStart",      command: "session-init",  timeout: 10 },
-  { event: "UserPromptSubmit",  command: "recall",        timeout: 10 },
+  { event: "UserPromptSubmit",  command: "prompt-context", timeout: 10 },
   { event: "PostToolUse",       command: "capture",       timeout: 10 },
   { event: "Stop",              command: "capture",       timeout: 10 },
 ];

@@ -7,6 +7,11 @@ export interface UserConfig {
   version: 1;
   dbPath: string;
   agent: Platform;
+  agents: Platform[];
+  briefingTokenLimit: number;
+  promptTokenLimit: number;
+  catalogueTokenLimit: number;
+  selectionTimeoutMs: number;
 }
 
 export function termyteHome(env: NodeJS.ProcessEnv = process.env): string {
@@ -18,7 +23,16 @@ export function userConfigPath(env: NodeJS.ProcessEnv = process.env): string {
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): UserConfig {
-  const fallback: UserConfig = { version: 1, dbPath: env.TERMYTE_DB ?? join(termyteHome(env), "termyte.db"), agent: "codex" };
+  const fallback: UserConfig = {
+    version: 1,
+    dbPath: env.TERMYTE_DB ?? join(termyteHome(env), "termyte.db"),
+    agent: "codex",
+    agents: ["codex"],
+    briefingTokenLimit: 3_000,
+    promptTokenLimit: 1_500,
+    catalogueTokenLimit: 4_000,
+    selectionTimeoutMs: 5_000,
+  };
   const path = userConfigPath(env);
   if (!existsSync(path)) return fallback;
   try {
@@ -27,8 +41,24 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): UserConfig {
     const legacyAgents = Array.isArray(parsed.agents) ? parsed.agents : [];
     const candidate = parsed.agent ?? legacySynthesis?.provider ?? legacyAgents[0];
     const agent: Platform = candidate === "claude-code" ? "claude-code" : "codex";
-    return { version: 1, dbPath: env.TERMYTE_DB ?? (typeof parsed.dbPath === "string" ? parsed.dbPath : fallback.dbPath), agent };
+    const configuredAgents = Array.isArray(parsed.agents)
+      ? parsed.agents.filter((item): item is Platform => item === "codex" || item === "claude-code")
+      : [];
+    return {
+      ...fallback,
+      dbPath: env.TERMYTE_DB ?? (typeof parsed.dbPath === "string" ? parsed.dbPath : fallback.dbPath),
+      agent,
+      agents: configuredAgents.length ? [...new Set(configuredAgents)] : [agent],
+      briefingTokenLimit: positiveInteger(parsed.briefingTokenLimit, fallback.briefingTokenLimit),
+      promptTokenLimit: positiveInteger(parsed.promptTokenLimit, fallback.promptTokenLimit),
+      catalogueTokenLimit: positiveInteger(parsed.catalogueTokenLimit, fallback.catalogueTokenLimit),
+      selectionTimeoutMs: positiveInteger(parsed.selectionTimeoutMs, fallback.selectionTimeoutMs),
+    };
   } catch { return fallback; }
+}
+
+function positiveInteger(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : fallback;
 }
 
 export function saveUserConfig(config: UserConfig, env: NodeJS.ProcessEnv = process.env): void {

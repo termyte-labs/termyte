@@ -1,30 +1,50 @@
-# How it works
+# How Termyte works
 
-Termyte has three local runtime paths: capture, next-session handoff, and explicit recall.
+Termyte has four local runtime paths: capture, reflection, session briefing, and prompt application.
 
 ```text
-Claude Code or Codex hook
-  -> normalize and redact the event
-  -> store the raw trace in local SQLite
-  -> on the next SessionStart, load the previous session and current Git state
-  -> build and save a deterministic handoff
-  -> inject the handoff before the agent's first response
+Codex or Claude Code hooks
+  -> normalize and redact raw events
+  -> store traces in local SQLite
+  -> enqueue reflection after a meaningful session
+  -> detached worker creates one evidence-linked experience
+  -> new sessions receive a broad project briefing
+  -> each prompt receives only relevant experience and evidence
 ```
 
-The handoff uses the latest previous request, final response, four recent tool actions, and current Git state when available. Termyte does not call a model to summarize this data.
+## Capture
 
-## Full-text retrieval
+Both adapters normalize prompts, tools, outputs, files, responses, and timestamps into the same trace shape. Sessions use a canonical repository identity derived from the normalized Git origin, or the repository directory when no origin exists. Inserts are idempotent and common secrets are redacted before storage.
 
-Mid-session questions about earlier work use an FTS5 index over saved handoffs. Termyte:
+Termyte ignores its own internal agent calls through `TERMYTE_INTERNAL_SYNTHESIS`, preventing recursive capture.
 
-1. Detects phrases such as `why`, `previous`, `last time`, or `decision`.
-2. Extracts up to 12 terms of at least three characters.
-3. Joins those terms with FTS5 `OR` queries.
-4. Filters results to the current repository.
-5. Orders matches with FTS5 `bm25()` and returns up to three.
+## Reflection
 
-This is fast local keyword retrieval. It has no stop-word removal, phrase-aware query building, semantic embeddings, freshness weighting, or minimum relevance score. Recall searches handoffs, not raw traces.
+A session is meaningful when it contains a user prompt and either tool activity or a final response. Completion creates one durable reflection job per source session. The hook returns immediately and starts a detached worker.
+
+The worker claims jobs with a lease, retries failures up to three times, and creates at most one experience per source session. The reflection prompt requires structured JSON, evidence-only claims, and explicit worked, failed, corrected, reusable, and unfinished information. Invalid model output does not become experience.
+
+## Project briefing
+
+Every `SessionStart` receives a deterministic briefing containing:
+
+- package description, scripts, dependencies, README introduction, and top-level structure;
+- current Git branch, commit, staged, unstaged, untracked, and conflict state;
+- recent requests, results, unfinished sessions, and touched files;
+- compact experience records from earlier repository sessions.
+
+The briefing uses observed repository data. It does not claim symbol, AST, or semantic code understanding.
+
+## Prompt application
+
+Every `UserPromptSubmit` sends the current request, project briefing, and compact all-session experience catalogue to the configured coding agent. The agent returns up to four relevant experience IDs. Termyte then loads the complete selected records and their source evidence, packs them to the prompt budget, and injects them.
+
+Selection has a short timeout. If the agent fails, Termyte uses local lexical relevance. If nothing is relevant, it injects nothing. Context failure never blocks the coding agent.
+
+## Storage
+
+SQLite stores sessions, raw traces, legacy handoffs, experiences, and reflection jobs. Experiences have a unique source session and retain their evidence payload. Reflection jobs keep attempts, retry timing, lease expiry, and errors so interruption does not silently lose work.
 
 ## Current boundaries
 
-There is no worker, job queue, embedding model, vector index, memory lifecycle, dashboard, cloud sync, or manual consolidation command. An empty recent session can also be selected ahead of an older meaningful session, and the full handoff does not yet have a total size limit.
+Termyte has no embeddings, vector search, model training, cloud sync, dashboard, team permissions, or external work integrations. Token limits use a conservative character estimate rather than a model-specific tokenizer. Local lexical fallback is less precise than agent selection.

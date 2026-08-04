@@ -44,7 +44,7 @@ describe("minimal Termyte runtime", () => {
     store.close();
   });
 
-  it("installs only capture, recall, and one session-start handoff hook", () => {
+  it("installs capture, prompt context, and session briefing hooks", () => {
     const home = mkdtempSync(join(tmpdir(), "termyte-hooks-")); temporary.push(home);
     process.env.TERMYTE_HOOK_PATH = join(process.cwd(), "dist", "cli", "hook.js");
     expect(installClaudeCodeHooks({ target: "user", homeDir: home })).toBe(0);
@@ -53,7 +53,7 @@ describe("minimal Termyte runtime", () => {
       const hooks = JSON.parse(readFileSync(file, "utf8")).hooks as Record<string, Array<{ hooks: Array<{ command: string }> }>>;
       expect(Object.keys(hooks).sort()).toEqual(["PostToolUse", "SessionStart", "Stop", "UserPromptSubmit"]);
       expect(hooks.SessionStart![0]!.hooks[0]!.command).toContain("session-init");
-      expect(hooks.UserPromptSubmit![0]!.hooks[0]!.command).toContain("recall");
+      expect(hooks.UserPromptSubmit![0]!.hooks[0]!.command).toContain("prompt-context");
       expect(hooks.PostToolUse![0]!.hooks[0]!.command).toContain("capture");
       expect(hooks.Stop![0]!.hooks[0]!.command).toContain("capture");
     }

@@ -1,8 +1,6 @@
 # Termyte
 
-Termyte gives coding agents the project context they need, so developers do not have to repeatedly explain what happened, why, and what remains.
-
-It is a local-first session handoff tool for Claude Code and Codex. It captures work in one session and gives the next session a handoff before the agent's first response.
+Termyte is a local-first experience layer for Codex and Claude Code. It learns compact, evidence-linked lessons from completed coding sessions and applies useful experience to future work in the same repository.
 
 ## Setup
 
@@ -13,39 +11,30 @@ npm install -g termyte
 termyte init
 ```
 
-Termyte connects to an existing Claude Code or Codex installation. It uses that agent's existing login. It does not require another subscription or API key.
+Termyte detects installed supported agents and installs project hooks for each one. When both are installed, you choose which existing agent login Termyte should use for reflection and relevance selection. No separate API key is required.
 
-## What happens
+## Experience loop
 
-During a session, hooks silently store redacted prompts, tool calls, outputs, file activity, and the final response in local SQLite.
+1. Hooks silently capture redacted prompts, tool activity, files, commands, results, responses, and repository identity in local SQLite.
+2. A meaningful completed session enqueues an idempotent reflection job.
+3. A detached worker asks the selected coding agent to create one concise experience grounded in the saved trace evidence.
+4. Every new session receives a project briefing built from repository files, Git state, recent tasks, and experience from earlier sessions.
+5. Every prompt considers the repository's compact experience catalogue. Relevant full records and supporting evidence are injected before the coding agent handles the request.
 
-At the next session start, Termyte builds a deterministic handoff from the latest previous session and current Git state. It includes the previous request, final response, recent tool actions, changed files, branch, and commit when available. No extra model call is made.
+If reflection or context generation fails, the coding agent continues normally. Prompt selection falls back to local keyword relevance when the selected agent is unavailable.
 
-Questions such as "why did we choose this?" can retrieve prior handoffs through SQLite FTS5 full-text search. Search is limited to the current repository and returns up to three handoffs.
+## Privacy and limits
 
-## Current limits
-
-- Search uses basic keyword matching and SQLite BM25 ranking. It is not semantic or vector search.
-- Recall searches saved handoffs, not every raw event.
-- An empty or failed session may become the most recent session selected for a handoff.
-- Previous prompts and final responses do not yet have a total handoff-size limit.
-- Redaction is heuristic and may not catch every secret format.
-- There is no cloud sync, dashboard, background worker, or cross-device history.
-
-## Commands
-
-```text
-termyte init
-termyte help
-```
+- Raw sessions, experience, and job state stay in local SQLite.
+- Common secret formats are redacted before persistence, but redaction cannot guarantee detection of every secret.
+- Termyte uses existing agent logins; those agent providers may receive redacted session evidence during reflection and compact context during selection.
+- Context limits are configurable in `~/.termyte/config.json` through `briefingTokenLimit`, `promptTokenLimit`, `catalogueTokenLimit`, and `selectionTimeoutMs`.
+- Termyte does not train model weights and has no cloud sync, embeddings, vector database, dashboard, or team workspace.
 
 ## Development
 
 ```bash
-npm run typecheck
-npm test
-npm run build
-npm run test:package
+npm run verify
 ```
 
-Termyte stores captured data in local SQLite. The selected coding agent receives the redacted handoff through its session hook.
+See [how it works](docs/how-it-works.md) and [getting started](docs/getting-started.md).

@@ -8,7 +8,7 @@ const temporary: string[] = [];
 afterEach(() => { for (const path of temporary.splice(0)) rmSync(path, { recursive: true, force: true }); });
 
 describe("packed MVP", () => {
-  it("installs with only the CLI and hook, then captures a real hook payload", async () => {
+  it("packs the CLI and worker, captures a hook payload, and injects a briefing", async () => {
     const packDir = mkdtempSync(join(tmpdir(), "termyte-pack-")); temporary.push(packDir);
     const npm = process.platform === "win32" ? "C:\\Users\\Palguna\\AppData\\Local\\nvm\\v22.12.0\\npm.cmd" : "npm";
     const packed = await run(npm, ["pack", "--json", "--pack-destination", packDir], process.cwd());
@@ -25,7 +25,7 @@ describe("packed MVP", () => {
     const hook = join(root, "dist", "cli", "hook.js");
     expect(existsSync(join(root, "dist", "cli", "index.js"))).toBe(true);
     expect(existsSync(hook)).toBe(true);
-    expect(existsSync(join(root, "dist", "cli", "worker.js"))).toBe(false);
+    expect(existsSync(join(root, "dist", "cli", "worker.js"))).toBe(true);
 
     const home = mkdtempSync(join(tmpdir(), "termyte-home-")); temporary.push(home);
     const db = join(home, "termyte.db");
@@ -36,6 +36,12 @@ describe("packed MVP", () => {
     }, JSON.stringify({ session_id: "packed-session", cwd: project, hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command: "npm test" }, tool_output: { status: "ok" } }));
     expect(captured.code, captured.stderr).toBe(0);
     expect(existsSync(db)).toBe(true);
+
+    const started = await run(process.execPath, [hook, "codex", "session-init"], project, {
+      ...process.env, HOME: home, USERPROFILE: home, TERMYTE_DB: db,
+    }, JSON.stringify({ session_id: "next-session", cwd: project, hook_event_name: "SessionStart" }));
+    expect(started.code, started.stderr).toBe(0);
+    expect(started.stdout).toContain("Termyte project briefing");
   }, 180_000);
 });
 

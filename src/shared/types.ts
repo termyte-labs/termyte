@@ -41,3 +41,27 @@ export interface SessionHandoff {
   content: string;
   created_at: number;
 }
+
+export interface Experience {
+  id: string;
+  repository_id: string;
+  source_session_id: string;
+  content: string;
+  evidence: string | null;
+  created_at: number;
+}
+
+export type ReflectionJobStatus = "queued" | "running" | "completed" | "failed";
+
+export interface ReflectionJob {
+  id: number;
+  repository_id: string;
+  source_session_id: string;
+  status: ReflectionJobStatus;
+  attempts: number;
+  available_at: number;
+  lease_expires_at: number | null;
+  last_error: string | null;
+  created_at: number;
+  updated_at: number;
+}

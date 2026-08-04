@@ -3,7 +3,7 @@ import type { DatabaseContext, DB } from "./connection.js";
 import { defaultDbPath, openDatabase } from "./connection.js";
 import { runMigrations } from "./migrations.js";
 import { redactTracePayload } from "../shared/redaction.js";
-import type { Session, SessionHandoff, Trace } from "../shared/types.js";
+import type { Experience, ReflectionJob, Session, SessionHandoff, Trace } from "../shared/types.js";
 
 type TraceInput = Omit<Trace, "id" | "redaction">;
 
@@ -94,6 +94,118 @@ export class Store {
     return this.ctx.db.prepare(`SELECT * FROM traces WHERE session_id = ? ORDER BY timestamp, id`).all(sessionId).map(mapTrace);
   }
 
+  getRecentSessions(repoId: string, excludeSessionId?: string, limit = 8): Session[] {
+    return this.ctx.db.prepare(`
+      SELECT * FROM sessions
+      WHERE repo_id = ? AND (? IS NULL OR session_id <> ?)
+      ORDER BY COALESCE(ended_at, started_at) DESC
+      LIMIT ?
+    `).all(repoId, excludeSessionId ?? null, excludeSessionId ?? null, limit).map(mapSession);
+  }
+
+  saveExperience(input: Omit<Experience, "created_at"> & { created_at?: number }): Experience {
+    this.ctx.db.prepare(`
+      INSERT INTO experiences (id, repository_id, source_session_id, content, evidence, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(source_session_id) DO NOTHING
+    `).run(input.id, input.repository_id, input.source_session_id, input.content, input.evidence, input.created_at ?? Date.now());
+    return this.getExperienceForSession(input.source_session_id)!;
+  }
+
+  getExperienceForSession(sessionId: string): Experience | null {
+    const row = this.ctx.db.prepare(`SELECT * FROM experiences WHERE source_session_id = ?`).get(sessionId);
+    return row ? mapExperience(row) : null;
+  }
+
+  listExperiences(repoId: string): Experience[] {
+    return this.ctx.db.prepare(`
+      SELECT * FROM experiences WHERE repository_id = ? ORDER BY created_at DESC, id
+    `).all(repoId).map(mapExperience);
+  }
+
+  getExperiencesByIds(repoId: string, ids: string[]): Experience[] {
+    if (ids.length === 0) return [];
+    const placeholders = ids.map(() => "?").join(",");
+    const rows = this.ctx.db.prepare(`
+      SELECT * FROM experiences WHERE repository_id = ? AND id IN (${placeholders})
+    `).all(repoId, ...ids).map(mapExperience);
+    const byId = new Map(rows.map((item) => [item.id, item]));
+    return ids.flatMap((id) => byId.get(id) ?? []);
+  }
+
+  enqueueReflectionJob(repositoryId: string, sourceSessionId: string, now = Date.now()): ReflectionJob {
+    this.ctx.db.prepare(`
+      INSERT INTO reflection_jobs (
+        repository_id, source_session_id, status, attempts, available_at, created_at, updated_at
+      ) VALUES (?, ?, 'queued', 0, ?, ?, ?)
+      ON CONFLICT(source_session_id) DO NOTHING
+    `).run(repositoryId, sourceSessionId, now, now, now);
+    return this.getReflectionJobForSession(sourceSessionId)!;
+  }
+
+  getReflectionJobForSession(sessionId: string): ReflectionJob | null {
+    const row = this.ctx.db.prepare(`SELECT * FROM reflection_jobs WHERE source_session_id = ?`).get(sessionId);
+    return row ? mapReflectionJob(row) : null;
+  }
+
+  hasRunnableReflectionJobs(now = Date.now()): boolean {
+    const row = this.ctx.db.prepare(`
+      SELECT 1 AS ready FROM reflection_jobs
+      WHERE (status = 'queued' AND available_at <= ?)
+         OR (status = 'running' AND lease_expires_at <= ?)
+      LIMIT 1
+    `).get(now, now) as { ready?: number } | undefined;
+    return row?.ready === 1;
+  }
+
+  claimReflectionJob(now = Date.now(), leaseMs = 120_000): ReflectionJob | null {
+    return this.ctx.db.transaction(() => {
+      const row = this.ctx.db.prepare(`
+        SELECT * FROM reflection_jobs
+        WHERE (status = 'queued' AND available_at <= ?)
+           OR (status = 'running' AND lease_expires_at <= ?)
+        ORDER BY available_at, id
+        LIMIT 1
+      `).get(now, now);
+      if (!row) return null;
+      const job = mapReflectionJob(row);
+      this.ctx.db.prepare(`
+        UPDATE reflection_jobs
+        SET status = 'running', attempts = attempts + 1, lease_expires_at = ?, updated_at = ?
+        WHERE id = ?
+      `).run(now + leaseMs, now, job.id);
+      const claimed = this.ctx.db.prepare(`SELECT * FROM reflection_jobs WHERE id = ?`).get(job.id);
+      return claimed ? mapReflectionJob(claimed) : null;
+    })();
+  }
+
+  nextQueuedReflectionDelay(now = Date.now()): number | null {
+    const row = this.ctx.db.prepare(`
+      SELECT MIN(available_at) AS next_at FROM reflection_jobs WHERE status = 'queued'
+    `).get() as { next_at?: number | null } | undefined;
+    return typeof row?.next_at === "number" ? Math.max(0, row.next_at - now) : null;
+  }
+
+  completeReflectionJob(id: number, now = Date.now()): void {
+    this.ctx.db.prepare(`
+      UPDATE reflection_jobs
+      SET status = 'completed', lease_expires_at = NULL, last_error = NULL, updated_at = ?
+      WHERE id = ?
+    `).run(now, id);
+  }
+
+  failReflectionJob(id: number, error: string, now = Date.now(), maxAttempts = 3): void {
+    const current = this.ctx.db.prepare(`SELECT attempts FROM reflection_jobs WHERE id = ?`).get(id) as { attempts?: number } | undefined;
+    const attempts = current?.attempts ?? maxAttempts;
+    const terminal = attempts >= maxAttempts;
+    const delay = Math.min(60_000, 1_000 * 2 ** Math.max(0, attempts - 1));
+    this.ctx.db.prepare(`
+      UPDATE reflection_jobs
+      SET status = ?, available_at = ?, lease_expires_at = NULL, last_error = ?, updated_at = ?
+      WHERE id = ?
+    `).run(terminal ? "failed" : "queued", now + delay, error.slice(0, 2_000), now, id);
+  }
+
   getHandoff(sourceSessionId: string): SessionHandoff | null {
     const row = this.ctx.db.prepare(`SELECT * FROM handoffs WHERE source_session_id = ?`).get(sourceSessionId);
     return row ? mapHandoff(row) : null;
@@ -132,3 +244,5 @@ function strings(value: unknown): string[] | null { const parsed = parse(value);
 function mapSession(row: any): Session { return { id: row.id, session_id: row.session_id, project: row.project, repo_id: row.repo_id, workspace_root: row.workspace_root, started_at: row.started_at, ended_at: row.ended_at }; }
 function mapTrace(row: any): Trace { return { id: row.id, session_id: row.session_id, platform_event_id: row.platform_event_id ?? null, timestamp: row.timestamp, event_type: row.event_type, tool_name: row.tool_name, tool_input: parse(row.tool_input), tool_output: parse(row.tool_output), files_read: strings(row.files_read), files_modified: strings(row.files_modified), user_prompt: row.user_prompt, final_response: row.final_response, redaction: parse(row.redaction_json) }; }
 function mapHandoff(row: any): SessionHandoff { return { id: row.id, source_session_id: row.source_session_id, target_session_id: row.target_session_id, repo_id: row.repo_id, content: row.content, created_at: row.created_at }; }
+function mapExperience(row: any): Experience { return { id: row.id, repository_id: row.repository_id, source_session_id: row.source_session_id, content: row.content, evidence: row.evidence, created_at: row.created_at }; }
+function mapReflectionJob(row: any): ReflectionJob { return { id: row.id, repository_id: row.repository_id, source_session_id: row.source_session_id, status: row.status, attempts: row.attempts, available_at: row.available_at, lease_expires_at: row.lease_expires_at, last_error: row.last_error, created_at: row.created_at, updated_at: row.updated_at }; }

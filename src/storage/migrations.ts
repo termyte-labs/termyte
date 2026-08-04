@@ -60,6 +60,32 @@ CREATE TRIGGER IF NOT EXISTS handoffs_au AFTER UPDATE ON handoffs BEGIN
   INSERT INTO handoffs_fts(handoffs_fts, rowid, content) VALUES ('delete', old.id, old.content);
   INSERT INTO handoffs_fts(rowid, content) VALUES (new.id, new.content);
 END;
+
+CREATE TABLE IF NOT EXISTS experiences (
+  id TEXT PRIMARY KEY,
+  repository_id TEXT NOT NULL,
+  source_session_id TEXT UNIQUE NOT NULL REFERENCES sessions(session_id),
+  content TEXT NOT NULL,
+  evidence TEXT,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_experiences_repository
+  ON experiences(repository_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS reflection_jobs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  repository_id TEXT NOT NULL,
+  source_session_id TEXT UNIQUE NOT NULL REFERENCES sessions(session_id),
+  status TEXT NOT NULL DEFAULT 'queued',
+  attempts INTEGER NOT NULL DEFAULT 0,
+  available_at INTEGER NOT NULL,
+  lease_expires_at INTEGER,
+  last_error TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_reflection_jobs_ready
+  ON reflection_jobs(status, available_at, lease_expires_at);
 `;
 
 export function runMigrations(db: DB): void {

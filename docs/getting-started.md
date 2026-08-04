@@ -1,30 +1,35 @@
 # Getting started
 
-Install Termyte globally, open the repository you want it to watch, and run:
+Install Termyte, open the repository you want it to watch, and run:
 
 ```bash
 npm install -g termyte
 termyte init
 ```
 
-Choose Claude Code or Codex if both are installed. Termyte writes project hooks and prints one confirmation.
+Termyte detects Codex and Claude Code, installs project hooks for all detected agents, creates `~/.termyte/config.json`, and initializes local SQLite. When both agents are installed, select the one Termyte should use for reflection and context selection.
 
-Termyte creates `.claude/settings.json` or `.codex/hooks.json` in the current project. It also creates `~/.termyte/config.json` and a local SQLite database.
+Work normally. Capture is silent. After a meaningful session ends, reflection runs outside the active hook. A later session receives the project briefing before its first response, and each prompt receives relevant prior experience when available.
 
-Work normally. Capture is silent. When the next session starts in the same repository, Termyte creates and injects a handoff from the previous session before the agent's first response.
+## Configuration
 
-## Recall earlier work
+The generated config contains:
 
-Ask a question such as:
-
-```text
-Why did we choose this approach?
-What happened last time?
-What did we try before?
+```json
+{
+  "version": 1,
+  "dbPath": ".../.termyte/termyte.db",
+  "agent": "codex",
+  "agents": ["codex", "claude-code"],
+  "briefingTokenLimit": 3000,
+  "promptTokenLimit": 1500,
+  "catalogueTokenLimit": 4000,
+  "selectionTimeoutMs": 5000
+}
 ```
 
-Termyte searches saved handoffs from the current repository with SQLite FTS5 and injects up to three matches. This is keyword search, not semantic search.
+The token limits are converted to conservative character budgets. `TERMYTE_HOME` changes the Termyte directory and `TERMYTE_DB` overrides the database path.
 
 ## Data and privacy
 
-Termyte stores redacted prompts, tool activity, outputs, and final responses locally. Redaction covers common secret patterns but cannot guarantee that every secret will be removed. Review the project hooks and local database policy before using Termyte with sensitive repositories.
+Termyte stores sanitized raw events and derived experience locally. Reflection sends selected redacted session evidence to the configured existing coding agent. Redaction catches common patterns but cannot guarantee that every secret is removed, so review your repository and provider policies before using Termyte with highly sensitive work.

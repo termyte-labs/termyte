@@ -28,6 +28,12 @@ export class HookRunner {
     this.ingestor.ingest(event);
     if (event.event_type === "assistant_message" || event.event_type === "session_end") {
       this.store.endSession(event.session_id, event.timestamp);
+      const traces = this.store.getTracesForSession(event.session_id);
+      const meaningful = traces.some((trace) => trace.user_prompt)
+        && traces.some((trace) => trace.event_type === "tool_use" || trace.final_response);
+      if (meaningful && repoId !== "unknown") {
+        this.store.enqueueReflectionJob(repoId, event.session_id, event.timestamp);
+      }
     }
     return event;
   }

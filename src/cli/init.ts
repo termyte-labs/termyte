@@ -20,7 +20,7 @@ export async function initCommand(): Promise<number> {
     message: "Which coding agent should Termyte use?",
     choices: available.map((value) => ({ name: value === "codex" ? "Codex" : "Claude Code", value })),
   });
-  return initializeTermyte({ agent });
+  return initializeTermyte({ agent, agents: available });
 }
 
 async function agentAvailable(agent: Platform): Promise<boolean> {
@@ -32,14 +32,26 @@ async function agentAvailable(agent: Platform): Promise<boolean> {
   } catch { return false; }
 }
 
-export async function initializeTermyte(input: { agent: Platform }, env: NodeJS.ProcessEnv = process.env, repoPath = process.cwd()): Promise<number> {
+export async function initializeTermyte(input: { agent: Platform; agents?: Platform[] }, env: NodeJS.ProcessEnv = process.env, repoPath = process.cwd()): Promise<number> {
   const root = resolve(repoPath);
-  const config: UserConfig = { version: 1, dbPath: env.TERMYTE_DB ?? join(termyteHome(env), "termyte.db"), agent: input.agent };
-  const code = installFor(input.agent, { target: "project" });
-  if (code !== 0) throw new Error(`Failed to install ${input.agent} hooks`);
+  const agents = [...new Set(input.agents?.length ? input.agents : [input.agent])];
+  const config: UserConfig = {
+    version: 1,
+    dbPath: env.TERMYTE_DB ?? join(termyteHome(env), "termyte.db"),
+    agent: input.agent,
+    agents,
+    briefingTokenLimit: 3_000,
+    promptTokenLimit: 1_500,
+    catalogueTokenLimit: 4_000,
+    selectionTimeoutMs: 5_000,
+  };
+  for (const agent of agents) {
+    const code = installFor(agent, { target: "project" });
+    if (code !== 0) throw new Error(`Failed to install ${agent} hooks`);
+  }
   saveUserConfig(config, env);
   const store = new Store(config.dbPath);
   store.close();
-  process.stdout.write(`Termyte is now watching ${root}.\n`);
+  process.stdout.write(`Termyte is now watching ${root} with ${agents.join(" and ")}.\n`);
   return 0;
 }
