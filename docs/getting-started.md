@@ -1,13 +1,13 @@
 # Getting started
 
-Install Termyte, open the repository you want it to watch, and run:
+Install Termyte and initialize it once:
 
 ```bash
 npm install -g termyte
 termyte init
 ```
 
-Termyte detects Codex and Claude Code, installs project hooks for all detected agents, creates `~/.termyte/config.json`, and initializes local SQLite. When both agents are installed, select the one Termyte should use for reflection and context selection.
+Termyte detects Codex and Claude Code, installs user-level hooks for all detected agents, creates `~/.termyte/config.json`, and initializes local SQLite. The hooks then run across all projects. Stored sessions and retrieved experience are filtered by repository identity, so context does not cross between unrelated projects. When both agents are installed, select the one Termyte should use for reflection and context selection.
 
 Work normally. Capture is silent. After a meaningful session ends, reflection runs outside the active hook. A later session receives the project briefing before its first response, and each prompt receives relevant prior experience when available.
 

@@ -14,8 +14,12 @@ export interface UserConfig {
   selectionTimeoutMs: number;
 }
 
+export function userHome(env: NodeJS.ProcessEnv = process.env): string {
+  return env.HOME ?? env.USERPROFILE ?? homedir();
+}
+
 export function termyteHome(env: NodeJS.ProcessEnv = process.env): string {
-  return env.TERMYTE_HOME ?? join(env.HOME ?? env.USERPROFILE ?? homedir(), ".termyte");
+  return env.TERMYTE_HOME ?? join(userHome(env), ".termyte");
 }
 
 export function userConfigPath(env: NodeJS.ProcessEnv = process.env): string {

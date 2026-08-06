@@ -37,6 +37,21 @@ export class Store {
     return row ? mapSession(row) : null;
   }
 
+  migrateLegacyLocalRepository(legacyRepoId: string, repoId: string, workspaceRoot: string): void {
+    if (!repoId.startsWith("local:") || legacyRepoId === repoId) return;
+    this.ctx.db.transaction(() => {
+      const matchingSessions = `SELECT session_id FROM sessions WHERE repo_id = ? AND workspace_root = ?`;
+      this.ctx.db.prepare(`UPDATE experiences SET repository_id = ? WHERE repository_id = ? AND source_session_id IN (${matchingSessions})`)
+        .run(repoId, legacyRepoId, legacyRepoId, workspaceRoot);
+      this.ctx.db.prepare(`UPDATE reflection_jobs SET repository_id = ? WHERE repository_id = ? AND source_session_id IN (${matchingSessions})`)
+        .run(repoId, legacyRepoId, legacyRepoId, workspaceRoot);
+      this.ctx.db.prepare(`UPDATE handoffs SET repo_id = ? WHERE repo_id = ? AND source_session_id IN (${matchingSessions})`)
+        .run(repoId, legacyRepoId, legacyRepoId, workspaceRoot);
+      this.ctx.db.prepare(`UPDATE sessions SET repo_id = ? WHERE repo_id = ? AND workspace_root = ?`)
+        .run(repoId, legacyRepoId, workspaceRoot);
+    })();
+  }
+
   endSession(sessionId: string, now = Date.now()): void {
     this.ctx.db.prepare(`UPDATE sessions SET ended_at = COALESCE(ended_at, ?) WHERE session_id = ?`).run(now, sessionId);
   }

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { Store } from "../src/storage/store.js";
 import { openDatabase } from "../src/storage/connection.js";
+import { detectRepoId } from "../src/capture/git-state.js";
 
 const temporary: string[] = [];
 afterEach(() => { for (const path of temporary.splice(0)) rmSync(path, { recursive: true, force: true }); });
@@ -24,15 +25,27 @@ describe("packed MVP", () => {
     expect(installed.code, installed.stderr).toBe(0);
 
     const root = join(project, "node_modules", "termyte");
+    const cli = join(root, "dist", "cli", "index.js");
     const hook = join(root, "dist", "cli", "hook.js");
-    expect(existsSync(join(root, "dist", "cli", "index.js"))).toBe(true);
+    expect(existsSync(cli)).toBe(true);
     expect(existsSync(hook)).toBe(true);
     expect(existsSync(join(root, "dist", "cli", "worker.js"))).toBe(true);
 
     const home = mkdtempSync(join(tmpdir(), "termyte-home-")); temporary.push(home);
     const db = join(home, "termyte.db");
-    mkdirSync(join(home, ".termyte"), { recursive: true });
-    writeFileSync(join(home, ".termyte", "config.json"), JSON.stringify({ version: 1, dbPath: db, agent: "codex" }));
+    const initialized = await run(process.execPath, [cli, "init"], project, {
+      ...process.env,
+      HOME: home,
+      USERPROFILE: home,
+      TERMYTE_DB: db,
+      CODEX_PATH: process.execPath,
+      CLAUDE_PATH: join(home, "missing-claude"),
+    });
+    expect(initialized.code, initialized.stderr).toBe(0);
+    expect(initialized.stdout).toContain("enabled globally");
+    expect(existsSync(join(home, ".codex", "hooks.json"))).toBe(true);
+    expect(existsSync(join(project, ".codex", "hooks.json"))).toBe(false);
+    expect(existsSync(join(home, ".termyte", "config.json"))).toBe(true);
     const captured = await run(process.execPath, [hook, "codex", "capture"], project, {
       ...process.env, HOME: home, USERPROFILE: home, TERMYTE_DB: db,
     }, JSON.stringify({ session_id: "packed-session", cwd: project, hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command: "npm test" }, tool_output: { status: "ok" } }));
@@ -67,7 +80,7 @@ describe("packed MVP", () => {
     writeFileSync(join(home, ".termyte", "config.json"), JSON.stringify({ version: 1, dbPath: db, agent: "claude-code" }));
     writeFileSync(fakeEditor, `import { readFileSync, writeFileSync } from "node:fs";\nconst input = readFileSync(0, "utf8");\nwriteFileSync(process.env.TERMYTE_EDITOR_LOG, input, "utf8");\nconst useful = input.includes("Fix login timeout test");\nprocess.stdout.write(JSON.stringify(useful ? { useful: true, experience_ids: ["exp-login"], context: "Use the fake clock reset for login timeout tests." } : { useful: false, experience_ids: [], context: "" }));\n`);
     writeFileSync(fakeCommand, `@echo off\r\n"${process.execPath}" "%~dp0fake-editor.mjs"\r\n`);
-    const repoId = project.split(/[\\/]/).filter(Boolean).at(-1)!.toLowerCase();
+    const repoId = detectRepoId(project)!;
     const seed = new Store(openDatabase(db));
     seed.upsertSession("source-session", "proof-context", repoId, project);
     seed.saveExperience({

@@ -24,6 +24,7 @@ export class HookRunner {
     if (!event) return null;
     const workspaceRoot = detectWorkspaceRoot(event.cwd);
     const repoId = detectRepoId(event.cwd) ?? "unknown";
+    this.store.migrateLegacyLocalRepository(projectName(workspaceRoot).toLowerCase(), repoId, workspaceRoot);
     this.store.upsertSession(event.session_id, projectName(workspaceRoot), repoId, workspaceRoot);
     this.ingestor.ingest(event);
     if (event.event_type === "assistant_message" || event.event_type === "session_end") {

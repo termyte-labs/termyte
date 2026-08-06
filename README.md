@@ -4,14 +4,14 @@ Termyte is a local-first experience layer for Codex and Claude Code. It learns c
 
 ## Setup
 
-From the repository you want Termyte to watch:
+Install Termyte and initialize it once:
 
 ```bash
 npm install -g termyte
 termyte init
 ```
 
-Termyte detects installed supported agents and installs project hooks for each one. When both are installed, you choose which existing agent login Termyte should use for reflection and relevance selection. No separate API key is required.
+Termyte detects installed supported agents and installs user-level hooks for each one. After that, it works across all projects. Sessions and experience remain isolated by repository, so one project's context is never selected for another project. When both agents are installed, you choose which existing agent login Termyte should use for reflection and relevance selection. No separate API key is required.
 
 ## Experience loop
 

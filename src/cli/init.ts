@@ -5,8 +5,10 @@ import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { Store } from "../storage/store.js";
 import { installFor } from "../agents/installers/index.js";
+import { removeTermyteHookEntries } from "../agents/installers/managed-hooks.js";
+import { detectWorkspaceRoot } from "../capture/git-state.js";
 import type { Platform } from "../shared/types.js";
-import { saveUserConfig, termyteHome, type UserConfig } from "./config.js";
+import { saveUserConfig, termyteHome, userHome, type UserConfig } from "./config.js";
 
 const execFileP = promisify(execFile);
 
@@ -33,7 +35,7 @@ async function agentAvailable(agent: Platform): Promise<boolean> {
 }
 
 export async function initializeTermyte(input: { agent: Platform; agents?: Platform[] }, env: NodeJS.ProcessEnv = process.env, repoPath = process.cwd()): Promise<number> {
-  const root = resolve(repoPath);
+  const root = detectWorkspaceRoot(resolve(repoPath));
   const agents = [...new Set(input.agents?.length ? input.agents : [input.agent])];
   const config: UserConfig = {
     version: 1,
@@ -46,12 +48,14 @@ export async function initializeTermyte(input: { agent: Platform; agents?: Platf
     selectionTimeoutMs: 5_000,
   };
   for (const agent of agents) {
-    const code = installFor(agent, { target: "project" });
+    const code = installFor(agent, { target: "user", homeDir: userHome(env) });
     if (code !== 0) throw new Error(`Failed to install ${agent} hooks`);
   }
+  removeTermyteHookEntries(join(root, ".codex", "hooks.json"));
+  removeTermyteHookEntries(join(root, ".claude", "settings.json"));
   saveUserConfig(config, env);
   const store = new Store(config.dbPath);
   store.close();
-  process.stdout.write(`Termyte is now watching ${root} with ${agents.join(" and ")}.\n`);
+  process.stdout.write(`Termyte is enabled globally for ${agents.join(" and ")}. Context stays isolated by repository.\n`);
   return 0;
 }

@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 
 export interface GitDiffState {
@@ -68,8 +69,8 @@ export function detectRepoId(cwd: string): string | undefined {
   if (origin) {
     return origin.replace(/^https?:\/\//, "").replace(/^git@([^:]+):/, "$1/").replace(/\.git$/, "").replace(/\/$/, "").toLowerCase();
   }
-  const directory = root.split(/[\\/]/).filter(Boolean).at(-1);
-  return directory?.toLowerCase();
+  const normalizedRoot = process.platform === "win32" ? resolve(root).toLowerCase() : resolve(root);
+  return `local:${createHash("sha256").update(normalizedRoot).digest("hex").slice(0, 24)}`;
 }
 
 function readPaths(workspaceRoot: string, args: string[], options: GitStateOptions): string[] | null {

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDatabase } from "../src/storage/connection.js";
@@ -7,6 +7,8 @@ import { Store } from "../src/storage/store.js";
 import { HookRunner } from "../src/agents/hooks/runner.js";
 import { installClaudeCodeHooks } from "../src/agents/installers/claude-code.js";
 import { installCodexHooks } from "../src/agents/installers/codex.js";
+import { initializeTermyte } from "../src/cli/init.js";
+import { detectRepoId } from "../src/capture/git-state.js";
 
 const temporary: string[] = [];
 afterEach(() => {
@@ -57,5 +59,70 @@ describe("minimal Termyte runtime", () => {
       expect(hooks.PostToolUse![0]!.hooks[0]!.command).toContain("capture");
       expect(hooks.Stop![0]!.hooks[0]!.command).toContain("capture");
     }
+  });
+
+  it("initializes user-level hooks once and removes old project hooks", async () => {
+    const home = mkdtempSync(join(tmpdir(), "termyte-global-home-")); temporary.push(home);
+    const project = mkdtempSync(join(tmpdir(), "termyte-global-project-")); temporary.push(project);
+    const oldTermyte = { matcher: "*", hooks: [{ type: "command", command: "node /old/termyte-hook codex capture" }] };
+    const keep = { matcher: "*", hooks: [{ type: "command", command: "node other-hook.js" }] };
+    mkdirSync(join(project, ".codex"), { recursive: true });
+    mkdirSync(join(project, ".claude"), { recursive: true });
+    writeFileSync(join(project, ".codex", "hooks.json"), JSON.stringify({ hooks: { Stop: [keep, oldTermyte] } }));
+    writeFileSync(join(project, ".claude", "settings.json"), JSON.stringify({ hooks: { Stop: [oldTermyte] } }));
+
+    const env = {
+      ...process.env,
+      HOME: home,
+      USERPROFILE: home,
+      TERMYTE_HOME: join(home, ".termyte"),
+      TERMYTE_HOOK_PATH: join(process.cwd(), "src", "cli", "hook.ts"),
+    };
+    expect(await initializeTermyte({ agent: "codex", agents: ["codex", "claude-code"] }, env, project)).toBe(0);
+
+    expect(existsSync(join(home, ".codex", "hooks.json"))).toBe(true);
+    expect(existsSync(join(home, ".claude", "settings.json"))).toBe(true);
+    expect(existsSync(join(home, ".termyte", "config.json"))).toBe(true);
+    expect(readFileSync(join(project, ".codex", "hooks.json"), "utf8")).toContain("other-hook.js");
+    expect(readFileSync(join(project, ".codex", "hooks.json"), "utf8")).not.toContain("termyte-hook");
+    expect(readFileSync(join(project, ".claude", "settings.json"), "utf8")).not.toContain("termyte-hook");
+  });
+
+  it("keeps unrelated local projects separate even when folder names match", () => {
+    const parentA = mkdtempSync(join(tmpdir(), "termyte-scope-a-")); temporary.push(parentA);
+    const parentB = mkdtempSync(join(tmpdir(), "termyte-scope-b-")); temporary.push(parentB);
+    const projectA = join(parentA, "same-name");
+    const projectB = join(parentB, "same-name");
+    mkdirSync(projectA);
+    mkdirSync(projectB);
+
+    const repoA = detectRepoId(projectA);
+    const repoB = detectRepoId(projectB);
+    expect(repoA).toMatch(/^local:[0-9a-f]{24}$/);
+    expect(repoB).toMatch(/^local:[0-9a-f]{24}$/);
+    expect(repoA).not.toBe(repoB);
+
+    const store = new Store(openDatabase(":memory:"));
+    store.upsertSession("source-a", "same-name", repoA!, projectA);
+    store.saveExperience({ id: "exp-a", repository_id: repoA!, source_session_id: "source-a", content: "Only project A", evidence: null });
+    expect(store.listExperiences(repoA!)).toHaveLength(1);
+    expect(store.listExperiences(repoB!)).toHaveLength(0);
+    store.close();
+  });
+
+  it("moves matching legacy local history into the isolated repository scope", () => {
+    const project = mkdtempSync(join(tmpdir(), "termyte-legacy-scope-")); temporary.push(project);
+    const legacyRepoId = project.split(/[\\/]/).filter(Boolean).at(-1)!.toLowerCase();
+    const repoId = detectRepoId(project)!;
+    const store = new Store(openDatabase(":memory:"));
+    store.upsertSession("legacy-source", legacyRepoId, legacyRepoId, project);
+    store.saveExperience({ id: "legacy-exp", repository_id: legacyRepoId, source_session_id: "legacy-source", content: "Keep this project history", evidence: null });
+
+    store.migrateLegacyLocalRepository(legacyRepoId, repoId, project);
+
+    expect(store.listExperiences(legacyRepoId)).toHaveLength(0);
+    expect(store.listExperiences(repoId)).toHaveLength(1);
+    expect(store.getSession("legacy-source")?.repo_id).toBe(repoId);
+    store.close();
   });
 });
